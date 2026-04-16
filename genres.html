@@ -1,0 +1,325 @@
+<html class="dark"><head>
+<meta charset="utf-8"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "outline-variant": "#3b494b",
+                    "tertiary": "#dcffdc",
+                    "surface-dim": "#131313",
+                    "primary-fixed-dim": "#00dbe9",
+                    "on-secondary-fixed": "#16173d",
+                    "surface-container-lowest": "#0e0e0e",
+                    "secondary-container": "#44456e",
+                    "on-error-container": "#ffdad6",
+                    "background": "#131313",
+                    "tertiary-container": "#69f48d",
+                    "on-primary": "#00363a",
+                    "error": "#ffb4ab",
+                    "primary-container": "#00f0ff",
+                    "on-surface-variant": "#b9cacb",
+                    "surface-container-highest": "#353534",
+                    "error-container": "#93000a",
+                    "primary": "#dbfcff",
+                    "on-secondary-fixed-variant": "#42436b",
+                    "surface-bright": "#393939",
+                    "surface-container": "#201f1f",
+                    "inverse-primary": "#006970",
+                    "tertiary-fixed-dim": "#54e07c",
+                    "secondary-fixed": "#e1e0ff",
+                    "on-secondary": "#2b2c53",
+                    "surface-container-high": "#2a2a2a",
+                    "secondary-fixed-dim": "#c2c2f2",
+                    "on-background": "#e5e2e1",
+                    "surface": "#131313",
+                    "on-tertiary-fixed-variant": "#005323",
+                    "on-surface": "#e5e2e1",
+                    "tertiary-fixed": "#73fd95",
+                    "on-error": "#690005",
+                    "outline": "#849495",
+                    "on-tertiary": "#003916",
+                    "inverse-surface": "#e5e2e1",
+                    "inverse-on-surface": "#313030",
+                    "on-primary-fixed": "#002022",
+                    "surface-container-low": "#1c1b1b",
+                    "primary-fixed": "#7df4ff",
+                    "surface-variant": "#353534",
+                    "on-primary-fixed-variant": "#004f54",
+                    "secondary": "#c2c2f2",
+                    "on-tertiary-fixed": "#00210a",
+                    "surface-tint": "#00dbe9",
+                    "on-tertiary-container": "#006e31",
+                    "on-secondary-container": "#b4b4e4",
+                    "on-primary-container": "#006970"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "fontFamily": {
+                    "headline": ["Inter"],
+                    "body": ["Inter"],
+                    "label": ["Inter"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .genre-card-overlay {
+            background: linear-gradient(to top, rgba(14, 14, 14, 0.95) 0%, rgba(14, 14, 14, 0.4) 50%, rgba(14, 14, 14, 0) 100%);
+        }
+        .text-glow {
+            text-shadow: 0 0 15px rgba(0, 240, 255, 0.5);
+        }
+    </style>
+</head>
+<body class="bg-surface-container-lowest text-on-surface font-body selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopNavBar -->
+<header class="bg-[#131313]/60 backdrop-blur-3xl docked full-width top-0 sticky z-50 no-border bg-gradient-to-b from-[#131313] to-transparent shadow-none">
+<div class="flex justify-between items-center px-8 py-4 w-full max-w-[1920px] mx-auto">
+<div class="flex items-center gap-12">
+<span class="text-2xl font-black text-[#00f0ff] drop-shadow-[0_0_8px_rgba(0,240,255,0.8)] tracking-tight">Kaido</span>
+<nav class="hidden lg:flex items-center gap-8 font-['Inter'] font-medium text-sm tracking-tight">
+<a class="text-[#b9cacb] hover:text-[#e5e2e1] hover:text-[#00f0ff] transition-all duration-300 scale-95 active:scale-90 transition-transform" href="#">Home</a>
+<a class="text-[#b9cacb] hover:text-[#e5e2e1] hover:text-[#00f0ff] transition-all duration-300 scale-95 active:scale-90 transition-transform" href="#">Anime</a>
+<a class="text-[#b9cacb] hover:text-[#e5e2e1] hover:text-[#00f0ff] transition-all duration-300 scale-95 active:scale-90 transition-transform" href="#">Movies</a>
+<a class="text-[#00f0ff] border-b-2 border-[#00f0ff] pb-1 hover:text-[#00f0ff] transition-all duration-300 scale-95 active:scale-90 transition-transform" href="#">Genres</a>
+<a class="text-[#b9cacb] hover:text-[#e5e2e1] hover:text-[#00f0ff] transition-all duration-300 scale-95 active:scale-90 transition-transform" href="#">Schedule</a>
+<a class="text-[#b9cacb] hover:text-[#e5e2e1] hover:text-[#00f0ff] transition-all duration-300 scale-95 active:scale-90 transition-transform" href="#">Community</a>
+</nav>
+</div>
+<div class="flex items-center gap-6">
+<div class="relative group hidden md:block">
+<input class="bg-surface-container-highest border-none rounded-sm px-4 py-2 pl-10 text-sm focus:ring-1 focus:ring-primary-container w-64 transition-all duration-300" placeholder="Search universe..." type="text"/>
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">search</span>
+</div>
+<div class="flex items-center gap-4 text-[#b9cacb]">
+<span class="material-symbols-outlined hover:text-[#00f0ff] cursor-pointer transition-colors" data-icon="casino">casino</span>
+<span class="material-symbols-outlined hover:text-[#00f0ff] cursor-pointer transition-colors" data-icon="bookmarks">bookmarks</span>
+<span class="material-symbols-outlined hover:text-[#00f0ff] cursor-pointer transition-colors" data-icon="account_circle">account_circle</span>
+</div>
+</div>
+</div>
+</header>
+<main class="max-w-[1920px] mx-auto px-8 py-12">
+<!-- Hero Section: Asymmetric & Kinetic -->
+<section class="relative mb-20 overflow-hidden rounded-lg">
+<div class="absolute inset-0 z-0">
+<div class="w-full h-full bg-cover bg-center opacity-40 mix-blend-luminosity" data-alt="cinematic wide shot of a futuristic neon city in cyberpunk style with high-contrast shadows and glowing cyan highlights" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDCJ5dRYv-jWZJDwCd_gNfTQjL5wOojiLW4_VwCndc2h98tNPqreseu4hOZOAGHEqXjfhRWSMgE4RhA35IW1VVVAvP6PNdUtYlA4QkwfoCmHQ6tD3SUnC-3nbSfMpQwO4jpGY09FIXrLIuAaZFwAGxZ3kksxRNj5RcDVSCIBvUaGZjMGEAxbGxiYHe14q5skRp7eSxemEp-Bh3xnxIhT_ApgQGV0F6mVREbOIVT_Ns1LFfRGT1LhU4XVtVimVv44mJDTuHAQ6zz5Q')"></div>
+<div class="absolute inset-0 bg-gradient-to-r from-surface-container-lowest via-surface-container-lowest/80 to-transparent"></div>
+</div>
+<div class="relative z-10 flex flex-col justify-center min-h-[400px] py-12 px-12">
+<div class="flex items-center gap-3 mb-4">
+<div class="w-1 h-8 bg-primary-container"></div>
+<span class="text-primary-container font-black tracking-widest text-sm uppercase">The Neon Curator</span>
+</div>
+<h1 class="text-6xl md:text-8xl font-black tracking-tighter leading-tight mb-6 max-w-4xl italic">
+                    DISCOVER <span class="text-[#00f0ff] drop-shadow-[0_0_15px_rgba(0,240,255,0.4)]">GENRES</span>
+</h1>
+<p class="text-on-surface-variant text-lg max-w-xl leading-relaxed mb-8">
+                    Filter through dimensions. Whether you're seeking high-octane action or melancholic slices of life, find your next obsession here.
+                </p>
+<div class="flex gap-4">
+<button class="bg-primary-container text-on-primary font-bold px-8 py-3 rounded-sm flex items-center gap-2 hover:brightness-110 transition-all scale-100 active:scale-95">
+<span class="material-symbols-outlined text-xl">bolt</span>
+                        Quick Random
+                    </button>
+<button class="border border-outline-variant text-on-surface font-bold px-8 py-3 rounded-sm hover:bg-surface-container-high transition-all">
+                        Most Popular
+                    </button>
+</div>
+</div>
+<!-- Floating Element (Asymmetric) -->
+<div class="absolute right-0 bottom-0 top-0 w-1/3 hidden xl:block pointer-events-none">
+<img class="h-full w-full object-cover opacity-50 blur-sm mask-gradient" data-alt="blurred neon lights and abstract shapes in cyan and violet reflecting on a dark rainy surface" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCEqZ0iGQyjzOgCVJB3M0j9JKiD7t05MlqPyVehTgdxsB4Dah8Pi0Esb0jdQIqGjCClZbyd2JWSfKj_S3YyLQoMNnjHavcFC5Hbj7mJf-WG6EAFhJXXFPNUWnUqb2Ywmg9MjzA0fXyRsy70B1XC_h_oPJU_kRufjkOcY9XGcymbKFfMqTB_OLjEAuXbnyanWrMSUPWBQSNNdZIUTVPv-6DSoIg59zZdQdBfdIXcI9kLLK0XCtgkRsBzkC9CnFHjBXpSV5ukVvGpaQ" style="mask-image: linear-gradient(to left, black, transparent);"/>
+</div>
+</section>
+<!-- Search & Filter Bar -->
+<div class="mb-12 flex flex-col md:flex-row items-center justify-between gap-6">
+<div class="relative w-full md:w-[400px]">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-primary-container">filter_list</span>
+<input class="w-full bg-surface-container border-none py-4 pl-14 pr-6 rounded-sm text-on-surface placeholder-on-surface-variant focus:ring-1 focus:ring-primary-container transition-all" placeholder="Filter genres..." type="text"/>
+</div>
+<div class="flex items-center gap-3">
+<span class="text-on-surface-variant text-xs font-bold uppercase tracking-widest">Sort By:</span>
+<div class="flex bg-surface-container rounded-full p-1">
+<button class="bg-primary-container text-on-primary-container px-4 py-1.5 rounded-full text-xs font-bold transition-all">Popular</button>
+<button class="text-on-surface-variant px-4 py-1.5 rounded-full text-xs font-bold hover:text-on-surface transition-all">A-Z</button>
+<button class="text-on-surface-variant px-4 py-1.5 rounded-full text-xs font-bold hover:text-on-surface transition-all">Newest</button>
+</div>
+</div>
+</div>
+<!-- Bento Grid of Genres -->
+<div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+<!-- Action (Large Feature) -->
+<div class="col-span-2 row-span-2 group relative overflow-hidden rounded-sm cursor-pointer aspect-square md:aspect-auto">
+<div class="absolute inset-0 z-0">
+<img class="h-full w-full object-cover group-hover:scale-110 transition-transform duration-700" data-alt="intense close-up of a digital samurai warrior with glowing sword in a dark rainy environment with sparks" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAcwm0pAyDA6GVxzaEwqhUd2MQ7Ww0plo_Bs24I9Z_SeTuO_T9mcB40KojKZROJ5SWf4oZepMuj30IBuH_mX0bOObCnIBOg8qzvLTiQ3HQIlwA47E2BFtdS-S8Gpmr_66SuUlm-xUCxMN-xabVzBEczQGVkFPqK2gl_1izjtukX-DrQud3snwVqXTWLfKuD-rbCsvCSPfpre4BGBaohGIk_azIGI_3i0ReVKKuY_V9KuCLhYAiVc-FR1FcwrRJPxM7bxZW8l-y9tA"/>
+<div class="absolute inset-0 genre-card-overlay"></div>
+</div>
+<div class="absolute bottom-6 left-6 z-10">
+<div class="bg-primary-container text-on-primary text-[10px] font-black uppercase tracking-tighter px-2 py-0.5 mb-2 w-fit">2,450 Titles</div>
+<h3 class="text-4xl font-black italic tracking-tighter text-on-surface group-hover:text-[#00f0ff] transition-colors">ACTION</h3>
+<div class="flex gap-2 mt-4 opacity-0 group-hover:opacity-100 transition-opacity translate-y-2 group-hover:translate-y-0 duration-300">
+<span class="material-symbols-outlined text-primary-container">swords</span>
+<span class="text-on-surface-variant text-xs font-medium">Shonen, Seinen, Mecha</span>
+</div>
+</div>
+</div>
+<!-- Romance -->
+<div class="group relative overflow-hidden rounded-sm cursor-pointer aspect-square">
+<div class="absolute inset-0 z-0">
+<img class="h-full w-full object-cover group-hover:scale-110 transition-transform duration-700" data-alt="vibrant pink cherry blossoms falling against a soft blue evening sky with a crescent moon" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC1SjHMbN7DgLWJEXpGdDEG3TxwZLU0dMRhE_MeeDoDJeimzDIBqRe-a91Ljf6vAb4sYwErHXocC8-UVqpId3Lyy85LMLjgQjob9jXUucwPXYlk6vytfWo66ItFiF-3TBtBg1zVVZNG_TgSHMX9nTIxyUERf7eBhjZ_iixiWomCp2YPCXIkGRnzlveNCEOXZaGRNoXfY09-8GYu40kvn3zu132PMG-PhmoHbwh1VI0Y1oP73qUlng7HaIG0oIc7AI7Qgj8bnFpkDQ"/>
+<div class="absolute inset-0 genre-card-overlay"></div>
+</div>
+<div class="absolute bottom-4 left-4 z-10">
+<h3 class="text-xl font-black italic tracking-tighter text-on-surface group-hover:text-secondary-fixed transition-colors">ROMANCE</h3>
+<span class="text-[10px] text-on-surface-variant font-bold">1,120 SERIES</span>
+</div>
+</div>
+<!-- Comedy -->
+<div class="group relative overflow-hidden rounded-sm cursor-pointer aspect-square">
+<div class="absolute inset-0 z-0">
+<img class="h-full w-full object-cover group-hover:scale-110 transition-transform duration-700" data-alt="abstract playful collage of colorful 3D shapes and bright neon patterns with a fun energetic vibe" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDP-3Ur1BNmVN7r0hiNVkT-RJOjPUHI2JK3LPetKa7qB-V1YTVCgXk_fb64K-MJVou8Yim6qSXBSv42VzUqLHtonHzm_kmkQrPQd7C6QV7VvyzT-MQD9hoBeW1UztFLOTlaAi8G5IoAI61dZN-ClyjZgMHRA0fjyjcju6uMAfw7N46Y1VFL-9xIdmutoqmDfeXUiGeewy5LYYHiWcLmvfl9HIwyq3HFWfc-OYbkRHI2g3L9sSuBsTjk7EYXiNWA7py5ppV7vuM8MQ"/>
+<div class="absolute inset-0 genre-card-overlay"></div>
+</div>
+<div class="absolute bottom-4 left-4 z-10">
+<h3 class="text-xl font-black italic tracking-tighter text-on-surface group-hover:text-tertiary-fixed transition-colors">COMEDY</h3>
+<span class="text-[10px] text-on-surface-variant font-bold">1,890 SERIES</span>
+</div>
+</div>
+<!-- Sci-Fi (Tall) -->
+<div class="row-span-2 group relative overflow-hidden rounded-sm cursor-pointer">
+<div class="absolute inset-0 z-0">
+<img class="h-full w-full object-cover group-hover:scale-110 transition-transform duration-700" data-alt="high-tech digital sphere glowing with blue data lines and intricate circuitry patterns in deep space" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCJIg5yP2p0miJY1lTbLQyVP7_Z0EwYIc3SkkiHKkieh3SspnliM_Ta28FStZvYduberum-t_58Xsjf5WtsubatQVcFc8pTKCJLoA9kj44VDce8rKuEj_5DjLOmre5VNO2SnRD7eBhWoICtpYclQNz4AuZQtF_WOMrSJ42UqoyyRDMN86vK084dy0QmLgLVQsdFZ9zqAhlsHK3J38HGw2Tns6B60YvxlW7G6OsuthQ3AxpGvG6hQkAx6aadR0T1_iP6ejPDcFLy1g"/>
+<div class="absolute inset-0 genre-card-overlay"></div>
+</div>
+<div class="absolute bottom-6 left-6 z-10">
+<h3 class="text-2xl font-black italic tracking-tighter text-on-surface group-hover:text-primary-container transition-colors leading-none mb-1">SCI-FI</h3>
+<p class="text-[10px] text-on-surface-variant font-medium leading-tight">CYBERPUNK, SPACE OPERA, TECH</p>
+</div>
+</div>
+<!-- Fantasy -->
+<div class="group relative overflow-hidden rounded-sm cursor-pointer aspect-square">
+<div class="absolute inset-0 z-0">
+<img class="h-full w-full object-cover group-hover:scale-110 transition-transform duration-700" data-alt="epic fantasy landscape with floating islands and a giant glowing tree at twilight with magical particles" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAuZnUu2FzNFl7tDJb7BteKSf0-rlcwkm5K_73YqU6xPaMmVT_O-e5w61xHuAFqbih4omp7WE9JrtIfPSQL-t3e4ArbbanfX1MraUBXRVpIhwN6wTpeZtf-5fzAhpW7JWbz2hhc8pHBWKnBCbQ0bFk3BxvyKE5WYIYVnyfn6y67gsdmlEFPu3r4lfR4GmL_ciSjbdwaQBTWeE-r_GXjNQXkRXiQkz1djdH9GRN7tibcp-fbb_cBIZpGQGyvmpjgfpJIUa8Fisndnw"/>
+<div class="absolute inset-0 genre-card-overlay"></div>
+</div>
+<div class="absolute bottom-4 left-4 z-10">
+<h3 class="text-xl font-black italic tracking-tighter text-on-surface group-hover:text-tertiary transition-colors">FANTASY</h3>
+<span class="text-[10px] text-on-surface-variant font-bold">2,100 SERIES</span>
+</div>
+</div>
+<!-- Horror -->
+<div class="group relative overflow-hidden rounded-sm cursor-pointer aspect-square">
+<div class="absolute inset-0 z-0">
+<img class="h-full w-full object-cover group-hover:scale-110 transition-transform duration-700" data-alt="dark eerie forest path at night shrouded in thick white fog with skeletal tree branches and a mysterious red light" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDOnJbuxgaezJy-zRhg70IM1euea0SbhC-Z1aa7MAlx6oL-H1MrZEnifZ7gLHEPFTBIc6KXuaZuCM7rO2E2Lm7UM1HipQMQPAjJj4TFcPrVsL2bdyaVJSmuXvKY409rifmRuQy9QWU56Fiqx6ZKH65QCm4i8EqN_TSPiuIKfnl5wAnAIKE3DPxMsqKGz_OfNGNamqaXXy1F8sh7724-VUKz7A7lcbvVhCupsCNgaN8zOwNOoCSUVBImCif-2pmJQ39hIWEpcyQDaQ"/>
+<div class="absolute inset-0 genre-card-overlay"></div>
+</div>
+<div class="absolute bottom-4 left-4 z-10">
+<h3 class="text-xl font-black italic tracking-tighter text-on-surface group-hover:text-error transition-colors">HORROR</h3>
+<span class="text-[10px] text-on-surface-variant font-bold">640 SERIES</span>
+</div>
+</div>
+<!-- Sports (Wide) -->
+<div class="col-span-2 group relative overflow-hidden rounded-sm cursor-pointer h-48 md:h-auto">
+<div class="absolute inset-0 z-0">
+<img class="h-full w-full object-cover group-hover:scale-105 transition-transform duration-1000" data-alt="blurred motion of athletes running on a high-tech track with glowing light trails and dramatic stadium lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBFuQJrRitoQtQKnO4J4mbJDosE6DMbhPB7zgohggp53-0nNml7iDnEXRQTN2-TQTug1DYbjiwAyjaDFfsdBoejg_HOHfKbF35LYlwL62gWWADucTscmMUU0s5oTPjHDOeQdiSXfb7NWCiQBp9I8UEBQ4fmGqq2fDASDx1kYm_ndJcxGWU8SFlY_Im_8ds-KcsxVj47VPSrcYHm0Xq5d7NIgbPMnkM2_tqEmFMSjcL5nKEznhaSDoMR9bM3nXyjdjpKtlmfyrA_oA"/>
+<div class="absolute inset-0 genre-card-overlay"></div>
+</div>
+<div class="absolute bottom-6 left-6 z-10">
+<h3 class="text-3xl font-black italic tracking-tighter text-on-surface group-hover:text-[#FF8C00] transition-colors">SPORTS</h3>
+<div class="flex items-center gap-4 mt-2">
+<span class="text-[10px] text-on-surface-variant font-bold">INTENSE COMPETITION</span>
+<span class="h-px w-12 bg-outline-variant"></span>
+<span class="text-on-surface text-xs font-black">EXPLORE 420 TITLES</span>
+</div>
+</div>
+</div>
+<!-- Slice of Life -->
+<div class="group relative overflow-hidden rounded-sm cursor-pointer aspect-square">
+<div class="absolute inset-0 z-0">
+<img class="h-full w-full object-cover group-hover:scale-110 transition-transform duration-700" data-alt="cozy indoor scene of a wooden desk with a steaming cup of tea and a notebook near a window during golden hour" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDoqM7XoyQUfnum-slG5x-ONOW_ef5Vrpc2Ap5mSJJtCscDLqb2Lvp6bTv9c76mdQ_46MNsZcgKLD8Vud086e8QxJ4gAcaeyRBrBH-8qKtuAVpMOaF0MpdU4adBLUFyr71KXNHEzZB0cPWXAPhfxukACOhKp7FbbjVTWkHwhLkeIg3bvMpD_YE1wY3dnS05a_PpCk_78cjJX4JX-JmpmCtQTjqsIgBODHq6uzL6Ejklk_4Sq-i5MQX-bzGYwJaVRVKnePQhegItTg"/>
+<div class="absolute inset-0 genre-card-overlay"></div>
+</div>
+<div class="absolute bottom-4 left-4 z-10">
+<h3 class="text-xl font-black italic tracking-tighter text-on-surface group-hover:text-secondary-fixed-dim transition-colors">SLICE OF LIFE</h3>
+<span class="text-[10px] text-on-surface-variant font-bold">1,560 SERIES</span>
+</div>
+</div>
+<!-- Music -->
+<div class="group relative overflow-hidden rounded-sm cursor-pointer aspect-square">
+<div class="absolute inset-0 z-0">
+<img class="h-full w-full object-cover group-hover:scale-110 transition-transform duration-700" data-alt="abstract musical visualization with colorful sound waves and light bokeh in a dark studio setting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDNAviRgB19ucw9sV8mQEITOo7oS3rwdpo_dEw_XGZUuZKnYISgGutumjKWBmXlGKEaawgs5qCTpe0uipJ0GkGVsB3l7YMPPofMXUFsh_xAIg1etU6-g9HUZyivtuuV4gntBzwr7vwAi_1UAj_87Nlpym_bvoud2MhyxQiHwUupnLU3Z0D03YZ0GTHBsKd9Gs-msVkKW31ufheir6qvh00M1WaOlW4gqJlPTrsonCxcrZkf2j-nMHez6ZUBTwmiY3KgAgOcpDHZ0g"/>
+<div class="absolute inset-0 genre-card-overlay"></div>
+</div>
+<div class="absolute bottom-4 left-4 z-10">
+<h3 class="text-xl font-black italic tracking-tighter text-on-surface group-hover:text-primary-fixed-dim transition-colors">MUSIC</h3>
+<span class="text-[10px] text-on-surface-variant font-bold">320 SERIES</span>
+</div>
+</div>
+<!-- Mystery -->
+<div class="group relative overflow-hidden rounded-sm cursor-pointer aspect-square">
+<div class="absolute inset-0 z-0">
+<img class="h-full w-full object-cover group-hover:scale-110 transition-transform duration-700" data-alt="cinematic low-angle shot of a detective silhouette standing in a foggy alleyway under a single flickering streetlamp" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC1aiK2XU0xCFaBpZQP9vYMe6ttJzBrcpfbZcaB_VIznWrDzyDfbTBACREtKjDYbEoSZyFlhuRsBl64KW5d57MF0BkZPovzHHi6H8MZTbuHKA5FJU4wnvPjb8GAd6dX7GcjxM_7Pi-v4_YcQDT2njmIhgv5yfLgePMpwjwUW_HJCpnjYn5eOoyiFy30cY11yy_kYzJmM3mPKLAIw6mlBQqCqgLMoHqnsvom8vFwOaucVOcavrgxB46nr7G5qtDcXqcCzL8FW0xRSQ"/>
+<div class="absolute inset-0 genre-card-overlay"></div>
+</div>
+<div class="absolute bottom-4 left-4 z-10">
+<h3 class="text-xl font-black italic tracking-tighter text-on-surface group-hover:text-outline transition-colors">MYSTERY</h3>
+<span class="text-[10px] text-on-surface-variant font-bold">890 SERIES</span>
+</div>
+</div>
+</div>
+<!-- Tag Cloud Section -->
+<section class="mt-20">
+<div class="flex items-center gap-3 mb-8">
+<div class="w-1 h-6 bg-primary-container"></div>
+<h2 class="text-2xl font-black italic tracking-tight text-on-surface uppercase">Sub-Genre Keywords</h2>
+</div>
+<div class="flex flex-wrap gap-3">
+<span class="px-6 py-2 bg-surface-container hover:bg-secondary-container hover:text-primary-container cursor-pointer transition-all border border-outline-variant/20 rounded-full text-xs font-bold text-on-surface-variant uppercase tracking-widest">Isekai</span>
+<span class="px-6 py-2 bg-surface-container hover:bg-secondary-container hover:text-primary-container cursor-pointer transition-all border border-outline-variant/20 rounded-full text-xs font-bold text-on-surface-variant uppercase tracking-widest">Cyberpunk</span>
+<span class="px-6 py-2 bg-surface-container hover:bg-secondary-container hover:text-primary-container cursor-pointer transition-all border border-outline-variant/20 rounded-full text-xs font-bold text-on-surface-variant uppercase tracking-widest">Mecha</span>
+<span class="px-6 py-2 bg-surface-container hover:bg-secondary-container hover:text-primary-container cursor-pointer transition-all border border-outline-variant/20 rounded-full text-xs font-bold text-on-surface-variant uppercase tracking-widest">Post-Apocalyptic</span>
+<span class="px-6 py-2 bg-surface-container hover:bg-secondary-container hover:text-primary-container cursor-pointer transition-all border border-outline-variant/20 rounded-full text-xs font-bold text-on-surface-variant uppercase tracking-widest">Psychological</span>
+<span class="px-6 py-2 bg-surface-container hover:bg-secondary-container hover:text-primary-container cursor-pointer transition-all border border-outline-variant/20 rounded-full text-xs font-bold text-on-surface-variant uppercase tracking-widest">Supernatural</span>
+<span class="px-6 py-2 bg-surface-container hover:bg-secondary-container hover:text-primary-container cursor-pointer transition-all border border-outline-variant/20 rounded-full text-xs font-bold text-on-surface-variant uppercase tracking-widest">Military</span>
+<span class="px-6 py-2 bg-surface-container hover:bg-secondary-container hover:text-primary-container cursor-pointer transition-all border border-outline-variant/20 rounded-full text-xs font-bold text-on-surface-variant uppercase tracking-widest">Parody</span>
+<span class="px-6 py-2 bg-surface-container hover:bg-secondary-container hover:text-primary-container cursor-pointer transition-all border border-outline-variant/20 rounded-full text-xs font-bold text-on-surface-variant uppercase tracking-widest">Josei</span>
+<span class="px-6 py-2 bg-surface-container hover:bg-secondary-container hover:text-primary-container cursor-pointer transition-all border border-outline-variant/20 rounded-full text-xs font-bold text-on-surface-variant uppercase tracking-widest">Shoujo Ai</span>
+<span class="px-6 py-2 bg-surface-container hover:bg-secondary-container hover:text-primary-container cursor-pointer transition-all border border-outline-variant/20 rounded-full text-xs font-bold text-on-surface-variant uppercase tracking-widest">Space</span>
+<span class="px-6 py-2 bg-surface-container hover:bg-secondary-container hover:text-primary-container cursor-pointer transition-all border border-outline-variant/20 rounded-full text-xs font-bold text-on-surface-variant uppercase tracking-widest">Martial Arts</span>
+</div>
+</section>
+</main>
+<!-- Footer -->
+<footer class="bg-[#0e0e0e] w-full py-12 px-8 border-t border-[#353534]/20 flex flex-col items-center gap-6 w-full">
+<div class="flex flex-col items-center gap-4">
+<span class="text-lg font-black text-[#00f0ff] tracking-tight">Kaido</span>
+<div class="flex gap-8">
+<a class="font-['Inter'] text-xs uppercase tracking-widest text-[#b9cacb] hover:text-[#00f0ff] transition-colors opacity-80 hover:opacity-100" href="#">DMCA</a>
+<a class="font-['Inter'] text-xs uppercase tracking-widest text-[#b9cacb] hover:text-[#00f0ff] transition-colors opacity-80 hover:opacity-100" href="#">Privacy Policy</a>
+<a class="font-['Inter'] text-xs uppercase tracking-widest text-[#b9cacb] hover:text-[#00f0ff] transition-colors opacity-80 hover:opacity-100" href="#">Terms of Service</a>
+<a class="font-['Inter'] text-xs uppercase tracking-widest text-[#b9cacb] hover:text-[#00f0ff] transition-colors opacity-80 hover:opacity-100" href="#">Contact</a>
+</div>
+</div>
+<p class="font-['Inter'] text-xs uppercase tracking-widest text-[#b9cacb] opacity-60">© Kaido. Built for the digital theater.</p>
+<div class="flex gap-4 mt-4">
+<span class="material-symbols-outlined text-on-surface-variant hover:text-[#00f0ff] cursor-pointer">public</span>
+<span class="material-symbols-outlined text-on-surface-variant hover:text-[#00f0ff] cursor-pointer">forum</span>
+<span class="material-symbols-outlined text-on-surface-variant hover:text-[#00f0ff] cursor-pointer">rss_feed</span>
+</div>
+</footer>
+</body></html>

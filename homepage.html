@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Kaido | The Neon Curator</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "outline-variant": "#3b494b",
+                    "tertiary": "#dcffdc",
+                    "surface-dim": "#131313",
+                    "primary-fixed-dim": "#00dbe9",
+                    "on-secondary-fixed": "#16173d",
+                    "surface-container-lowest": "#0e0e0e",
+                    "secondary-container": "#44456e",
+                    "on-error-container": "#ffdad6",
+                    "background": "#131313",
+                    "tertiary-container": "#69f48d",
+                    "on-primary": "#00363a",
+                    "error": "#ffb4ab",
+                    "primary-container": "#00f0ff",
+                    "on-surface-variant": "#b9cacb",
+                    "surface-container-highest": "#353534",
+                    "error-container": "#93000a",
+                    "primary": "#dbfcff",
+                    "on-secondary-fixed-variant": "#42436b",
+                    "surface-bright": "#393939",
+                    "surface-container": "#201f1f",
+                    "inverse-primary": "#006970",
+                    "tertiary-fixed-dim": "#54e07c",
+                    "secondary-fixed": "#e1e0ff",
+                    "on-secondary": "#2b2c53",
+                    "surface-container-high": "#2a2a2a",
+                    "secondary-fixed-dim": "#c2c2f2",
+                    "on-background": "#e5e2e1",
+                    "surface": "#131313",
+                    "on-tertiary-fixed-variant": "#005323",
+                    "on-surface": "#e5e2e1",
+                    "tertiary-fixed": "#73fd95",
+                    "on-error": "#690005",
+                    "outline": "#849495",
+                    "on-tertiary": "#003916",
+                    "inverse-surface": "#e5e2e1",
+                    "inverse-on-surface": "#313030",
+                    "on-primary-fixed": "#002022",
+                    "surface-container-low": "#1c1b1b",
+                    "primary-fixed": "#7df4ff",
+                    "surface-variant": "#353534",
+                    "on-primary-fixed-variant": "#004f54",
+                    "secondary": "#c2c2f2",
+                    "on-tertiary-fixed": "#00210a",
+                    "surface-tint": "#00dbe9",
+                    "on-tertiary-container": "#006e31",
+                    "on-secondary-container": "#b4b4e4",
+                    "on-primary-container": "#006970"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "fontFamily": {
+                    "headline": ["Inter"],
+                    "body": ["Inter"],
+                    "label": ["Inter"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="bg-surface-container-lowest text-on-surface font-body selection:bg-primary-container selection:text-on-primary-container">
+<!-- Top Navigation Bar -->
+<nav class="bg-[#131313]/60 backdrop-blur-3xl docked full-width top-0 sticky z-50 no-border bg-gradient-to-b from-[#131313] to-transparent shadow-none">
+<div class="flex justify-between items-center px-8 py-4 w-full max-w-[1920px] mx-auto">
+<div class="flex items-center gap-12">
+<span class="text-2xl font-black text-[#00f0ff] drop-shadow-[0_0_8px_rgba(0,240,255,0.8)] tracking-tighter">Kaido</span>
+<div class="hidden md:flex gap-8 font-['Inter'] font-medium text-sm tracking-tight">
+<a class="text-[#00f0ff] border-b-2 border-[#00f0ff] pb-1 hover:text-[#00f0ff] transition-all duration-300" href="#">Home</a>
+<a class="text-[#b9cacb] hover:text-[#e5e2e1] hover:text-[#00f0ff] transition-all duration-300" href="#">Anime</a>
+<a class="text-[#b9cacb] hover:text-[#e5e2e1] hover:text-[#00f0ff] transition-all duration-300" href="#">Movies</a>
+<a class="text-[#b9cacb] hover:text-[#e5e2e1] hover:text-[#00f0ff] transition-all duration-300" href="#">Genres</a>
+<a class="text-[#b9cacb] hover:text-[#e5e2e1] hover:text-[#00f0ff] transition-all duration-300" href="#">Schedule</a>
+<a class="text-[#b9cacb] hover:text-[#e5e2e1] hover:text-[#00f0ff] transition-all duration-300" href="#">Community</a>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<div class="hidden lg:flex items-center bg-surface-container-highest px-4 py-2 rounded shadow-inner">
+<span class="material-symbols-outlined text-on-surface-variant text-lg">search</span>
+<input class="bg-transparent border-none focus:ring-0 text-sm text-on-surface placeholder:text-on-surface-variant w-48" placeholder="Search anime..." type="text"/>
+</div>
+<div class="flex items-center gap-4 text-[#b9cacb]">
+<span class="material-symbols-outlined cursor-pointer hover:text-[#00f0ff] transition-all duration-300 scale-95 active:scale-90">casino</span>
+<span class="material-symbols-outlined cursor-pointer hover:text-[#00f0ff] transition-all duration-300 scale-95 active:scale-90">bookmarks</span>
+<span class="material-symbols-outlined cursor-pointer hover:text-[#00f0ff] transition-all duration-300 scale-95 active:scale-90">account_circle</span>
+</div>
+</div>
+</div>
+</nav>
+<main>
+<!-- Hero Section -->
+<section class="relative w-full h-[870px] overflow-hidden">
+<div class="absolute inset-0 z-0">
+<img class="w-full h-full object-cover" data-alt="dramatic wide shot of a cinematic anime landscape with neon blue energy particles floating in a dark night sky" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAUv4coSk1MIbJ56hj6k-tDCMi7STeCi4hwGLzwoK27XYFb_fieb0njXwbguMSYTlQsRfzUBf8h-4KWkQpkR5-a5pIL6uWcPS55PxS3NjqlWxgafPKi2fS4Xidlj-8IYZ3oVo21Gc7q-XTk3Be81Gf5BwNKPMmv7cf9c-QwItzDQmYEkPAckYyb-BOmW-EItPDdxcu_xTKQq8eRvyZRBG7hmr606roUotHYLjWm7mK-zA9lO3EZvpL0wXlB73V--v7MTYbLXCkCtQ"/>
+<div class="absolute inset-0 bg-gradient-to-r from-surface-container-lowest via-surface-container-lowest/40 to-transparent"></div>
+<div class="absolute inset-0 bg-gradient-to-t from-surface-container-lowest via-transparent to-transparent"></div>
+</div>
+<div class="relative z-10 h-full flex flex-col justify-center px-8 md:px-16 max-w-[1920px] mx-auto">
+<div class="flex items-center gap-3 mb-4">
+<span class="bg-primary-container text-on-primary-container text-[10px] font-bold px-2 py-0.5 rounded-sm tracking-widest uppercase">Trending #1</span>
+<span class="text-tertiary-fixed text-xs font-semibold flex items-center gap-1">
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">star</span> 9.8 Rating
+                    </span>
+</div>
+<h1 class="text-5xl md:text-8xl font-black text-on-surface leading-none tracking-tighter mb-6 max-w-4xl uppercase">
+                    Solo <span class="text-primary-container drop-shadow-[0_0_15px_rgba(0,240,255,0.4)]">Leveling</span>
+</h1>
+<p class="text-on-surface-variant text-lg max-w-2xl mb-10 line-clamp-3 leading-relaxed">
+                    In a world where hunters, humans who possess magical abilities, must battle deadly monsters to protect mankind from certain annihilation, a notoriously weak hunter named Sung Jinwoo finds himself in a seemingly endless struggle for survival.
+                </p>
+<div class="flex flex-wrap gap-4">
+<button class="bg-gradient-to-br from-primary to-primary-container text-on-primary font-bold px-8 py-4 rounded-sm flex items-center gap-2 hover:scale-105 transition-transform active:scale-95 group">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+                        WATCH NOW
+                    </button>
+<button class="bg-surface-container-highest/60 backdrop-blur-md border border-outline-variant/40 text-on-surface font-bold px-8 py-4 rounded-sm hover:bg-surface-container-highest transition-colors active:scale-95">
+                        VIEW TRAILER
+                    </button>
+</div>
+</div>
+</section>
+<!-- Trending Now Horizontal Scroll -->
+<section class="py-12 pl-8 md:pl-16">
+<div class="flex items-center gap-4 mb-8">
+<div class="w-1 h-8 bg-primary-container"></div>
+<h2 class="text-2xl font-bold tracking-tight text-on-surface">Trending Now</h2>
+</div>
+<div class="flex gap-6 overflow-x-auto hide-scrollbar pb-8 pr-8">
+<!-- Card 1 -->
+<div class="flex-shrink-0 w-[300px] group cursor-pointer">
+<div class="relative aspect-[16/9] rounded-lg overflow-hidden mb-4 bg-surface-container">
+<img class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" data-alt="dynamic anime action shot with intense glowing effects and sharp digital illustration style" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAAuQxlVQmvgbgJibqTk7Mu88LQLClCDWZWUDYnoB987oVsp-V5UBxY9-oewbDH2WD27-2wYeXe34bQ1Lcwg6P50W-1g9OBbvT42ABoCJqlGvxDjYKvBhEHISoOBs3P3d1rabg0hJAR9DojpSJ_AAYnlXxEL53Isii1Z8ueSPevN5i-xKhQEruBcj970XwGt1QM78QXOe4_BYQg1cJbNt3ZFKZAn1WcjJe_jABdAZishaeI5DRcximTF65ZVDzeAp5xySwrzS-gdg"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+<span class="material-symbols-outlined text-primary-container text-5xl" style="font-variation-settings: 'FILL' 1;">play_circle</span>
+</div>
+<div class="absolute top-2 left-2 flex gap-1">
+<span class="bg-tertiary-container text-on-tertiary-fixed-variant text-[10px] font-bold px-1.5 py-0.5 rounded-sm">SUB</span>
+<span class="bg-[#4d2b00] text-[#ffb347] text-[10px] font-bold px-1.5 py-0.5 rounded-sm">DUB</span>
+</div>
+</div>
+<h3 class="text-on-surface font-bold truncate group-hover:text-primary-container transition-colors">One Piece</h3>
+<p class="text-on-surface-variant text-xs mt-1">Action, Adventure, Fantasy</p>
+</div>
+<!-- Card 2 -->
+<div class="flex-shrink-0 w-[300px] group cursor-pointer">
+<div class="relative aspect-[16/9] rounded-lg overflow-hidden mb-4 bg-surface-container">
+<img class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" data-alt="colorful anime character portrait with vibrant backgrounds and artistic lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA0N1wdXKKMgtzV_yiGTvqSyzcm7FV56uF_rb5Z-e_UKspHxFlaM8kQVuXalFtZ6EXpZFMNIs8Q_u0kAC5UJjnMqsF2DEykrG4FOMaB2r7iILFcDyYLL3rU8IYpv3SWzX9jt5m51IXkWPGtENmo8mJL9BxE7iFBOFo3jL92XJWwjCSwjp9rCrr8ggmGfM--v4likfkHgW0Kg1WkkBjCRsN6Y7emOiC1RKr4LrP33TFxXXOKP-MQSc1d8RE9Oos8YSjMO984LFjjlw"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+<span class="material-symbols-outlined text-primary-container text-5xl" style="font-variation-settings: 'FILL' 1;">play_circle</span>
+</div>
+<div class="absolute top-2 left-2 flex gap-1">
+<span class="bg-tertiary-container text-on-tertiary-fixed-variant text-[10px] font-bold px-1.5 py-0.5 rounded-sm">SUB</span>
+</div>
+</div>
+<h3 class="text-on-surface font-bold truncate group-hover:text-primary-container transition-colors">Demon Slayer: Hashira Training</h3>
+<p class="text-on-surface-variant text-xs mt-1">Action, Supernatural</p>
+</div>
+<!-- Card 3 -->
+<div class="flex-shrink-0 w-[300px] group cursor-pointer">
+<div class="relative aspect-[16/9] rounded-lg overflow-hidden mb-4 bg-surface-container">
+<img class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" data-alt="stylized cyberpunk anime city street at night with glowing neon signs and rain puddles" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD9EOu5jcGtOpZ-_LoJmAcBoMsWQTCiUkTd8rx-SLcjA-wIzgmLmAifX3UBMs2dAp5SB-bsDn3HsoZeV1FkKUV5sxvakINeOIFat29lP4238Ow1b-Mrossu1iSRdlIW8O0GidyYoc_WI-7e-0m4JdrhWDRQkJTW5O4GWU2PHfAhvXVPncw4GiXHWLZQbWYbjrRqzvPRpO4r5eeLzONQKGwCgvqftkVQMOUWHDkWJtduf9eRqHlIHjqXnygkl8OunZ9HeMEQKY8J1w"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+<span class="material-symbols-outlined text-primary-container text-5xl" style="font-variation-settings: 'FILL' 1;">play_circle</span>
+</div>
+<div class="absolute top-2 left-2 flex gap-1">
+<span class="bg-tertiary-container text-on-tertiary-fixed-variant text-[10px] font-bold px-1.5 py-0.5 rounded-sm">SUB</span>
+<span class="bg-[#4d2b00] text-[#ffb347] text-[10px] font-bold px-1.5 py-0.5 rounded-sm">DUB</span>
+</div>
+</div>
+<h3 class="text-on-surface font-bold truncate group-hover:text-primary-container transition-colors">Cyberpunk: Edgerunners</h3>
+<p class="text-on-surface-variant text-xs mt-1">Sci-Fi, Action</p>
+</div>
+<!-- Card 4 -->
+<div class="flex-shrink-0 w-[300px] group cursor-pointer">
+<div class="relative aspect-[16/9] rounded-lg overflow-hidden mb-4 bg-surface-container">
+<img class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" data-alt="mysterious anime character in a dark forest with moonlight filtering through the trees" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCGpQYdDXxobIqkKSpCDqReUNISopPBwamO1bAX2cMDLlM8mqrH1idy0wdHSuAO_yhVDzf6sJZJnjPYlPRgcM0nGZKduC4m-3G6iYtnqx-dvBmNWw-iXv8hGO_RhNuiKA7R5JDZamJ9k4kVNlTaZWQbo_iJMYa3F5DJQ1UsY3-cY-XD3DVadY8ob5Z9UKTEz62vKwt85mv6yfRSjvGMt6RCUZl4X7AeSuV8afatU7FI8e8Fm6e9uxV9XD30CUUWRr4ODgP4MoPrNA"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+<span class="material-symbols-outlined text-primary-container text-5xl" style="font-variation-settings: 'FILL' 1;">play_circle</span>
+</div>
+<div class="absolute top-2 left-2 flex gap-1">
+<span class="bg-tertiary-container text-on-tertiary-fixed-variant text-[10px] font-bold px-1.5 py-0.5 rounded-sm">SUB</span>
+</div>
+</div>
+<h3 class="text-on-surface font-bold truncate group-hover:text-primary-container transition-colors">Kaiju No. 8</h3>
+<p class="text-on-surface-variant text-xs mt-1">Action, Sci-Fi</p>
+</div>
+<!-- Card 5 -->
+<div class="flex-shrink-0 w-[300px] group cursor-pointer">
+<div class="relative aspect-[16/9] rounded-lg overflow-hidden mb-4 bg-surface-container">
+<img class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" data-alt="ethereal anime sky with clouds at dusk and stars beginning to appear" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAENtuZ-NjjsqB57-K9zgRFUorSXiM6xoOmhiZSwpHx9hxmS_FbikuyN_9VuF3ooLNVbIuhkp2CSaWBzzbj_AUj8H3y0uVmJU-7TJDvGchfcDd_8U3bJWTzeYloYixHVSW0em1DbitQVbkI11WvIy7eSlwWDGP9NKdNpAVfL6tLs-myf6Cq2Xz6HsHp6RCcx-_JwhS1OdndkGYC9AG_DlaT9_A5UaLxw5_UaVMqZkgzukAxIYIyksfNoNTmhfr8xOQopCi7W_LcsQ"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+<span class="material-symbols-outlined text-primary-container text-5xl" style="font-variation-settings: 'FILL' 1;">play_circle</span>
+</div>
+<div class="absolute top-2 left-2 flex gap-1">
+<span class="bg-tertiary-container text-on-tertiary-fixed-variant text-[10px] font-bold px-1.5 py-0.5 rounded-sm">SUB</span>
+<span class="bg-[#4d2b00] text-[#ffb347] text-[10px] font-bold px-1.5 py-0.5 rounded-sm">DUB</span>
+</div>
+</div>
+<h3 class="text-on-surface font-bold truncate group-hover:text-primary-container transition-colors">Mushoku Tensei II</h3>
+<p class="text-on-surface-variant text-xs mt-1">Adventure, Drama, Fantasy</p>
+</div>
+</div>
+</section>
+<!-- Bento Grid & Top Airing -->
+<section class="px-8 md:px-16 grid grid-cols-1 lg:grid-cols-4 gap-12 mb-20">
+<!-- New Releases Grid (3/4 width) -->
+<div class="lg:col-span-3">
+<div class="flex items-center justify-between mb-8">
+<div class="flex items-center gap-4">
+<div class="w-1 h-8 bg-primary-container"></div>
+<h2 class="text-2xl font-bold tracking-tight text-on-surface">New Releases</h2>
+</div>
+<a class="text-on-surface-variant hover:text-primary-container text-sm transition-colors uppercase tracking-widest font-bold" href="#">View All</a>
+</div>
+<div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-6">
+<!-- Release Card 1 -->
+<div class="group cursor-pointer">
+<div class="relative aspect-[2/3] bg-surface-container rounded-sm overflow-hidden mb-3">
+<img class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="high quality anime poster art featuring a protagonist standing in front of a giant mecha robot" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBZI8J1AIgzlX_43NBdxzCZCq1OAP8ms4E_0uwfmbIXd0RdCIgwyC_dkvVHKdfLLWMiOoaAmB9YfCgYi679d4z-j5X1oFuYmjvhjj2URsyAeWxb2zQBZkR6VNfPwUYddDfwJgM2UviL9egZXJcS86K9qL0C48EjGXpEA3tCh0TQ1Tawmd3iI3kBQ4P_b43esvt1cSaE1PtOkR6t52Odf-X9Tla5jdkZxU5K0mVDKEKP61qoFT7wRoukIXw8rumvBqhd_psDf8XBIg"/>
+<div class="absolute top-2 right-2 bg-primary-container text-on-primary-container text-[10px] font-black px-2 py-0.5 rounded-sm shadow-lg">EP 12</div>
+<div class="absolute bottom-0 inset-x-0 h-1/2 bg-gradient-to-t from-black via-transparent to-transparent flex items-end p-3">
+<div class="flex gap-1">
+<span class="bg-tertiary-container text-on-tertiary-fixed-variant text-[9px] font-bold px-1 py-0.5 rounded-sm">SUB</span>
+<span class="bg-[#4d2b00] text-[#ffb347] text-[9px] font-bold px-1 py-0.5 rounded-sm">DUB</span>
+</div>
+</div>
+</div>
+<h4 class="text-on-surface font-semibold text-sm line-clamp-1 group-hover:text-primary-container transition-colors">Black Clover: Sword of the Wizard King</h4>
+<p class="text-on-surface-variant text-[11px] mt-1">TV • 24 min</p>
+</div>
+<!-- Release Card 2 -->
+<div class="group cursor-pointer">
+<div class="relative aspect-[2/3] bg-surface-container rounded-sm overflow-hidden mb-3">
+<img class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="abstract artistic anime character with flowing hair and glowing eyes in a storm" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCBtbVs_Qjt2b2KF_dmxbtC5_Io0TwEtNYbcJ7k0_FK8MjGMajd1y8Kt9DaQSNXy0OlkOv6ben5tCRGIsVE_sb0oZcK2wasKd1KT_YJnzj2fSIgWXqdNDIkLIcwLR3ivhTd-2oeysbiK0dp1dEVdtvn943MYvEZcoYTsIKf6gFco_gb0ZtbKdC-2ITwrUnebquPPTbZkLL-_BqKTnMIjSe1ztBkZHKndcfrb_ZxBiQ_I-S-B7PqO8BRMcUoCoLu2s8d1KGs3zTrEA"/>
+<div class="absolute top-2 right-2 bg-primary-container text-on-primary-container text-[10px] font-black px-2 py-0.5 rounded-sm shadow-lg">EP 08</div>
+<div class="absolute bottom-0 inset-x-0 h-1/2 bg-gradient-to-t from-black via-transparent to-transparent flex items-end p-3">
+<div class="flex gap-1">
+<span class="bg-tertiary-container text-on-tertiary-fixed-variant text-[9px] font-bold px-1 py-0.5 rounded-sm">SUB</span>
+</div>
+</div>
+</div>
+<h4 class="text-on-surface font-semibold text-sm line-clamp-1 group-hover:text-primary-container transition-colors">Jujutsu Kaisen Season 2</h4>
+<p class="text-on-surface-variant text-[11px] mt-1">TV • 23 min</p>
+</div>
+<!-- Release Card 3 -->
+<div class="group cursor-pointer">
+<div class="relative aspect-[2/3] bg-surface-container rounded-sm overflow-hidden mb-3">
+<img class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="traditional japanese inspired anime scene with cherry blossoms and ancient temple architecture" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBCVbqoZEaqpXXnZOTswzAfYkfucX9mOKOSsI9tduBzXWb2Hza5QxTOLgOTV2K2yzBiq3hkSEUdRNjHilZCqjXqlTSxe0BBzoSwo7_9-eUUwXClNCvikky0ZiojieyT8o2wXFONihvl7tNquqljui20nELFjIYxImLxbi53EpsvkZjKKSN7pscsHP6fsnpQPRmt0c6A4HMjO8YTR1JowUEFnb7x_wAq7PfLl1GSbBeNXOkWi3LWKilN51tuSknIAWzVtad75BvQTA"/>
+<div class="absolute top-2 right-2 bg-primary-container text-on-primary-container text-[10px] font-black px-2 py-0.5 rounded-sm shadow-lg">EP 24</div>
+<div class="absolute bottom-0 inset-x-0 h-1/2 bg-gradient-to-t from-black via-transparent to-transparent flex items-end p-3">
+<div class="flex gap-1">
+<span class="bg-tertiary-container text-on-tertiary-fixed-variant text-[9px] font-bold px-1 py-0.5 rounded-sm">SUB</span>
+<span class="bg-[#4d2b00] text-[#ffb347] text-[9px] font-bold px-1 py-0.5 rounded-sm">DUB</span>
+</div>
+</div>
+</div>
+<h4 class="text-on-surface font-semibold text-sm line-clamp-1 group-hover:text-primary-container transition-colors">Frieren: Beyond Journey's End</h4>
+<p class="text-on-surface-variant text-[11px] mt-1">TV • 24 min</p>
+</div>
+<!-- Release Card 4 -->
+<div class="group cursor-pointer">
+<div class="relative aspect-[2/3] bg-surface-container rounded-sm overflow-hidden mb-3">
+<img class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="cinematic anime character silhouette against a massive yellow moon with birds flying by" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBCzdFooMFf25rbTWfDBytagXm2arHDOWHmSCws4kz3_Vkrgo8ZVb8h21ECHPLyFz80U7-s1XjI4E-p1CKnW74yq3BtRb9wLlijXWMPI4D5kHLCg2FZj-Jnml0Kua2iObffoWV7lnjBKWtwFJEkzAjvyFEEaI5SUtckZPqcnorAUtN7aeirFC860ogF0Cj82zmExAxnwXnxBWFaq2EWNZOXLcHoSPNcTRcIwbUDIyiAX2ZglTt-JR1DbZjmaYz8BWkmOUPZ607C4g"/>
+<div class="absolute top-2 right-2 bg-primary-container text-on-primary-container text-[10px] font-black px-2 py-0.5 rounded-sm shadow-lg">EP 03</div>
+<div class="absolute bottom-0 inset-x-0 h-1/2 bg-gradient-to-t from-black via-transparent to-transparent flex items-end p-3">
+<div class="flex gap-1">
+<span class="bg-tertiary-container text-on-tertiary-fixed-variant text-[9px] font-bold px-1 py-0.5 rounded-sm">SUB</span>
+</div>
+</div>
+</div>
+<h4 class="text-on-surface font-semibold text-sm line-clamp-1 group-hover:text-primary-container transition-colors">Chainsaw Man: Reze Arc</h4>
+<p class="text-on-surface-variant text-[11px] mt-1">TV • 23 min</p>
+</div>
+<!-- Release Card 5 -->
+<div class="group cursor-pointer">
+<div class="relative aspect-[2/3] bg-surface-container rounded-sm overflow-hidden mb-3">
+<img class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="detailed anime close up of a character's eyes reflecting a digital interface" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBPcJaQa3EY0I24iFkw9dAIQALATPvkXgslHrXZCDVgEVnN6FDd-_bE3T9fkB5Rs2MEz-MP_wugdkvY74qZSXzOPSShQvuQme5GA1caBIvHGTrWmxgBKERBqUkWknfFbconAK7Msqq4aLpNKKe84BxU1DVhxNZibjbbIt-Cj9uNlj6FhFlnkaBgGghxvB7y4an7sIy_ScmcH8gj2GnObKeMsaOtRrKQq6zkFpnzdfbXJMn-PYIWrb5wZJ0u-K5J9-eWJrUsYqYapg"/>
+<div class="absolute top-2 right-2 bg-primary-container text-on-primary-container text-[10px] font-black px-2 py-0.5 rounded-sm shadow-lg">EP 12</div>
+<div class="absolute bottom-0 inset-x-0 h-1/2 bg-gradient-to-t from-black via-transparent to-transparent flex items-end p-3">
+<div class="flex gap-1">
+<span class="bg-tertiary-container text-on-tertiary-fixed-variant text-[9px] font-bold px-1 py-0.5 rounded-sm">SUB</span>
+<span class="bg-[#4d2b00] text-[#ffb347] text-[9px] font-bold px-1 py-0.5 rounded-sm">DUB</span>
+</div>
+</div>
+</div>
+<h4 class="text-on-surface font-semibold text-sm line-clamp-1 group-hover:text-primary-container transition-colors">The Apothecary Diaries</h4>
+<p class="text-on-surface-variant text-[11px] mt-1">TV • 24 min</p>
+</div>
+<!-- Release Card 6 -->
+<div class="group cursor-pointer">
+<div class="relative aspect-[2/3] bg-surface-container rounded-sm overflow-hidden mb-3">
+<img class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="vibrant neon stage lights reflecting on a performer in a modern anime style concert" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCNs9tjFyh8C1Z6LMcjCJLDuLPwsj4q3tUfGWc38nUhOVvlIQ6XK19jFNja8MMVkH4r_c3KU6VLTfBfM5WKwQfzJ9E09XyQJjii4Aru2haqbCzpq3BOpKMSgrfiBwydqaf8C1CSJYBFU4DauwRNkLp85bLrGV1KxYazPia2nsf78REPcNhKMYHy0NPljqcVNurZ37E2FoGhia8hwtptu7lxiunAdYnVgeT4zo4ZuFnZQW5QA-PJfATb-1Q_gURstAy6fweF0cr3TQ"/>
+<div class="absolute top-2 right-2 bg-primary-container text-on-primary-container text-[10px] font-black px-2 py-0.5 rounded-sm shadow-lg">EP 11</div>
+<div class="absolute bottom-0 inset-x-0 h-1/2 bg-gradient-to-t from-black via-transparent to-transparent flex items-end p-3">
+<div class="flex gap-1">
+<span class="bg-tertiary-container text-on-tertiary-fixed-variant text-[9px] font-bold px-1 py-0.5 rounded-sm">SUB</span>
+</div>
+</div>
+</div>
+<h4 class="text-on-surface font-semibold text-sm line-clamp-1 group-hover:text-primary-container transition-colors">Oshi no Ko Season 2</h4>
+<p class="text-on-surface-variant text-[11px] mt-1">TV • 24 min</p>
+</div>
+</div>
+</div>
+<!-- Top Airing List (1/4 width) -->
+<div class="lg:col-span-1">
+<div class="flex items-center gap-4 mb-8">
+<div class="w-1 h-8 bg-secondary-container"></div>
+<h2 class="text-2xl font-bold tracking-tight text-on-surface">Top Airing</h2>
+</div>
+<div class="flex flex-col gap-4">
+<!-- Item 1 -->
+<div class="flex items-center gap-4 p-3 bg-surface-container rounded hover:bg-surface-container-high transition-colors cursor-pointer group">
+<div class="text-2xl font-black text-on-surface-variant group-hover:text-primary-container transition-colors w-8">01</div>
+<div class="w-16 h-20 flex-shrink-0 bg-surface-container-highest rounded overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="vertical anime poster crop of a legendary pirate character" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBBdP1wYEBakAqDQnz6ogPQkg94vWALNq3a49N2wWzOVzSVMck0avEpoH5J5K--i6aG6hOSmPXgEAutrsdUvcbmZ5scLGdrmR_npGQ49TbEBLgeOD3xrolzm8XE8myI_HJelbSZRGtKjXa9H0SlCpOsPyZIx0t79FjobBPLq968h6DFDLHczDYiNMEf2DkcY-a0tINVJHZDFsEfkwUN-ymHCf_nVdjlqC3mJnWxr4R6zhV-5Iql3S-yga77X1Gv0acjmPJi_kZ0Xw"/>
+</div>
+<div class="flex-grow">
+<h5 class="text-on-surface font-bold text-sm line-clamp-1">One Piece</h5>
+<div class="flex items-center gap-3 mt-1">
+<span class="text-on-surface-variant text-[11px] flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]" style="font-variation-settings: 'FILL' 1;">visibility</span> 1.2M
+                                </span>
+<span class="text-on-surface-variant text-[11px] flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]" style="font-variation-settings: 'FILL' 1;">star</span> 9.2
+                                </span>
+</div>
+</div>
+</div>
+<!-- Item 2 -->
+<div class="flex items-center gap-4 p-3 bg-surface-container rounded hover:bg-surface-container-high transition-colors cursor-pointer group">
+<div class="text-2xl font-black text-on-surface-variant group-hover:text-primary-container transition-colors w-8">02</div>
+<div class="w-16 h-20 flex-shrink-0 bg-surface-container-highest rounded overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="vertical anime poster crop of a hunter in a dark dungeon" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBbQ0Ki0bR0nX1p0Gopp6ZiukaeTMqCNEWUImNAWpJBIzctKDO8BlsCQnsrssBFBZUhhu-ooGAEI90jVOX7pXFCn4FJxveAQVKBxqLjWrALa2TDevIVfRuhHn_rIArGmCh8ZR64VmSRRCRNLhCx0SC9-wX_QspSKYy1PdYlSnPszv34_9wQLD4VbvNtxW73VecGhqk1a80TUj23EKZ-oob6I08DoyxUkS7TxG9BN5ptZyozkXmPNWG7kpiZ4vqEDlhLY7XYLs5QVg"/>
+</div>
+<div class="flex-grow">
+<h5 class="text-on-surface font-bold text-sm line-clamp-1">Solo Leveling</h5>
+<div class="flex items-center gap-3 mt-1">
+<span class="text-on-surface-variant text-[11px] flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]" style="font-variation-settings: 'FILL' 1;">visibility</span> 890K
+                                </span>
+<span class="text-on-surface-variant text-[11px] flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]" style="font-variation-settings: 'FILL' 1;">star</span> 9.8
+                                </span>
+</div>
+</div>
+</div>
+<!-- Item 3 -->
+<div class="flex items-center gap-4 p-3 bg-surface-container rounded hover:bg-surface-container-high transition-colors cursor-pointer group">
+<div class="text-2xl font-black text-on-surface-variant group-hover:text-primary-container transition-colors w-8">03</div>
+<div class="w-16 h-20 flex-shrink-0 bg-surface-container-highest rounded overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="vertical anime poster crop of a warrior with a flaming sword" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBov5Fwxb44wTYc6KQbvYYObjURjc8tNcNPOODKvGlG1iiLkithiY__gOSTANKqzVEUhVtYQ3e98M12fo3-0BU-PQGgns2Q6juNvTekah1w9qBdNUnLe5_nF9qXr88oV9JAFebZxvEMVN9WnTKk6zB-E59AMa22jBS4s0vUGHlBVyxTOLPF99n7IXObbm7nYrrzGG26kRR7GGlqXQsmH6KBJUCWm51L4kpEKVrypggFHSRSHWyimJiZZn1dBfIwS-nxzmOzNuavBg"/>
+</div>
+<div class="flex-grow">
+<h5 class="text-on-surface font-bold text-sm line-clamp-1">Demon Slayer</h5>
+<div class="flex items-center gap-3 mt-1">
+<span class="text-on-surface-variant text-[11px] flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]" style="font-variation-settings: 'FILL' 1;">visibility</span> 750K
+                                </span>
+<span class="text-on-surface-variant text-[11px] flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]" style="font-variation-settings: 'FILL' 1;">star</span> 9.4
+                                </span>
+</div>
+</div>
+</div>
+<!-- Item 4 -->
+<div class="flex items-center gap-4 p-3 bg-surface-container rounded hover:bg-surface-container-high transition-colors cursor-pointer group">
+<div class="text-2xl font-black text-on-surface-variant group-hover:text-primary-container transition-colors w-8">04</div>
+<div class="w-16 h-20 flex-shrink-0 bg-surface-container-highest rounded overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="vertical anime poster crop of an elf traveling through a misty forest" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDFFC80MYvZqrcw0znIPN7j738xgPM2LqYwIoKkpiPA7KP1u4ycHjnrYQqSZ2U9dv0bfRx5fnr0g9idWaD1YDnZ8lmrLvJGFP8lxMhKV_YwwKpmstjS8IGFXqKDv5Ct5LrZ-CtQiK644dFaAnEBBwLvd1il7pyKB9mELEku3H2K9bCkYlCF11ngUvQFwj3C6sQsavvpiH3lL3e9xAHxKLjbPZvifAChn-XjYzH6XVZaS7RiewiSpp2_LpR-qkIqBbhlgczMxqPuVw"/>
+</div>
+<div class="flex-grow">
+<h5 class="text-on-surface font-bold text-sm line-clamp-1">Frieren</h5>
+<div class="flex items-center gap-3 mt-1">
+<span class="text-on-surface-variant text-[11px] flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]" style="font-variation-settings: 'FILL' 1;">visibility</span> 620K
+                                </span>
+<span class="text-on-surface-variant text-[11px] flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]" style="font-variation-settings: 'FILL' 1;">star</span> 9.6
+                                </span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- Footer -->
+<footer class="bg-[#0e0e0e] w-full py-12 px-8 border-t border-[#353534]/20 tonal-shift from surface-container-lowest">
+<div class="flex flex-col items-center gap-6 w-full">
+<div class="flex items-center gap-12 flex-wrap justify-center font-['Inter'] text-xs uppercase tracking-widest text-[#b9cacb]">
+<a class="hover:text-[#00f0ff] transition-colors opacity-80 hover:opacity-100" href="#">DMCA</a>
+<a class="hover:text-[#00f0ff] transition-colors opacity-80 hover:opacity-100" href="#">Privacy Policy</a>
+<div class="text-lg font-black text-[#00f0ff] scale-110 tracking-tighter">KAIDO</div>
+<a class="hover:text-[#00f0ff] transition-colors opacity-80 hover:opacity-100" href="#">Terms of Service</a>
+<a class="hover:text-[#00f0ff] transition-colors opacity-80 hover:opacity-100" href="#">Contact</a>
+</div>
+<p class="font-['Inter'] text-xs uppercase tracking-widest text-[#b9cacb] opacity-50">© Kaido. Built for the digital theater.</p>
+<div class="flex gap-4 mt-4">
+<div class="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-primary-container transition-colors cursor-pointer border border-outline-variant/20">
+<span class="material-symbols-outlined text-lg">public</span>
+</div>
+<div class="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-primary-container transition-colors cursor-pointer border border-outline-variant/20">
+<span class="material-symbols-outlined text-lg">chat_bubble</span>
+</div>
+<div class="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-primary-container transition-colors cursor-pointer border border-outline-variant/20">
+<span class="material-symbols-outlined text-lg">alternate_email</span>
+</div>
+</div>
+</div>
+</footer>
+</body></html>

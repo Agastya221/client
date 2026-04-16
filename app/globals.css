@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-geist-mono);
+  
+  --color-background: var(--color-surface);
+  --color-foreground: var(--color-on-surface);
+
+  /* Kaido Core Colors */
+  --color-primary: #00f0ff;
+  --color-primary-dim: #00dbe9;
+  --color-primary-container: #00f0ff;
+  --color-on-primary: #00363a;
+
+  --color-secondary: #c2c2f2;
+  --color-secondary-container: #44456e;
+  
+  --color-tertiary-container: #69f48d;
+  --color-on-tertiary-variant: #005323;
+
+  /* Surfaces */
+  --color-surface: #131313;
+  --color-surface-bright: #393939;
+  --color-surface-container-lowest: #0e0e0e;
+  --color-surface-container-low: #1c1b1b;
+  --color-surface-container: #201f1f;
+  --color-surface-container-high: #2a2a2a;
+  --color-surface-container-highest: #353534;
+  --color-surface-variant: #353534;
+
+  /* On-Surfaces */
+  --color-on-surface: #e5e2e1;
+  --color-on-surface-variant: #b9cacb;
+
+  /* Outlines */
+  --color-outline: #849495;
+  --color-outline-variant: #3b494b;
+  
+  /* Misc Overrides */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--color-surface);
+  color: var(--color-on-surface);
+}
+
+@layer utilities {
+  .shadow-ambient {
+    box-shadow: 0px 20px 40px rgba(0, 240, 255, 0.08);
+  }
+}

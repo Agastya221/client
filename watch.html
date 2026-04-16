@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Kaido - Watch Player</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "outline-variant": "#3b494b",
+                    "tertiary": "#dcffdc",
+                    "surface-dim": "#131313",
+                    "primary-fixed-dim": "#00dbe9",
+                    "on-secondary-fixed": "#16173d",
+                    "surface-container-lowest": "#0e0e0e",
+                    "secondary-container": "#44456e",
+                    "on-error-container": "#ffdad6",
+                    "background": "#131313",
+                    "tertiary-container": "#69f48d",
+                    "on-primary": "#00363a",
+                    "error": "#ffb4ab",
+                    "primary-container": "#00f0ff",
+                    "on-surface-variant": "#b9cacb",
+                    "surface-container-highest": "#353534",
+                    "error-container": "#93000a",
+                    "primary": "#dbfcff",
+                    "on-secondary-fixed-variant": "#42436b",
+                    "surface-bright": "#393939",
+                    "surface-container": "#201f1f",
+                    "inverse-primary": "#006970",
+                    "tertiary-fixed-dim": "#54e07c",
+                    "secondary-fixed": "#e1e0ff",
+                    "on-secondary": "#2b2c53",
+                    "surface-container-high": "#2a2a2a",
+                    "secondary-fixed-dim": "#c2c2f2",
+                    "on-background": "#e5e2e1",
+                    "surface": "#131313",
+                    "on-tertiary-fixed-variant": "#005323",
+                    "on-surface": "#e5e2e1",
+                    "tertiary-fixed": "#73fd95",
+                    "on-error": "#690005",
+                    "outline": "#849495",
+                    "on-tertiary": "#003916",
+                    "inverse-surface": "#e5e2e1",
+                    "inverse-on-surface": "#313030",
+                    "on-primary-fixed": "#002022",
+                    "surface-container-low": "#1c1b1b",
+                    "primary-fixed": "#7df4ff",
+                    "surface-variant": "#353534",
+                    "on-primary-fixed-variant": "#004f54",
+                    "secondary": "#c2c2f2",
+                    "on-tertiary-fixed": "#00210a",
+                    "surface-tint": "#00dbe9",
+                    "on-tertiary-container": "#006e31",
+                    "on-secondary-container": "#b4b4e4",
+                    "on-primary-container": "#006970"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "fontFamily": {
+                    "headline": ["Inter"],
+                    "body": ["Inter"],
+                    "label": ["Inter"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: #131313; }
+        ::-webkit-scrollbar-thumb { background: #353534; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #00f0ff; }
+    </style>
+</head>
+<body class="bg-surface-container-lowest text-on-surface font-body selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopNavBar -->
+<header class="bg-[#131313]/60 backdrop-blur-3xl docked full-width top-0 sticky z-50 no-border bg-gradient-to-b from-[#131313] to-transparent">
+<div class="flex justify-between items-center px-8 py-4 w-full max-w-[1920px] mx-auto">
+<div class="flex items-center gap-12">
+<span class="text-2xl font-black text-[#00f0ff] drop-shadow-[0_0_8px_rgba(0,240,255,0.8)]">Kaido</span>
+<nav class="hidden md:flex gap-8 items-center">
+<a class="font-['Inter'] font-medium text-sm tracking-tight text-[#b9cacb] hover:text-[#e5e2e1] hover:text-[#00f0ff] transition-all duration-300" href="#">Home</a>
+<a class="font-['Inter'] font-medium text-sm tracking-tight text-[#00f0ff] border-b-2 border-[#00f0ff] pb-1" href="#">Anime</a>
+<a class="font-['Inter'] font-medium text-sm tracking-tight text-[#b9cacb] hover:text-[#e5e2e1] hover:text-[#00f0ff] transition-all duration-300" href="#">Movies</a>
+<a class="font-['Inter'] font-medium text-sm tracking-tight text-[#b9cacb] hover:text-[#e5e2e1] hover:text-[#00f0ff] transition-all duration-300" href="#">Genres</a>
+<a class="font-['Inter'] font-medium text-sm tracking-tight text-[#b9cacb] hover:text-[#e5e2e1] hover:text-[#00f0ff] transition-all duration-300" href="#">Schedule</a>
+<a class="font-['Inter'] font-medium text-sm tracking-tight text-[#b9cacb] hover:text-[#e5e2e1] hover:text-[#00f0ff] transition-all duration-300" href="#">Community</a>
+</nav>
+</div>
+<div class="flex items-center gap-6">
+<div class="hidden lg:flex items-center bg-surface-container-highest/50 px-4 py-2 rounded-sm border border-outline-variant/20 focus-within:border-primary-container transition-colors">
+<span class="material-symbols-outlined text-on-surface-variant text-lg">search</span>
+<input class="bg-transparent border-none focus:ring-0 text-sm w-48 ml-2 text-on-surface placeholder:text-on-surface-variant" placeholder="Search anime..." type="text"/>
+</div>
+<div class="flex gap-4">
+<button class="scale-95 active:scale-90 transition-transform text-[#b9cacb] hover:text-[#00f0ff]"><span class="material-symbols-outlined">casino</span></button>
+<button class="scale-95 active:scale-90 transition-transform text-[#b9cacb] hover:text-[#00f0ff]"><span class="material-symbols-outlined">bookmarks</span></button>
+<button class="scale-95 active:scale-90 transition-transform text-[#b9cacb] hover:text-[#00f0ff]"><span class="material-symbols-outlined">account_circle</span></button>
+</div>
+</div>
+</div>
+</header>
+<main class="w-full max-w-[1920px] mx-auto px-4 md:px-8 py-6">
+<div class="flex flex-col xl:flex-row gap-6">
+<!-- Video Player Column -->
+<div class="flex-1 space-y-6">
+<!-- Main Player Shell -->
+<div class="relative group bg-surface-container-low aspect-video rounded-sm overflow-hidden shadow-[0_20px_40px_rgba(0,240,255,0.08)]">
+<img class="w-full h-full object-cover" data-alt="Cinematic high-contrast anime still with vibrant neon blues and dramatic shadows, featuring a futuristic cityscape at night with glowing lights" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCFXS_waOp0cAnIsIGgbCFdxNLiLKJxuLyOrXFJoN9O7jsS04w7ah7kDJMTzsP2Gku5Uok1oha_RaaTPCiit8TutlxZw54G_yuORKV8RX4xInUFaaoL_OOE8p30Znouq2XsoWl53h0Z9zwp7hUq4rvONFL0YXBdu5DZ1oEXOfq2ZF3kPPRmYnUvDbSuMwt9NdHX4L2DibsIsWczCfaSxQMG2032tIu6HXfo881lY4oSvPuvV3bYWt1cT1prvckTeBHHC5XNckluPA"/>
+<!-- Overlay Controls -->
+<div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-6">
+<!-- Progress Bar -->
+<div class="w-full mb-4 relative h-1.5 bg-surface-container-highest rounded-full cursor-pointer overflow-hidden">
+<div class="absolute left-0 top-0 bottom-0 bg-primary-container w-[65%] shadow-[0_0_10px_rgba(0,240,255,1)]"></div>
+</div>
+<!-- Control Row -->
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-6">
+<button class="text-[#00f0ff] hover:scale-110 transition-transform"><span class="material-symbols-outlined text-4xl" style="font-variation-settings: 'FILL' 1;">play_arrow</span></button>
+<button class="text-on-surface hover:text-[#00f0ff]"><span class="material-symbols-outlined text-2xl">skip_next</span></button>
+<button class="text-on-surface hover:text-[#00f0ff]"><span class="material-symbols-outlined text-2xl">volume_up</span></button>
+<span class="text-sm font-label tracking-wider text-on-surface-variant font-medium">12:45 / 24:00</span>
+</div>
+<div class="flex items-center gap-6">
+<div class="flex items-center bg-surface-container-highest/60 backdrop-blur-md px-3 py-1 rounded-sm border border-outline-variant/30">
+<span class="text-xs font-label text-on-surface-variant uppercase tracking-widest mr-2">Server:</span>
+<select class="bg-transparent text-xs text-primary-container border-none p-0 focus:ring-0 font-bold uppercase tracking-widest cursor-pointer">
+<option>Server 1</option>
+<option>Server 2</option>
+<option>Server 3</option>
+</select>
+</div>
+<button class="text-on-surface hover:text-[#00f0ff] flex items-center gap-2">
+<span class="material-symbols-outlined text-2xl">closed_caption</span>
+</button>
+<button class="text-on-surface hover:text-[#00f0ff]"><span class="material-symbols-outlined text-2xl">settings</span></button>
+<button class="text-on-surface hover:text-[#00f0ff]"><span class="material-symbols-outlined text-2xl">theater_comedy</span></button>
+<button class="text-on-surface hover:text-[#00f0ff]"><span class="material-symbols-outlined text-2xl">fullscreen</span></button>
+</div>
+</div>
+</div>
+</div>
+<!-- Title & Meta -->
+<div class="flex flex-col md:flex-row justify-between items-start gap-4">
+<div class="space-y-1 border-l-2 border-[#00f0ff] pl-4">
+<div class="flex items-center gap-3 mb-1">
+<span class="bg-tertiary-container text-on-tertiary-fixed-variant px-2 py-0.5 rounded-[2px] text-[10px] font-bold uppercase tracking-tighter">Sub</span>
+<span class="bg-[#4d2b00] text-[#ffb347] px-2 py-0.5 rounded-[2px] text-[10px] font-bold uppercase tracking-tighter">Dub</span>
+<span class="text-on-surface-variant text-xs uppercase tracking-widest font-label">Episode 12</span>
+</div>
+<h1 class="text-2xl md:text-3xl font-black text-on-surface tracking-tight uppercase">Cyber Nexus: Protocol Zero</h1>
+</div>
+<div class="flex gap-3">
+<button class="bg-surface-container-high hover:bg-secondary-container text-on-surface px-5 py-2.5 rounded-sm text-sm font-bold flex items-center gap-2 transition-all">
+<span class="material-symbols-outlined text-lg">add</span> Watchlist
+                        </button>
+<button class="bg-primary-container hover:bg-primary-fixed-dim text-on-primary px-5 py-2.5 rounded-sm text-sm font-bold flex items-center gap-2 transition-all shadow-[0_0_20px_rgba(0,240,255,0.2)]">
+<span class="material-symbols-outlined text-lg" style="font-variation-settings: 'FILL' 1;">share</span> Share
+                        </button>
+</div>
+</div>
+<!-- Synopsis Glass Card -->
+<div class="bg-surface-container/40 p-6 rounded-sm border border-outline-variant/10">
+<h3 class="text-sm font-label uppercase tracking-[0.2em] text-[#00f0ff] mb-3">Synopsis</h3>
+<p class="text-on-surface-variant text-sm leading-relaxed max-w-4xl">
+                        In the year 2088, Neo-Tokyo is a sprawling labyrinth of neon and high-frequency data. Kai, a rogue curator of lost digital artifacts, uncovers a fragmented protocol that could collapse the Nexus. As security forces close in, he must decide whether to broadcast the truth or bury it forever in the deep web. The clock is ticking, and the signal is fading.
+                    </p>
+</div>
+</div>
+<!-- Sidebar Column -->
+<div class="w-full xl:w-[400px] space-y-6">
+<!-- Episode Selector -->
+<div class="bg-surface-container rounded-sm overflow-hidden shadow-2xl">
+<div class="p-5 border-b border-outline-variant/10 flex justify-between items-center">
+<h2 class="text-sm font-label uppercase tracking-widest font-black flex items-center gap-2">
+<span class="material-symbols-outlined text-primary-container">list</span> Episodes
+                        </h2>
+<span class="text-xs text-on-surface-variant">1-24 / 24</span>
+</div>
+<div class="max-h-[600px] overflow-y-auto p-2 space-y-1">
+<!-- Episode Items -->
+<div class="group flex items-center gap-4 p-3 hover:bg-surface-container-highest cursor-pointer transition-colors rounded-sm">
+<div class="relative w-24 h-14 bg-surface-container-lowest rounded-sm overflow-hidden flex-shrink-0">
+<img class="w-full h-full object-cover opacity-60" data-alt="Dark abstract technical background with glowing purple and blue lines representing a digital server room" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAdvN_rmEeT8PeSgxwh5_DvkRrkF4SNjUxZyAjhX2qQr0zBP9filw8adX361RUR6sixdS-Cc--HyHGE4tm0pH6elmGNn_0iJVpReXgJGqMpr6OX3knRgm6lOedjMZqBthfbBnI0Tz8UJAVtdQklw_ForHliXbtewQVxNIhkyS138xHIAtIY7dfPWyfesTbL30Uq0sio5aHd1MZpE1mURSQv4BSCnxjmYroBN2oYNxBtY3NmGTQke_ZS-jjd5TJbk1HD2nBr3ZoTNw"/>
+<div class="absolute inset-0 flex items-center justify-center">
+<span class="material-symbols-outlined text-primary-container text-xl opacity-0 group-hover:opacity-100 transition-opacity">play_circle</span>
+</div>
+<div class="absolute bottom-1 right-1 bg-black/80 px-1 text-[9px] font-bold">23:45</div>
+</div>
+<div class="flex-1 min-w-0">
+<div class="text-[10px] uppercase font-label tracking-tighter text-[#00f0ff]">Episode 09</div>
+<h4 class="text-sm font-bold text-on-surface truncate">The Neon Awakening</h4>
+</div>
+</div>
+<div class="group flex items-center gap-4 p-3 hover:bg-surface-container-highest cursor-pointer transition-colors rounded-sm">
+<div class="relative w-24 h-14 bg-surface-container-lowest rounded-sm overflow-hidden flex-shrink-0">
+<img class="w-full h-full object-cover opacity-60" data-alt="Vibrant abstract flow of neon colors with grain texture and digital distortions" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA5FtH4wFVNU1USlpbGpeWqNhvjjXoFctLnORhkdwXutxyxSAudQN_N5PHPtWA2adxJMqDdM5d4UQj0UdiLryYZOWiNEYn6Fmzql0KTUpb8mlaoTW5QJjgj485qIOWkluvdEyOO1_JPjeJCIbdVZB_9HQVMtCja5n5IiRefLFrCXMl9nn_6IbzDeCGviTPDGJ35uUbx8FTHw7C6RIUA8zK7a59pun5cBY6NUURoIRBVPamp6sFkm0flfnk9-6oJLHzZ6WJdJxCZZA"/>
+<div class="absolute inset-0 flex items-center justify-center">
+<span class="material-symbols-outlined text-primary-container text-xl opacity-0 group-hover:opacity-100 transition-opacity">play_circle</span>
+</div>
+<div class="absolute bottom-1 right-1 bg-black/80 px-1 text-[9px] font-bold">24:12</div>
+</div>
+<div class="flex-1 min-w-0">
+<div class="text-[10px] uppercase font-label tracking-tighter text-[#00f0ff]">Episode 10</div>
+<h4 class="text-sm font-bold text-on-surface truncate">Digital Ghosts</h4>
+</div>
+</div>
+<div class="group flex items-center gap-4 p-3 bg-secondary-container/40 border-l-4 border-primary-container cursor-default rounded-sm">
+<div class="relative w-24 h-14 bg-surface-container-lowest rounded-sm overflow-hidden flex-shrink-0">
+<img class="w-full h-full object-cover opacity-60" data-alt="Cinematic close-up of a futuristic glowing eye with digital data reflecting on the iris" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBfWnviceIYRrkQ37zZxMI6dgP-BX17TmsuvY1Szo1Lleux_27qgfGTtzNzKt7f5ZDH7JmXdgYIqbpQlrC6NEm0tocSBxxNrZNxTVdGOxjV815xhgXrq80VOpMAX184xRdBDo7LVa6i_zudbiCPHzaMtHojXWsKesyqaknNu1_tfkZqP2NHF8fpLSR_QtavUIU76O_cvdRqSZrCkTRl3SYJaJHN5ka_Xpu5ko0TJa8VdF1389xjmzsp0nRmA9fHxEIaitLIoAsCqA"/>
+<div class="absolute inset-0 flex items-center justify-center">
+<span class="text-[10px] font-black uppercase text-primary-container tracking-widest">Watching</span>
+</div>
+</div>
+<div class="flex-1 min-w-0">
+<div class="text-[10px] uppercase font-label tracking-tighter text-[#00f0ff]">Episode 11</div>
+<h4 class="text-sm font-bold text-on-surface truncate">The Protocol Zero</h4>
+</div>
+</div>
+<!-- More Episodes placeholder loop -->
+<div class="group flex items-center gap-4 p-3 hover:bg-surface-container-highest cursor-pointer transition-colors rounded-sm">
+<div class="relative w-24 h-14 bg-surface-container-lowest rounded-sm overflow-hidden flex-shrink-0">
+<div class="w-full h-full bg-surface-container-highest/30 flex items-center justify-center">
+<span class="material-symbols-outlined text-outline text-xl">image</span>
+</div>
+<div class="absolute bottom-1 right-1 bg-black/80 px-1 text-[9px] font-bold">24:00</div>
+</div>
+<div class="flex-1 min-w-0">
+<div class="text-[10px] uppercase font-label tracking-tighter text-on-surface-variant">Episode 12</div>
+<h4 class="text-sm font-bold text-on-surface truncate">Final Broadcast</h4>
+</div>
+</div>
+</div>
+</div>
+<!-- Recommendation Cards -->
+<div class="space-y-4">
+<h3 class="text-xs font-label uppercase tracking-[0.3em] font-black text-on-surface-variant flex items-center gap-2">
+<span class="w-4 h-0.5 bg-primary-container"></span> Similar Anime
+                    </h3>
+<div class="grid grid-cols-1 gap-4">
+<div class="bg-surface-container-high group rounded-sm overflow-hidden flex h-24 hover:translate-x-1 transition-transform">
+<img class="w-20 object-cover group-hover:scale-105 transition-transform" data-alt="Anime style illustration of a person with cybernetic enhancements standing in front of a giant computer screen" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCpOy9dN0pgD1sQSC3hDw-l4HLUWuZcaIpPTC0eidtnMxBgJjOdEit7o0tNPDX0g0HWNyBdGRV-_VCFqH-vKACYioc5LhZbCiZ5OYqFGO90UBx_kK5DQwlyF58rt82CnyyHQ23iYrIh5qptxcLiU3WLoqLOvizukPFBoJ8NxO-fyWM8tIotLVGgFPbifOPoyxVkXzS_2-lXNcVeKJz6C56cbemuAKVQQNWdqEuf1ezFN7Lp-7aKNCBYELc_ptfRm2PsjHuJ9uOrlw"/>
+<div class="p-3 flex-1">
+<h4 class="text-sm font-bold text-on-surface truncate mb-1">Night City Drifters</h4>
+<div class="flex items-center gap-2 text-[10px] text-on-surface-variant uppercase font-label">
+<span>24 Eps</span>
+<span class="w-1 h-1 rounded-full bg-outline"></span>
+<span class="text-[#41D06E]">8.9 Score</span>
+</div>
+</div>
+</div>
+<div class="bg-surface-container-high group rounded-sm overflow-hidden flex h-24 hover:translate-x-1 transition-transform">
+<img class="w-20 object-cover group-hover:scale-105 transition-transform" data-alt="Abstract colorful neon background with geometric shapes and soft light streaks" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDArvYi88ufAm1bTwE1oUggdCgk5SByqDq-C8AishGBz5jlKPq-O5uYQVD5ZlLCu1oUGVg72YM7BNwqhGFgGtkauM1fssM1Q8PCV5pmv0_dVaSz6_NwmBSdcmyC29b8VG1M2hrI5lsiNcg9k61FMjjFugH8VpvDteELWT3xtFuoQhj-UOd9ZPUIeX-IwPeWlHGRH5zEwbF6YITfxn1qgkFza_WQ-gagXarpet9NAElJcNHtC5LbAtdKlYepa4kS20K6cNWqlD_4sg"/>
+<div class="p-3 flex-1">
+<h4 class="text-sm font-bold text-on-surface truncate mb-1">Code: Breaker X</h4>
+<div class="flex items-center gap-2 text-[10px] text-on-surface-variant uppercase font-label">
+<span>12 Eps</span>
+<span class="w-1 h-1 rounded-full bg-outline"></span>
+<span class="text-[#41D06E]">7.5 Score</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Footer -->
+<footer class="bg-[#0e0e0e] w-full py-12 px-8 border-t border-[#353534]/20 flex flex-col items-center gap-6 mt-12">
+<span class="text-lg font-black text-[#00f0ff]">Kaido</span>
+<div class="flex gap-8">
+<a class="font-['Inter'] text-xs uppercase tracking-widest text-[#b9cacb] hover:text-[#00f0ff] transition-colors opacity-80 hover:opacity-100" href="#">DMCA</a>
+<a class="font-['Inter'] text-xs uppercase tracking-widest text-[#b9cacb] hover:text-[#00f0ff] transition-colors opacity-80 hover:opacity-100" href="#">Privacy Policy</a>
+<a class="font-['Inter'] text-xs uppercase tracking-widest text-[#b9cacb] hover:text-[#00f0ff] transition-colors opacity-80 hover:opacity-100" href="#">Terms of Service</a>
+<a class="font-['Inter'] text-xs uppercase tracking-widest text-[#b9cacb] hover:text-[#00f0ff] transition-colors opacity-80 hover:opacity-100" href="#">Contact</a>
+</div>
+<p class="font-['Inter'] text-xs uppercase tracking-widest text-[#b9cacb] opacity-60">© Kaido. Built for the digital theater.</p>
+</footer>
+</body></html>
