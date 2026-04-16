@@ -7,35 +7,35 @@
   --color-background: var(--color-surface);
   --color-foreground: var(--color-on-surface);
 
-  /* Kaido-inspired Colors */
-  --color-primary: #ff5f5f;
-  --color-primary-dim: #ff7f66;
-  --color-primary-container: #3f1718;
-  --color-on-primary: #fff5f3;
+  /* Kaido Core Colors */
+  --color-primary: #00f0ff;
+  --color-primary-dim: #00dbe9;
+  --color-primary-container: #08343a;
+  --color-on-primary: #00363a;
 
-  --color-secondary: #ffd1a6;
-  --color-secondary-container: #4b2f21;
+  --color-secondary: #c2c2f2;
+  --color-secondary-container: #44456e;
   
-  --color-tertiary-container: #ffe7a6;
-  --color-on-tertiary-variant: #684300;
+  --color-tertiary-container: #69f48d;
+  --color-on-tertiary-variant: #005323;
 
   /* Surfaces */
-  --color-surface: #08080a;
-  --color-surface-bright: #202024;
-  --color-surface-container-lowest: #050506;
-  --color-surface-container-low: #0d0d11;
-  --color-surface-container: #141419;
-  --color-surface-container-high: #1d1d24;
-  --color-surface-container-highest: #262630;
-  --color-surface-variant: #111116;
+  --color-surface: #131313;
+  --color-surface-bright: #393939;
+  --color-surface-container-lowest: #0e0e0e;
+  --color-surface-container-low: #1c1b1b;
+  --color-surface-container: #201f1f;
+  --color-surface-container-high: #2a2a2a;
+  --color-surface-container-highest: #353534;
+  --color-surface-variant: #18181c;
 
   /* On-Surfaces */
-  --color-on-surface: #f6f3f1;
-  --color-on-surface-variant: #aba7b2;
+  --color-on-surface: #e5e2e1;
+  --color-on-surface-variant: #b9cacb;
 
   /* Outlines */
-  --color-outline: #6a6672;
-  --color-outline-variant: #2b2428;
+  --color-outline: #849495;
+  --color-outline-variant: #3b494b;
   
   /* Misc Overrides */
   --radius-sm: 0.25rem;
@@ -48,7 +48,7 @@
 
 body {
   background:
-    radial-gradient(circle at top left, rgba(255, 95, 95, 0.12), transparent 28%),
+    radial-gradient(circle at top left, rgba(0, 240, 255, 0.12), transparent 28%),
     radial-gradient(circle at top right, rgba(255, 255, 255, 0.05), transparent 18%),
     var(--color-surface);
   color: var(--color-on-surface);
@@ -56,6 +56,6 @@ body {
 
 @layer utilities {
   .shadow-ambient {
-    box-shadow: 0px 24px 60px rgba(255, 95, 95, 0.14);
+    box-shadow: 0px 24px 60px rgba(0, 240, 255, 0.12);
   }
 }
