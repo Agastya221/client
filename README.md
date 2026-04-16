@@ -1,4 +1,12 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Kaido Web
+
+This Next.js frontend depends on an anime API backend for home, search, detail, and watch data.
+
+## Backend setup
+
+- Local development defaults to `http://localhost:4000`.
+- Production falls back to `https://api.tatakai.me` if no env var is set.
+- For reliable deployments, set `ANIME_API_BASE_URL` to your own deployed `AnimeAPI` instance.
 
 ## Getting Started
 

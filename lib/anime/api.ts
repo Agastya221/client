@@ -31,7 +31,21 @@ import {
   uniqueStrings,
 } from "./utils";
 
-const API_BASE_URL = String(process.env.ANIME_API_BASE_URL || "http://localhost:4000").replace(/\/+$/, "");
+export const LOCAL_ANIME_API_BASE_URL = "http://localhost:4000";
+export const PRODUCTION_ANIME_API_BASE_URL = "https://api.tatakai.me";
+
+export function resolveAnimeApiBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
+  const configuredBaseUrl = String(env.ANIME_API_BASE_URL || env.NEXT_PUBLIC_ANIME_API_BASE_URL || "").trim();
+  const runtime = String(env.NODE_ENV || "development").toLowerCase();
+  const fallbackBaseUrl =
+    runtime === "development" || runtime === "test"
+      ? LOCAL_ANIME_API_BASE_URL
+      : PRODUCTION_ANIME_API_BASE_URL;
+
+  return (configuredBaseUrl || fallbackBaseUrl).replace(/\/+$/, "");
+}
+
+const API_BASE_URL = resolveAnimeApiBaseUrl();
 const HOME_REVALIDATE_SECONDS = 300;
 const SEARCH_REVALIDATE_SECONDS = 120;
 const DETAIL_REVALIDATE_SECONDS = 300;
