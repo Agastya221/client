@@ -4,42 +4,37 @@
   --font-sans: var(--font-inter);
   --font-mono: var(--font-geist-mono);
   
-  --color-background: var(--color-surface);
-  --color-foreground: var(--color-on-surface);
+  /* AnimeKAI Core Colors */
+  --color-primary: #ff5500;
+  --color-primary-dim: #dd4400;
+  --color-primary-container: #331a11;
+  --color-on-primary: #ffffff;
 
-  /* Kaido Core Colors */
-  --color-primary: #00f0ff;
-  --color-primary-dim: #00dbe9;
-  --color-primary-container: #08343a;
-  --color-on-primary: #00363a;
-
-  --color-secondary: #c2c2f2;
-  --color-secondary-container: #44456e;
+  --color-secondary: #52ff7f;
+  --color-secondary-container: #11331a;
   
-  --color-tertiary-container: #69f48d;
-  --color-on-tertiary-variant: #005323;
-
   /* Surfaces */
-  --color-surface: #131313;
-  --color-surface-bright: #393939;
-  --color-surface-container-lowest: #0e0e0e;
-  --color-surface-container-low: #1c1b1b;
-  --color-surface-container: #201f1f;
-  --color-surface-container-high: #2a2a2a;
-  --color-surface-container-highest: #353534;
-  --color-surface-variant: #18181c;
+  --color-surface: #0e0f11;
+  --color-surface-bright: #1b1c20;
+  --color-surface-container-lowest: #0a0b0c;
+  --color-surface-container-low: #111215;
+  --color-surface-container: #15161a;
+  --color-surface-container-high: #1a1c22;
+  --color-surface-container-highest: #20222a;
+  --color-surface-variant: #1a1c22;
 
   /* On-Surfaces */
-  --color-on-surface: #e5e2e1;
-  --color-on-surface-variant: #b9cacb;
+  --color-on-surface: #eaeaea;
+  --color-on-surface-variant: #9b9ea6;
 
   /* Outlines */
-  --color-outline: #849495;
-  --color-outline-variant: #3b494b;
+  --color-outline: #2a2c35;
+  --color-outline-variant: #1f2128;
   
   /* Misc Overrides */
   --radius-sm: 0.25rem;
   --radius-md: 0.5rem;
+  --radius-lg: 1rem;
 }
 
 :root {
@@ -47,17 +42,13 @@
 }
 
 body {
-  background:
-    radial-gradient(circle at 12% 0%, rgba(105, 244, 141, 0.12), transparent 24%),
-    radial-gradient(circle at 80% 0%, rgba(0, 240, 255, 0.14), transparent 20%),
-    radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.03), transparent 24%),
-    var(--color-surface);
+  background-color: var(--color-surface);
   color: var(--color-on-surface);
 }
 
 @layer utilities {
   .shadow-ambient {
-    box-shadow: 0px 24px 60px rgba(0, 240, 255, 0.12);
+    box-shadow: 0px 20px 40px rgba(0, 0, 0, 0.4);
   }
 
   .hide-scrollbar {
@@ -67,5 +58,9 @@ body {
 
   .hide-scrollbar::-webkit-scrollbar {
     display: none;
+  }
+
+  .text-shadow-hero {
+    text-shadow: 0 2px 4px rgba(0,0,0,0.8), 0 4px 12px rgba(0,0,0,0.5);
   }
 }

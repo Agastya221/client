@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Kaido | The Neon Curator",
-  description: "A high-octane cinematic anime experience.",
+  title: "AnimeKAI | The Ultimate Anime Experience",
+  description: "Watch your favorite anime online in high quality.",
 };
 
 export default function RootLayout({
