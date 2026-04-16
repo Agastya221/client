@@ -1,117 +1,37 @@
 import AttemptTrail from "@/components/anime/AttemptTrail";
+import HomeHeroCarousel from "@/components/anime/HomeHeroCarousel";
 import ProviderBadge from "@/components/anime/ProviderBadge";
 import AnimeCard from "@/components/ui/AnimeCard";
 import Navbar from "@/components/ui/Navbar";
 import SiteFooter from "@/components/ui/SiteFooter";
 import { getHomePageModel } from "@/lib/anime/api";
-import { Play, Sparkles, TrendingUp } from "lucide-react";
+import { TrendingUp } from "lucide-react";
 import Link from "next/link";
 
 export default async function Home() {
   const home = await getHomePageModel();
-  const hero = home.hero;
+  const heroSlides = [home.hero, ...home.trending].filter(
+    (anime, index, collection): anime is NonNullable<typeof anime> =>
+      Boolean(anime) && collection.findIndex((entry) => entry?.id === anime?.id) === index,
+  );
   const heroBackdrop =
-    hero?.banner ||
-    hero?.poster ||
+    home.hero?.banner ||
+    home.hero?.poster ||
     "https://placehold.co/1600x900/131313/e5e2e1?text=KAIDO";
 
   return (
     <main className="min-h-screen bg-surface text-on-surface">
       <Navbar />
 
-      <section className="relative overflow-hidden pb-16 pt-24">
-        <div className="absolute inset-0">
-          <img
-            src={heroBackdrop}
-            alt={hero?.title || "Kaido hero backdrop"}
-            className="h-full w-full object-cover opacity-30"
+      <HomeHeroCarousel slides={heroSlides} />
+
+      <section className="px-6 pb-4">
+        <div className="mx-auto max-w-7xl">
+          <AttemptTrail
+            attempts={home.attempts}
+            activeProvider={home.activeProvider}
+            label="Home provider trail"
           />
-          <div className="absolute inset-0 bg-gradient-to-r from-surface-container-lowest via-surface-container-lowest/85 to-surface-container-lowest/35" />
-          <div className="absolute inset-0 bg-gradient-to-t from-surface to-transparent" />
-        </div>
-
-        <div className="relative mx-auto max-w-7xl px-6">
-          <div className="grid gap-10 lg:grid-cols-[minmax(0,1.2fr)_22rem] lg:items-end">
-            <div className="space-y-8 py-16 lg:py-24">
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="rounded-full bg-primary/15 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.28em] text-primary">
-                  Streaming fallback live
-                </span>
-                {home.sectionProviders.hero ? (
-                  <ProviderBadge provider={home.sectionProviders.hero} active={home.sectionProviders.hero !== "hianime"} />
-                ) : null}
-              </div>
-
-              <div className="space-y-4">
-                <h1 className="max-w-4xl text-5xl font-black tracking-tight text-on-surface md:text-7xl">
-                  {hero?.title || "Unified anime streaming with instant fallback"}
-                </h1>
-                <p className="max-w-2xl text-base leading-relaxed text-on-surface-variant md:text-lg">
-                  {hero?.description ||
-                    "Kaido keeps catalog, detail pages, and playback alive by rolling from HiAnime to AnimeKai to DesiDub when a provider goes down."}
-                </p>
-              </div>
-
-              <div className="flex flex-wrap gap-4">
-                {hero ? (
-                  <Link
-                    href={`${hero.href}/watch?ep=1&provider=${home.sectionProviders.hero || hero.provider}`}
-                    className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-bold text-on-primary transition-opacity hover:opacity-90"
-                  >
-                    <Play className="h-4 w-4 fill-current" />
-                    Watch now
-                  </Link>
-                ) : null}
-                <Link
-                  href="/search"
-                  className="inline-flex items-center gap-2 rounded-full border border-outline-variant/30 px-6 py-3 text-sm font-semibold text-on-surface transition-colors hover:border-primary/30 hover:text-primary"
-                >
-                  <Sparkles className="h-4 w-4" />
-                  Browse catalog
-                </Link>
-              </div>
-            </div>
-
-            <div className="rounded-[1.75rem] border border-outline-variant/20 bg-surface-container-low/80 p-5 backdrop-blur-md">
-              <div className="flex items-center gap-2 text-primary">
-                <TrendingUp className="h-4 w-4" />
-                <p className="text-[10px] font-bold uppercase tracking-[0.28em]">Trending now</p>
-              </div>
-              <div className="mt-5 space-y-4">
-                {home.trending.slice(0, 4).map((anime, index) => (
-                  <Link
-                    key={anime.id}
-                    href={anime.href}
-                    className="flex items-center gap-4 rounded-2xl border border-outline-variant/20 bg-surface-container p-3 transition-colors hover:border-primary/25"
-                  >
-                    <div className="w-10 text-right text-xl font-black text-on-surface-variant">
-                      {String(index + 1).padStart(2, "0")}
-                    </div>
-                    <img
-                      src={anime.poster || heroBackdrop}
-                      alt={anime.title}
-                      className="h-20 w-16 rounded-xl object-cover"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-on-surface">{anime.title}</p>
-                      <p className="mt-1 text-xs text-on-surface-variant">
-                        {anime.genres.slice(0, 2).join(" • ") || anime.type || "Anime"}
-                      </p>
-                    </div>
-                    <ProviderBadge provider={anime.provider} subtle />
-                  </Link>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-8">
-            <AttemptTrail
-              attempts={home.attempts}
-              activeProvider={home.activeProvider}
-              label="Home provider trail"
-            />
-          </div>
         </div>
       </section>
 

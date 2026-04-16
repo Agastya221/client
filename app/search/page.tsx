@@ -1,13 +1,12 @@
 import AttemptTrail from "@/components/anime/AttemptTrail";
 import SearchControls from "@/components/anime/SearchControls";
 import ProviderBadge from "@/components/anime/ProviderBadge";
-import AnimeCard from "@/components/ui/AnimeCard";
+import SearchResultsGrid from "@/components/anime/SearchResultsGrid";
 import Navbar from "@/components/ui/Navbar";
 import SiteFooter from "@/components/ui/SiteFooter";
 import { getSearchPageModel } from "@/lib/anime/api";
 import { normalizeProviderParam } from "@/lib/anime/fallback";
-import { ChevronLeft, ChevronRight, Search } from "lucide-react";
-import Link from "next/link";
+import { Search } from "lucide-react";
 
 function firstParam(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] || "" : value || "";
@@ -16,22 +15,6 @@ function firstParam(value: string | string[] | undefined): string {
 function parsePositiveInt(value: string): number | undefined {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
-}
-
-function buildSearchHref(params: {
-  query: string;
-  genre: string;
-  page: number;
-  dubbed: boolean;
-  provider: string;
-}): string {
-  const search = new URLSearchParams();
-  if (params.query) search.set("q", params.query);
-  if (params.genre) search.set("genre", params.genre);
-  if (params.page > 1) search.set("page", String(params.page));
-  if (params.dubbed) search.set("dub", "1");
-  if (params.provider) search.set("provider", params.provider);
-  return `/search${search.size > 0 ? `?${search.toString()}` : ""}`;
 }
 
 export default async function SearchPage({
@@ -93,8 +76,8 @@ export default async function SearchPage({
                 Results
               </p>
               <p className="mt-2 text-sm text-on-surface-variant">
-                <span className="font-semibold text-on-surface">{model.results.length}</span> cards on this page.
-                {model.totalPages ? ` Page ${model.page} of ${model.totalPages}.` : ""}
+                <span className="font-semibold text-on-surface">{model.results.length}</span> cards loaded first.
+                {model.totalPages ? ` Starting on page ${model.page} of ${model.totalPages}.` : ""}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -136,62 +119,8 @@ export default async function SearchPage({
               </p>
             </div>
           ) : (
-            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
-              {model.results.map((anime) => (
-                <AnimeCard
-                  key={anime.id}
-                  anime={anime}
-                  highlightProvider={!model.lockedProvider && anime.provider !== "hianime"}
-                />
-              ))}
-            </div>
+            <SearchResultsGrid initialModel={model} />
           )}
-
-          {model.results.length > 0 ? (
-            <div className="flex flex-wrap items-center justify-between gap-4 rounded-[1.5rem] border border-outline-variant/20 bg-surface-container-low p-5">
-              <Link
-                href={buildSearchHref({
-                  query: model.query,
-                  genre: model.genre,
-                  page: Math.max(1, model.page - 1),
-                  dubbed: model.dubbed,
-                  provider: model.lockedProvider || "",
-                })}
-                className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
-                  model.page > 1
-                    ? "border border-outline-variant/20 text-on-surface hover:border-primary/30 hover:text-primary"
-                    : "pointer-events-none border border-outline-variant/10 text-on-surface-variant/40"
-                }`}
-              >
-                <ChevronLeft className="h-4 w-4" />
-                Previous
-              </Link>
-
-              <p className="text-sm text-on-surface-variant">
-                {model.hasNextPage || (model.totalPages && model.page < model.totalPages)
-                  ? "More pages are available."
-                  : "You are on the last detected page."}
-              </p>
-
-              <Link
-                href={buildSearchHref({
-                  query: model.query,
-                  genre: model.genre,
-                  page: model.page + 1,
-                  dubbed: model.dubbed,
-                  provider: model.lockedProvider || "",
-                })}
-                className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
-                  model.hasNextPage || (model.totalPages ? model.page < model.totalPages : true)
-                    ? "border border-outline-variant/20 text-on-surface hover:border-primary/30 hover:text-primary"
-                    : "pointer-events-none border border-outline-variant/10 text-on-surface-variant/40"
-                }`}
-              >
-                Next
-                <ChevronRight className="h-4 w-4" />
-              </Link>
-            </div>
-          ) : null}
         </div>
       </section>
 

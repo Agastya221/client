@@ -34,11 +34,12 @@ export default async function WatchPage({
   });
 
   return (
-    <main className="min-h-screen bg-surface-container-lowest text-on-surface">
+    <main className="min-h-screen bg-surface text-on-surface">
       <Navbar />
 
-      <section className="px-6 pb-10 pt-24">
-        <div className="mx-auto max-w-7xl">
+      <section className="relative overflow-hidden px-4 pb-12 pt-24 sm:px-6">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,94,94,0.18),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.04),transparent_22%)]" />
+        <div className="relative mx-auto max-w-[96rem]">
           <nav className="mb-6 flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.24em] text-on-surface-variant">
             <Link href="/" className="transition-colors hover:text-primary">
               Home
@@ -48,7 +49,9 @@ export default async function WatchPage({
               {session.anime.title}
             </Link>
             <ChevronRight className="h-3 w-3" />
-            <span className="text-primary">Episode {session.episode.number}</span>
+            <span className="rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-primary">
+              Episode {session.episode.number}
+            </span>
           </nav>
 
           <WatchExperience initialSession={session} />
