@@ -909,13 +909,15 @@ export function normalizeStreamSourceFromUrl(input: {
   iframeUrl?: string | null;
   referer?: string | null;
   forceProxy?: boolean;
+  preferEmbed?: boolean;
 }): StreamSource {
   const url = input.url || null;
   const isM3U8 = Boolean(url && url.includes(".m3u8"));
   const requiresProxy = Boolean(input.forceProxy || input.referer || isM3U8);
+  const preferEmbed = Boolean(input.preferEmbed && input.iframeUrl);
 
   return {
-    kind: url ? "video" : "iframe",
+    kind: preferEmbed || !url ? "iframe" : "video",
     label: input.label,
     url,
     proxiedUrl: url
@@ -946,6 +948,7 @@ async function fetchHianimeWatchSession(
     url: current.link || null,
     iframeUrl: current.iframe || null,
     referer: current.iframe || null,
+    preferEmbed: Boolean(current.iframe),
   });
 
   return {
@@ -990,6 +993,7 @@ async function fetchAnimeKaiWatchSession(
     url: stream.url || null,
     iframeUrl: selected.url || null,
     referer: selected.url || null,
+    preferEmbed: Boolean(selected.url),
   });
 
   return {

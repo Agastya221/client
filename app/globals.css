@@ -48,8 +48,9 @@
 
 body {
   background:
-    radial-gradient(circle at top left, rgba(0, 240, 255, 0.12), transparent 28%),
-    radial-gradient(circle at top right, rgba(255, 255, 255, 0.05), transparent 18%),
+    radial-gradient(circle at 12% 0%, rgba(105, 244, 141, 0.12), transparent 24%),
+    radial-gradient(circle at 80% 0%, rgba(0, 240, 255, 0.14), transparent 20%),
+    radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.03), transparent 24%),
     var(--color-surface);
   color: var(--color-on-surface);
 }
@@ -57,5 +58,14 @@ body {
 @layer utilities {
   .shadow-ambient {
     box-shadow: 0px 24px 60px rgba(0, 240, 255, 0.12);
+  }
+
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
   }
 }

@@ -198,6 +198,7 @@ export default function WatchExperience({ initialSession }: WatchExperienceProps
     session.anime.poster ||
     "https://placehold.co/1600x900/09090b/f5f5f5?text=KAIDO";
   const canUseEmbedFallback = Boolean(session.source?.iframeUrl);
+  const canToggleDirectStream = Boolean(session.source?.iframeUrl && session.source?.url);
   const currentEpisodeIndex = session.episodes.findIndex((episode) => episode.number === session.episode.number);
   const previousEpisode = currentEpisodeIndex > 0 ? session.episodes[currentEpisodeIndex - 1] : null;
   const nextEpisode =
@@ -234,22 +235,22 @@ export default function WatchExperience({ initialSession }: WatchExperienceProps
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  {canUseEmbedFallback && session.source?.kind === "video" ? (
+                  {canToggleDirectStream ? (
                     <button
                       type="button"
                       onClick={() => {
                         if (showEmbed) {
                           setShowEmbed(false);
-                          setPlaybackMessage("Returned to the direct stream.");
+                          setPlaybackMessage("Switched from the provider player to the direct stream.");
                           return;
                         }
 
-                        activateEmbedFallback("Switched to the embedded player.");
+                        activateEmbedFallback("Switched back to the provider player.");
                       }}
                       className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/6 px-4 py-2 text-xs font-semibold text-white transition-colors hover:border-primary/40 hover:text-primary"
                     >
                       <MonitorPlay className="h-3.5 w-3.5" />
-                      {showEmbed ? "Back to direct" : "Use embed"}
+                      {showEmbed ? "Try direct stream" : "Use provider player"}
                     </button>
                   ) : null}
                   {session.source?.iframeUrl ? (
