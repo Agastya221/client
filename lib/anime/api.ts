@@ -32,7 +32,7 @@ import {
 } from "./utils";
 
 export const LOCAL_ANIME_API_BASE_URL = "http://localhost:4000";
-export const PRODUCTION_ANIME_API_BASE_URL = "https://api.tatakai.me";
+export const PRODUCTION_ANIME_API_BASE_URL = "https://animeapi-production-5e2c.up.railway.app";
 
 export function resolveAnimeApiBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
   const configuredBaseUrl = String(env.ANIME_API_BASE_URL || env.NEXT_PUBLIC_ANIME_API_BASE_URL || "").trim();
@@ -154,6 +154,16 @@ function cloneCatalogAnime(anime: CatalogAnime, providerIds: Partial<Record<Prov
   };
 }
 
+function summarizeFailedResponseBody(body: string): string {
+  const trimmed = String(body || "").trim();
+  if (!trimmed) return "";
+
+  const htmlTitle = trimmed.match(/<title>([^<]+)<\/title>/i)?.[1]?.replace(/\s+/g, " ").trim();
+  if (htmlTitle) return htmlTitle;
+
+  return trimmed.replace(/\s+/g, " ").slice(0, 220);
+}
+
 async function apiJson<T>(path: string, options?: { revalidate?: number; noStore?: boolean }): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
@@ -166,7 +176,8 @@ async function apiJson<T>(path: string, options?: { revalidate?: number; noStore
 
   if (!response.ok) {
     const body = await response.text().catch(() => "");
-    throw new Error(`${path} -> ${response.status}${body ? `: ${body}` : ""}`);
+    const summary = summarizeFailedResponseBody(body);
+    throw new Error(`${path} -> ${response.status}${summary ? `: ${summary}` : ""}`);
   }
 
   return (await response.json()) as T;
