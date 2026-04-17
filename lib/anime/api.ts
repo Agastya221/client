@@ -220,10 +220,18 @@ export function normalizeAnimeKaiCatalogItem(item: JsonValue): CatalogAnime {
   const genres = mapGenres(item.genres);
   const subCount = numberOrNull(item.subCount ?? item.sub);
   const dubCount = numberOrNull(item.dubCount ?? item.dub);
+
+  let providerId = String(item.id || item.slug || "");
+  if (!providerId && item.url) {
+    const parts = String(item.url).split("/");
+    providerId = parts[parts.length - 1] || "";
+  }
+  if (!providerId) providerId = String(item.title);
+
   return normalizeBaseAnime({
     provider: "animekai",
-    providerId: String(item.id || item.slug || item.title),
-    title: pickFirstNonEmpty(item.title, humanizeProviderId(String(item.id || ""))),
+    providerId,
+    title: pickFirstNonEmpty(item.title, humanizeProviderId(providerId)),
     poster: pickFirstNonEmpty(item.image, item.poster, item.thumbnail),
     banner: pickFirstNonEmpty(item.banner),
     description: item.description || null,
