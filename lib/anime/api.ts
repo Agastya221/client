@@ -2,6 +2,8 @@ import { cache } from "react";
 import {
   PROVIDERS,
   type AnimeDetailModel,
+  type AnimeDetailOverviewModel,
+  type AnimeEpisodeListModel,
   type AnimeMetadataRow,
   type CatalogAnime,
   type EpisodeModel,
@@ -63,6 +65,8 @@ type ProviderDetailBundle = {
   related: CatalogAnime[];
   recommended: CatalogAnime[];
 };
+
+type ProviderDetailMetaBundle = Omit<ProviderDetailBundle, "episodes">;
 
 type ProviderWatchPayload = {
   source: StreamSource | null;
@@ -214,6 +218,8 @@ export function normalizeHianimeCatalogItem(item: JsonValue): CatalogAnime {
 
 export function normalizeAnimeKaiCatalogItem(item: JsonValue): CatalogAnime {
   const genres = mapGenres(item.genres);
+  const subCount = numberOrNull(item.subCount ?? item.sub);
+  const dubCount = numberOrNull(item.dubCount ?? item.dub);
   return normalizeBaseAnime({
     provider: "animekai",
     providerId: String(item.id || item.slug || item.title),
@@ -225,9 +231,11 @@ export function normalizeAnimeKaiCatalogItem(item: JsonValue): CatalogAnime {
     type: item.type || null,
     rating: item.score || item.rating || null,
     year: parseYear(item.releaseDate || item.year || item.season),
-    subCount: numberOrNull(item.sub),
-    dubCount: numberOrNull(item.dub),
-    episodeCount: numberOrNull(item.episodes ?? item.totalEpisodes),
+    subCount,
+    dubCount,
+    episodeCount:
+      numberOrNull(item.episodes ?? item.totalEpisodes) ??
+      (Math.max(subCount || 0, dubCount || 0) || null),
     anilistId: numberOrNull(item.anilistId),
     malId: numberOrNull(item.malId),
   });
@@ -311,12 +319,16 @@ export function normalizeHianimeEpisodesPayload(data: JsonValue): EpisodeModel[]
 }
 
 export function normalizeAnimeKaiEpisodesPayload(data: JsonValue): EpisodeModel[] {
+  const subCount = numberOrNull(data.subCount);
+  const dubCount = numberOrNull(data.dubCount);
   return ensureArray(data.episodes).map((episode) => ({
     number: Number(episode.number || 0),
     title: pickFirstNonEmpty(episode.title, `Episode ${episode.number}`),
     isFiller: Boolean(episode.isFiller),
-    isSubbed: Boolean(episode.isSubbed),
-    isDubbed: Boolean(episode.isDubbed),
+    isSubbed:
+      episode.isSubbed === undefined ? (subCount !== null ? Number(episode.number || 0) <= subCount : false) : Boolean(episode.isSubbed),
+    isDubbed:
+      episode.isDubbed === undefined ? (dubCount !== null ? Number(episode.number || 0) <= dubCount : false) : Boolean(episode.isDubbed),
     idByProvider: { animekai: String(episode.id) },
     availableProviders: ["animekai"],
   }));
@@ -357,18 +369,11 @@ async function fetchHianimeGenre(genre: string, page: number) {
   return unwrapProviderPayload(response);
 }
 
-async function fetchHianimeDetail(providerId: string): Promise<ProviderDetailBundle> {
-  const [detailResponse, episodeResponse] = await Promise.all([
-    apiJson<JsonValue>(`/api/v2/hianime/anime/${encodeURIComponent(providerId)}`, {
-      revalidate: DETAIL_REVALIDATE_SECONDS,
-    }),
-    apiJson<JsonValue>(`/api/v2/hianime/anime/${encodeURIComponent(providerId)}/episodes`, {
-      revalidate: DETAIL_REVALIDATE_SECONDS,
-    }),
-  ]);
-
+async function fetchHianimeDetailMeta(providerId: string): Promise<ProviderDetailMetaBundle> {
+  const detailResponse = await apiJson<JsonValue>(`/api/v2/hianime/anime/${encodeURIComponent(providerId)}`, {
+    revalidate: DETAIL_REVALIDATE_SECONDS,
+  });
   const detail = unwrapProviderPayload(detailResponse);
-  const episodes = unwrapProviderPayload(episodeResponse);
   const info = detail.anime?.info || {};
   const moreInfo = detail.anime?.moreInfo || {};
   const genres = mapGenres(moreInfo.genres || moreInfo.genre);
@@ -386,7 +391,7 @@ async function fetchHianimeDetail(providerId: string): Promise<ProviderDetailBun
     status: pickFirstNonEmpty(moreInfo.status),
     subCount: numberOrNull(info.stats?.episodes?.sub),
     dubCount: numberOrNull(info.stats?.episodes?.dub),
-    episodeCount: numberOrNull(episodes.totalEpisodes ?? info.stats?.episodes?.sub),
+    episodeCount: numberOrNull(info.stats?.episodes?.sub) ?? numberOrNull(info.stats?.episodes?.dub),
     anilistId: numberOrNull(info.anilistId),
     malId: numberOrNull(info.malId),
   });
@@ -397,16 +402,41 @@ async function fetchHianimeDetail(providerId: string): Promise<ProviderDetailBun
     anime,
     synopsis: pickFirstNonEmpty(info.description),
     metadata: toHianimeMetadata(detail),
-    episodes: normalizeHianimeEpisodesPayload(episodes),
     related: ensureArray(detail.relatedAnimes).map(normalizeHianimeCatalogItem),
     recommended: ensureArray(detail.recommendedAnimes).map(normalizeHianimeCatalogItem),
   };
 }
 
-async function fetchAnimeKaiDetail(providerId: string): Promise<ProviderDetailBundle> {
-  const detail = await apiJson<JsonValue>(`/api/v2/anime/animekai/info/${encodeURIComponent(providerId)}`, {
+async function fetchHianimeEpisodes(providerId: string): Promise<EpisodeModel[]> {
+  const episodeResponse = await apiJson<JsonValue>(`/api/v2/hianime/anime/${encodeURIComponent(providerId)}/episodes`, {
     revalidate: DETAIL_REVALIDATE_SECONDS,
   });
+  const episodes = unwrapProviderPayload(episodeResponse);
+  return normalizeHianimeEpisodesPayload(episodes);
+}
+
+async function fetchHianimeDetail(providerId: string): Promise<ProviderDetailBundle> {
+  const [meta, episodes] = await Promise.all([
+    fetchHianimeDetailMeta(providerId),
+    fetchHianimeEpisodes(providerId),
+  ]);
+
+  return {
+    ...meta,
+    episodes,
+    anime: {
+      ...meta.anime,
+      episodeCount: meta.anime.episodeCount ?? episodes.length,
+    },
+  };
+}
+
+async function fetchAnimeKaiDetailMeta(providerId: string): Promise<ProviderDetailMetaBundle> {
+  const detail = await apiJson<JsonValue>(`/api/v2/anime/animekai/meta/${encodeURIComponent(providerId)}`, {
+    revalidate: DETAIL_REVALIDATE_SECONDS,
+  });
+  const subCount = numberOrNull(detail.subCount);
+  const dubCount = numberOrNull(detail.dubCount);
   const anime = normalizeBaseAnime({
     provider: "animekai",
     providerId,
@@ -417,9 +447,9 @@ async function fetchAnimeKaiDetail(providerId: string): Promise<ProviderDetailBu
     type: detail.type || null,
     year: parseYear(detail.season),
     status: detail.status || null,
-    subCount: detail.hasSub ? numberOrNull(detail.totalEpisodes) : 0,
-    dubCount: detail.hasDub ? numberOrNull(detail.totalEpisodes) : 0,
-    episodeCount: numberOrNull(detail.totalEpisodes),
+    subCount,
+    dubCount,
+    episodeCount: Math.max(subCount || 0, dubCount || 0) || null,
     anilistId: numberOrNull(detail.anilistId),
     malId: numberOrNull(detail.malId),
   });
@@ -430,13 +460,37 @@ async function fetchAnimeKaiDetail(providerId: string): Promise<ProviderDetailBu
     anime,
     synopsis: pickFirstNonEmpty(detail.description),
     metadata: toAnimeKaiMetadata(detail),
-    episodes: normalizeAnimeKaiEpisodesPayload(detail),
     related: ensureArray(detail.relations).map(normalizeAnimeKaiCatalogItem),
     recommended: ensureArray(detail.recommendations).map(normalizeAnimeKaiCatalogItem),
   };
 }
 
-async function fetchDesidubDetail(providerId: string): Promise<ProviderDetailBundle> {
+async function fetchAnimeKaiEpisodes(providerId: string): Promise<EpisodeModel[]> {
+  const detail = await apiJson<JsonValue>(`/api/v2/anime/animekai/episodes/${encodeURIComponent(providerId)}`, {
+    revalidate: DETAIL_REVALIDATE_SECONDS,
+  });
+  return normalizeAnimeKaiEpisodesPayload(detail);
+}
+
+async function fetchAnimeKaiDetail(providerId: string): Promise<ProviderDetailBundle> {
+  const [meta, episodes] = await Promise.all([
+    fetchAnimeKaiDetailMeta(providerId),
+    fetchAnimeKaiEpisodes(providerId),
+  ]);
+
+  return {
+    ...meta,
+    episodes,
+    anime: {
+      ...meta.anime,
+      episodeCount: meta.anime.episodeCount ?? episodes.length,
+      subCount: meta.anime.subCount ?? episodes.filter((episode) => episode.isSubbed).length,
+      dubCount: meta.anime.dubCount ?? episodes.filter((episode) => episode.isDubbed).length,
+    },
+  };
+}
+
+async function fetchDesidubDetailMeta(providerId: string): Promise<ProviderDetailMetaBundle> {
   const detail = await apiJson<JsonValue>(`/api/v2/anime/desidub/info/${encodeURIComponent(providerId)}`, {
     revalidate: DETAIL_REVALIDATE_SECONDS,
   });
@@ -458,10 +512,54 @@ async function fetchDesidubDetail(providerId: string): Promise<ProviderDetailBun
     anime,
     synopsis: pickFirstNonEmpty(detail.description),
     metadata: toDesidubMetadata(detail),
-    episodes: normalizeDesidubEpisodesPayload(detail),
     related: [],
     recommended: [],
   };
+}
+
+async function fetchDesidubEpisodes(providerId: string): Promise<EpisodeModel[]> {
+  const detail = await apiJson<JsonValue>(`/api/v2/anime/desidub/info/${encodeURIComponent(providerId)}`, {
+    revalidate: DETAIL_REVALIDATE_SECONDS,
+  });
+  return normalizeDesidubEpisodesPayload(detail);
+}
+
+async function fetchDesidubDetail(providerId: string): Promise<ProviderDetailBundle> {
+  const [meta, episodes] = await Promise.all([
+    fetchDesidubDetailMeta(providerId),
+    fetchDesidubEpisodes(providerId),
+  ]);
+
+  return {
+    ...meta,
+    episodes,
+    anime: {
+      ...meta.anime,
+      episodeCount: meta.anime.episodeCount ?? episodes.length,
+    },
+  };
+}
+
+async function fetchProviderDetailMeta(provider: ProviderId, providerId: string): Promise<ProviderDetailMetaBundle> {
+  switch (provider) {
+    case "hianime":
+      return fetchHianimeDetailMeta(providerId);
+    case "animekai":
+      return fetchAnimeKaiDetailMeta(providerId);
+    case "desidub":
+      return fetchDesidubDetailMeta(providerId);
+  }
+}
+
+async function fetchProviderEpisodes(provider: ProviderId, providerId: string): Promise<EpisodeModel[]> {
+  switch (provider) {
+    case "hianime":
+      return fetchHianimeEpisodes(providerId);
+    case "animekai":
+      return fetchAnimeKaiEpisodes(providerId);
+    case "desidub":
+      return fetchDesidubEpisodes(providerId);
+  }
 }
 
 async function fetchProviderDetail(provider: ProviderId, providerId: string): Promise<ProviderDetailBundle> {
@@ -849,14 +947,23 @@ async function tryBaseProviderDetail(routeId: string): Promise<ProviderDetailBun
   }
 }
 
-export async function getAnimeDetailModel(
+async function tryBaseProviderDetailMeta(routeId: string): Promise<ProviderDetailMetaBundle | null> {
+  const decoded = decodeAnimeId(routeId);
+  try {
+    return await fetchProviderDetailMeta(decoded.provider, decoded.providerId);
+  } catch {
+    return null;
+  }
+}
+
+export async function getAnimeDetailOverviewModel(
   routeId: string,
   preferredProvider?: ProviderId | null,
   options: AnimeDetailModelOptions = {},
-): Promise<AnimeDetailModel> {
+): Promise<AnimeDetailOverviewModel> {
   const decoded = decodeAnimeId(routeId);
   const attempts: ProviderAttemptStatus[] = [];
-  const baseBundle = await tryBaseProviderDetail(routeId);
+  const baseBundle = await tryBaseProviderDetailMeta(routeId);
 
   if (baseBundle) {
     attempts.push(providerSuccess(baseBundle.provider, "Resolved base provider metadata"));
@@ -889,12 +996,12 @@ export async function getAnimeDetailModel(
       : { ...seedAnime.providerIds };
   providerIds[decoded.provider] = providerIds[decoded.provider] || decoded.providerId;
   const order = buildProviderOrder(preferredProvider || decoded.provider, decoded.provider);
-  const bundleCache = new Map<ProviderId, ProviderDetailBundle>();
+  const bundleCache = new Map<ProviderId, ProviderDetailMetaBundle>();
   if (baseBundle) {
     bundleCache.set(baseBundle.provider, baseBundle);
   }
 
-  let activeBundle: ProviderDetailBundle | null = null;
+  let activeBundle: ProviderDetailMetaBundle | null = null;
 
   for (const provider of order) {
     const providerId = providerIds[provider];
@@ -904,7 +1011,7 @@ export async function getAnimeDetailModel(
     }
 
     try {
-      const bundle = bundleCache.get(provider) || (await fetchProviderDetail(provider, providerId));
+      const bundle = bundleCache.get(provider) || (await fetchProviderDetailMeta(provider, providerId));
       bundleCache.set(provider, bundle);
       attempts.push(providerSuccess(provider, provider === decoded.provider ? "Primary detail loaded" : "Fallback detail loaded"));
       activeBundle = bundle;
@@ -920,8 +1027,6 @@ export async function getAnimeDetailModel(
       anime,
       synopsis: anime.description || "No synopsis available right now.",
       metadata: [],
-      episodes: [],
-      episodeCoverageMode: shouldMergeEpisodeProviders ? "merged-providers" : "active-provider",
       related: [],
       recommended: [],
       activeProvider: decoded.provider,
@@ -930,39 +1035,99 @@ export async function getAnimeDetailModel(
     };
   }
 
-  const episodeMap = new Map<number, EpisodeModel>();
-  mergeEpisodeMaps(episodeMap, activeBundle.episodes, activeBundle.provider);
-
-  if (shouldMergeEpisodeProviders) {
-    for (const provider of PROVIDERS) {
-      if (provider === activeBundle.provider) continue;
-      const providerId = providerIds[provider];
-      if (!providerId) continue;
-      try {
-        const bundle = bundleCache.get(provider) || (await fetchProviderDetail(provider, providerId));
-        bundleCache.set(provider, bundle);
-        mergeEpisodeMaps(episodeMap, bundle.episodes, provider);
-      } catch {
-        // Keep detail page resilient; attempts already capture top-level provider tries.
-      }
-    }
-  }
-
   const mergedAnime = withProviderIds(activeBundle.anime, providerIds, routeId);
-  const episodes = Array.from(episodeMap.values()).sort((a, b) => a.number - b.number);
   const availableProviders = PROVIDERS.filter((provider) => Boolean(providerIds[provider]));
 
   return {
     anime: mergedAnime,
     synopsis: activeBundle.synopsis || mergedAnime.description || "No synopsis available right now.",
     metadata: activeBundle.metadata,
-    episodes,
-    episodeCoverageMode: shouldMergeEpisodeProviders ? "merged-providers" : "active-provider",
     related: activeBundle.related.map((anime) => withProviderIds(anime, anime.providerIds)),
     recommended: activeBundle.recommended.map((anime) => withProviderIds(anime, anime.providerIds)),
     activeProvider: activeBundle.provider,
     availableProviders,
     attempts,
+  };
+}
+
+export async function getAnimeEpisodeListModel(
+  routeId: string,
+  preferredProvider?: ProviderId | null,
+): Promise<AnimeEpisodeListModel> {
+  const detail = await getAnimeDetailOverviewModel(routeId, preferredProvider, {
+    resolveProviderFallbacks: false,
+    mergeEpisodeProviders: false,
+  });
+  const providerId = detail.anime.providerIds[detail.activeProvider] || detail.anime.providerId;
+
+  if (!providerId) {
+    return {
+      anime: detail.anime,
+      episodes: [],
+      episodeCoverageMode: "active-provider",
+      activeProvider: detail.activeProvider,
+      availableProviders: detail.availableProviders,
+    };
+  }
+
+  try {
+    const episodes = await fetchProviderEpisodes(detail.activeProvider, providerId);
+    return {
+      anime: detail.anime,
+      episodes,
+      episodeCoverageMode: "active-provider",
+      activeProvider: detail.activeProvider,
+      availableProviders: detail.availableProviders,
+    };
+  } catch {
+    return {
+      anime: detail.anime,
+      episodes: [],
+      episodeCoverageMode: "active-provider",
+      activeProvider: detail.activeProvider,
+      availableProviders: detail.availableProviders,
+    };
+  }
+}
+
+export async function getAnimeDetailModel(
+  routeId: string,
+  preferredProvider?: ProviderId | null,
+  options: AnimeDetailModelOptions = {},
+): Promise<AnimeDetailModel> {
+  const detail = await getAnimeDetailOverviewModel(routeId, preferredProvider, options);
+  const shouldMergeEpisodeProviders = options.mergeEpisodeProviders ?? true;
+
+  if (!shouldMergeEpisodeProviders) {
+    const activeProviderId =
+      detail.anime.providerIds[detail.activeProvider] || detail.anime.providerId;
+    const episodes = activeProviderId
+      ? await fetchProviderEpisodes(detail.activeProvider, activeProviderId).catch(() => [])
+      : [];
+
+    return {
+      ...detail,
+      episodes,
+      episodeCoverageMode: "active-provider",
+    };
+  }
+
+  const episodeMap = new Map<number, EpisodeModel>();
+  for (const provider of PROVIDERS) {
+    const providerId = detail.anime.providerIds[provider];
+    if (!providerId) continue;
+    try {
+      const episodes = await fetchProviderEpisodes(provider, providerId);
+      mergeEpisodeMaps(episodeMap, episodes, provider);
+    } catch {
+      // Keep detail page resilient; overview already captured primary selection attempts.
+    }
+  }
+
+  return {
+    ...detail,
+    episodes: Array.from(episodeMap.values()).sort((a, b) => a.number - b.number),
+    episodeCoverageMode: "merged-providers",
   };
 }
 

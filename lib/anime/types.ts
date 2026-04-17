@@ -95,6 +95,25 @@ export interface AnimeDetailModel {
   attempts: ProviderAttemptStatus[];
 }
 
+export interface AnimeDetailOverviewModel {
+  anime: CatalogAnime;
+  synopsis: string;
+  metadata: AnimeMetadataRow[];
+  related: CatalogAnime[];
+  recommended: CatalogAnime[];
+  activeProvider: ProviderId;
+  availableProviders: ProviderId[];
+  attempts: ProviderAttemptStatus[];
+}
+
+export interface AnimeEpisodeListModel {
+  anime: CatalogAnime;
+  episodes: EpisodeModel[];
+  episodeCoverageMode: "active-provider" | "merged-providers";
+  activeProvider: ProviderId;
+  availableProviders: ProviderId[];
+}
+
 export interface SubtitleTrack {
   label: string;
   lang: string;

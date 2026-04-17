@@ -3,7 +3,7 @@ import ProviderBadge from "@/components/anime/ProviderBadge";
 import AnimeCard from "@/components/ui/AnimeCard";
 import Navbar from "@/components/ui/Navbar";
 import SiteFooter from "@/components/ui/SiteFooter";
-import { getAnimeDetailModel } from "@/lib/anime/api";
+import { getAnimeDetailOverviewModel, getAnimeEpisodeListModel } from "@/lib/anime/api";
 import { normalizeProviderParam } from "@/lib/anime/fallback";
 import { Play, Sparkles, Loader2 } from "lucide-react";
 import Link from "next/link";
@@ -43,6 +43,88 @@ function DetailSkeleton() {
   );
 }
 
+function EpisodeSectionSkeleton() {
+  return (
+    <div className="rounded-[1.75rem] border border-white/5 bg-[#1a1a1a] p-6 shadow-lg animate-pulse">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <div className="h-3 w-20 rounded bg-white/10" />
+          <div className="mt-3 h-9 w-64 rounded bg-white/10" />
+        </div>
+        <div className="h-8 w-36 rounded-full bg-white/10" />
+      </div>
+      <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 6 }).map((_, index) => (
+          <div key={index} className="rounded-[1.5rem] border border-white/5 bg-[#222] p-4">
+            <div className="h-3 w-24 rounded bg-white/10" />
+            <div className="mt-3 h-5 w-3/4 rounded bg-white/10" />
+            <div className="mt-4 flex gap-2">
+              <div className="h-6 w-16 rounded-full bg-white/10" />
+              <div className="h-6 w-16 rounded-full bg-white/10" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+async function EpisodesSection({
+  id,
+  preferredProvider,
+}: {
+  id: string;
+  preferredProvider: ReturnType<typeof normalizeProviderParam>;
+}) {
+  const detail = await getAnimeEpisodeListModel(id, preferredProvider);
+  const isMergedEpisodeMap = detail.episodeCoverageMode === "merged-providers";
+
+  return (
+    <div className="rounded-[1.75rem] border border-white/5 bg-[#1a1a1a] p-6 shadow-lg">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-white/40">
+            Episodes
+          </p>
+          <h2 className="mt-2 text-3xl font-black text-white/90">
+            {isMergedEpisodeMap ? "Cross-provider episode map" : "Episode list"}
+          </h2>
+        </div>
+        <span className="rounded-full border border-[#52ff7f]/20 bg-[#52ff7f]/5 px-3 py-1 text-xs text-[#52ff7f] font-semibold">
+          {detail.episodes.length} {isMergedEpisodeMap ? "episodes detected" : "episodes available"}
+        </span>
+      </div>
+
+      <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {detail.episodes.map((episode) => (
+          <Link
+            key={episode.number}
+            href={`/anime/${id}/watch?ep=${episode.number}&provider=${detail.activeProvider}`}
+            className="group rounded-[1.5rem] border border-white/5 bg-[#222] p-4 transition-all hover:border-[#ff5500]/50 hover:-translate-y-1 shadow-md"
+          >
+            <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-[#ff5500]/80">
+              Episode {episode.number}
+            </p>
+            <h3 className="mt-2 line-clamp-2 text-base font-semibold text-white group-hover:text-[#ff5500] transition-colors">
+              {episode.title}
+            </h3>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {episode.availableProviders.map((provider) => (
+                <ProviderBadge
+                  key={`${episode.number}-${provider}`}
+                  provider={provider}
+                  active={provider === detail.activeProvider}
+                  subtle
+                />
+              ))}
+            </div>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 async function DetailContent({
   idPromise,
   searchParamsPromise,
@@ -53,16 +135,13 @@ async function DetailContent({
   const { id } = await idPromise;
   const query = await searchParamsPromise;
   const preferredProvider = normalizeProviderParam(firstParam(query.provider));
-  const detail = await getAnimeDetailModel(id, preferredProvider, {
+  const detail = await getAnimeDetailOverviewModel(id, preferredProvider, {
     resolveProviderFallbacks: false,
-    mergeEpisodeProviders: false,
   });
   const heroImage =
     detail.anime.banner ||
     detail.anime.poster ||
     "https://placehold.co/1600x900/131313/e5e2e1?text=KAIDO";
-  const firstEpisode = detail.episodes[0];
-  const isMergedEpisodeMap = detail.episodeCoverageMode === "merged-providers";
 
   return (
     <>
@@ -106,15 +185,13 @@ async function DetailContent({
               </div>
 
               <div className="flex flex-wrap gap-4">
-                {firstEpisode ? (
-                  <Link
-                    href={`/anime/${id}/watch?ep=${firstEpisode.number}&provider=${detail.activeProvider}`}
-                    className="inline-flex items-center gap-2 rounded-full bg-[#ff5500] px-8 py-3.5 text-sm font-black uppercase tracking-wider text-black transition-transform hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(255,85,0,0.4)]"
-                  >
-                    <Play className="h-4 w-4 fill-current" />
-                    Start watching
-                  </Link>
-                ) : null}
+                <Link
+                  href={`/anime/${id}/watch?ep=1&provider=${detail.activeProvider}`}
+                  className="inline-flex items-center gap-2 rounded-full bg-[#ff5500] px-8 py-3.5 text-sm font-black uppercase tracking-wider text-black transition-transform hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(255,85,0,0.4)]"
+                >
+                  <Play className="h-4 w-4 fill-current" />
+                  Start watching
+                </Link>
                 <Link
                   href="/search"
                   className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-black/20 backdrop-blur-md px-6 py-3.5 text-sm font-semibold text-white transition-colors hover:border-white/40 hover:bg-white/10"
@@ -187,48 +264,9 @@ async function DetailContent({
               ) : null}
             </div>
 
-            <div className="rounded-[1.75rem] border border-white/5 bg-[#1a1a1a] p-6 shadow-lg">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-white/40">
-                    Episodes
-                  </p>
-                  <h2 className="mt-2 text-3xl font-black text-white/90">
-                    {isMergedEpisodeMap ? "Cross-provider episode map" : "Episode list"}
-                  </h2>
-                </div>
-                <span className="rounded-full border border-[#52ff7f]/20 bg-[#52ff7f]/5 px-3 py-1 text-xs text-[#52ff7f] font-semibold">
-                  {detail.episodes.length} {isMergedEpisodeMap ? "episodes detected" : "episodes available"}
-                </span>
-              </div>
-
-              <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {detail.episodes.map((episode) => (
-                  <Link
-                    key={episode.number}
-                    href={`/anime/${id}/watch?ep=${episode.number}&provider=${detail.activeProvider}`}
-                    className="group rounded-[1.5rem] border border-white/5 bg-[#222] p-4 transition-all hover:border-[#ff5500]/50 hover:-translate-y-1 shadow-md"
-                  >
-                    <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-[#ff5500]/80">
-                      Episode {episode.number}
-                    </p>
-                    <h3 className="mt-2 line-clamp-2 text-base font-semibold text-white group-hover:text-[#ff5500] transition-colors">
-                      {episode.title}
-                    </h3>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {episode.availableProviders.map((provider) => (
-                        <ProviderBadge
-                          key={`${episode.number}-${provider}`}
-                          provider={provider}
-                          active={provider === detail.activeProvider}
-                          subtle
-                        />
-                      ))}
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </div>
+            <Suspense fallback={<EpisodeSectionSkeleton />}>
+              <EpisodesSection id={id} preferredProvider={preferredProvider} />
+            </Suspense>
           </div>
 
           <aside className="space-y-8">
