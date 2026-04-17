@@ -59,8 +59,8 @@ export default function HomeHeroCarousel({ slides }: HomeHeroCarouselProps) {
 
       <div className="relative z-10 w-full px-4 lg:px-12 xl:px-16 py-12 flex flex-col lg:flex-row gap-8">
         {/* Left Content */}
-        <div className="flex-1 flex flex-col justify-center max-w-2xl py-12">
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-white leading-[1.1] mb-4 text-shadow-hero">
+        <div className="flex-1 flex flex-col justify-center max-w-4xl py-12">
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl xl:text-7xl font-black text-white leading-tight mb-4 text-shadow-hero drop-shadow-xl">
             {activeSlide.title}
           </h1>
           
