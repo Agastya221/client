@@ -643,6 +643,17 @@ const getHomePageModelUncached = async (): Promise<HomePageModel> => {
 
 export const getHomePageModel = cache(getHomePageModelUncached);
 
+export async function getHindiDubbedAnimes(): Promise<CatalogAnime[]> {
+  try {
+    const desidub = await apiJson<JsonValue>("/api/v2/anime/desidub/home", {
+      revalidate: 300,
+    });
+    return (desidub.featured as any[] || []).map(normalizeDesidubCatalogItem);
+  } catch {
+    return [];
+  }
+}
+
 export async function getGenresPageModel(): Promise<GenresPageModel> {
   const home = await getHomePageModel();
   const featuredGenres = uniqueStrings([

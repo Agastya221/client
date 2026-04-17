@@ -40,9 +40,9 @@ export default function HomeHeroCarousel({ slides }: HomeHeroCarouselProps) {
 
   const heroImage = activeSlide.banner || activeSlide.poster || "https://placehold.co/1600x900/101010/333333?text=AnimeKAI";
   const genres = activeSlide.genres?.slice(0, 3).join(", ") || "Anime";
-  const rating = activeSlide.rating || "PG 13";
-  const quality = activeSlide.episodeCount ? "HD" : "CAM";
-  const release = activeSlide.year || "?";
+  const quality = activeSlide.episodeCount ? "HD" : "";
+  const rating = activeSlide.rating && activeSlide.rating !== "?" && activeSlide.rating !== "1" ? activeSlide.rating : "";
+  const release = activeSlide.year && activeSlide.year !== "?" ? activeSlide.year : "";
 
   return (
     <section className="relative w-full pt-[64px] min-h-[75vh] flex bg-[#161616]">
@@ -57,7 +57,7 @@ export default function HomeHeroCarousel({ slides }: HomeHeroCarouselProps) {
         <div className="absolute inset-0 bg-gradient-to-t from-[#161616] via-transparent to-transparent" />
       </div>
 
-      <div className="relative z-10 w-full max-w-[95rem] mx-auto px-6 py-12 flex flex-col lg:flex-row gap-8">
+      <div className="relative z-10 w-full px-4 lg:px-12 xl:px-16 py-12 flex flex-col lg:flex-row gap-8">
         {/* Left Content */}
         <div className="flex-1 flex flex-col justify-center max-w-2xl py-12">
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-white leading-[1.1] mb-4 text-shadow-hero">
@@ -87,20 +87,28 @@ export default function HomeHeroCarousel({ slides }: HomeHeroCarouselProps) {
           </p>
 
           {/* Info Blocks */}
-          <div className="flex gap-4 mb-8">
-            <div className="bg-[#0e0f11] rounded-lg px-4 py-3 flex flex-col min-w-[5rem] border border-white/5">
-              <span className="text-[10px] text-white/50 uppercase font-bold">Rating</span>
-              <span className="font-bold text-white text-sm mt-1">{rating}</span>
+          {(rating || release || quality) && (
+            <div className="flex gap-4 mb-8">
+              {rating && (
+                <div className="bg-[#0e0f11] rounded-lg px-4 py-3 flex flex-col min-w-[5rem] border border-white/5">
+                  <span className="text-[10px] text-white/50 uppercase font-bold">Rating</span>
+                  <span className="font-bold text-white text-sm mt-1">{rating}</span>
+                </div>
+              )}
+              {release && (
+                <div className="bg-[#0e0f11] rounded-lg px-4 py-3 flex flex-col min-w-[5rem] border border-white/5">
+                  <span className="text-[10px] text-white/50 uppercase font-bold">Release</span>
+                  <span className="font-bold text-white text-sm mt-1">{release}</span>
+                </div>
+              )}
+              {quality && (
+                <div className="bg-[#0e0f11] rounded-lg px-4 py-3 flex flex-col min-w-[5rem] border border-white/5">
+                  <span className="text-[10px] text-white/50 uppercase font-bold">Quality</span>
+                  <span className="font-bold text-white text-sm mt-1">{quality}</span>
+                </div>
+              )}
             </div>
-            <div className="bg-[#0e0f11] rounded-lg px-4 py-3 flex flex-col min-w-[5rem] border border-white/5">
-              <span className="text-[10px] text-white/50 uppercase font-bold">Release</span>
-              <span className="font-bold text-white text-sm mt-1">{release}</span>
-            </div>
-            <div className="bg-[#0e0f11] rounded-lg px-4 py-3 flex flex-col min-w-[5rem] border border-white/5">
-              <span className="text-[10px] text-white/50 uppercase font-bold">Quality</span>
-              <span className="font-bold text-white text-sm mt-1">{quality}</span>
-            </div>
-          </div>
+          )}
 
           {/* Action Buttons */}
           <div className="flex items-center gap-4">

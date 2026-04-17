@@ -3,12 +3,16 @@ import HomeHeroCarousel from "@/components/anime/HomeHeroCarousel";
 import AnimeCard from "@/components/ui/AnimeCard";
 import Navbar from "@/components/ui/Navbar";
 import SiteFooter from "@/components/ui/SiteFooter";
-import { getHomePageModel } from "@/lib/anime/api";
+import { getHomePageModel, getHindiDubbedAnimes } from "@/lib/anime/api";
 import Link from "next/link";
 import { ChevronRight, ChevronLeft, Heart } from "lucide-react";
 
 export default async function Home() {
-  const home = await getHomePageModel();
+  const [home, hindiDubbed] = await Promise.all([
+    getHomePageModel(),
+    getHindiDubbedAnimes(),
+  ]);
+
   const heroSlides = [home.hero, ...home.trending].filter(
     (anime, index, collection): anime is NonNullable<typeof anime> =>
       Boolean(anime) && collection.findIndex((entry) => entry?.id === anime?.id) === index,
@@ -20,9 +24,9 @@ export default async function Home() {
 
       <HomeHeroCarousel slides={heroSlides} />
 
-      <section className="px-6 pb-12 pt-6 max-w-[95rem] mx-auto w-full">
+      <section className="w-full px-4 lg:px-12 xl:px-16 pb-12 pt-6">
         {/* Banner */}
-        <div className="bg-[#1b1c20] rounded-lg p-4 flex items-center gap-4 mb-8">
+        <div className="bg-[#1b1c20] rounded-lg p-4 flex items-center gap-4 mb-8 border border-white/5">
           <div className="w-10 h-10 rounded-full bg-[#ff5500]/20 flex items-center justify-center border border-[#ff5500]/50 shrink-0">
             <Heart className="w-5 h-5 text-[#ff5500] fill-current" />
           </div>
@@ -34,7 +38,7 @@ export default async function Home() {
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8">
           {/* Main Left Content */}
-          <div className="flex flex-col gap-8">
+          <div className="flex flex-col gap-10">
             
             {/* Latest Updates Section */}
             <div>
@@ -59,6 +63,24 @@ export default async function Home() {
               </div>
             </div>
 
+            {/* Hindi Dubbed Section */}
+            {hindiDubbed && hindiDubbed.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-4 mt-4">
+                  <h2 className="text-xl font-black text-white tracking-widest uppercase flex items-center gap-2">
+                    HINDI DUBBED
+                    <span className="bg-[#ff5500] text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm">DESI</span>
+                  </h2>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4 gap-y-6">
+                  {hindiDubbed.slice(0, 10).map((anime) => (
+                    <AnimeCard key={anime.id} anime={anime} highlightProvider={true} />
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Provider Trail (Optional / Debug) */}
             <div className="mt-8 pt-8 border-t border-white/5">
               <AttemptTrail
@@ -71,7 +93,7 @@ export default async function Home() {
 
           {/* Right Sidebar - Top Trending */}
           <div className="w-full">
-            <div className="bg-[#1b1c20] rounded-xl overflow-hidden p-4">
+            <div className="bg-[#1b1c20] rounded-xl overflow-hidden p-4 border border-white/5">
               <div className="flex items-center gap-3 mb-4 border-b border-white/5 pb-4">
                 <span className="text-[#ff5500]">🏆</span>
                 <h2 className="font-black text-lg text-white">Top Trending</h2>

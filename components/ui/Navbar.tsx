@@ -4,8 +4,8 @@ import { Search, Filter, Users, Shuffle, User } from "lucide-react";
 export default function Navbar() {
   return (
     <nav className="fixed top-0 z-50 w-full border-b border-white/5 bg-[#161616]/80 backdrop-blur-md">
-      <div className="mx-auto flex h-16 max-w-[95rem] items-center justify-between px-6">
-        <div className="flex items-center gap-10">
+      <div className="flex h-16 w-full items-center justify-between px-4 lg:px-12 xl:px-16 space-x-6">
+        <div className="flex items-center gap-10 shrink-0">
           <Link href="/" className="flex items-center text-2xl font-black tracking-tight">
             <span className="text-white">Anime</span>
             <span className="text-[#52ff7f]">KAI</span>
