@@ -14,7 +14,7 @@ export function decodeAnimeId(value: string): { provider: ProviderId; providerId
   }
   
 
-  return { provider: "hianime", providerId: decodeURIComponent(value) };
+  return { provider: "animekai", providerId: decodeURIComponent(value) };
 }
 
 export function buildProviderOrder(preferred?: ProviderId | null, seeded?: ProviderId | null): ProviderId[] {
