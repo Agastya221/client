@@ -30,6 +30,8 @@ export function normalizeText(value: string | null | undefined): string {
 }
 
 export function humanizeProviderId(value: string): string {
+  if (value === "hianime") return "Kaido";
+  
   return value
     .replace(/\?.*$/, "")
     .replace(/\$.*$/, "")
