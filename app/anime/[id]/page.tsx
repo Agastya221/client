@@ -1,343 +1,305 @@
-import AttemptTrail from "@/components/anime/AttemptTrail";
-import ProviderBadge from "@/components/anime/ProviderBadge";
-import AnimeCard from "@/components/ui/AnimeCard";
 import Navbar from "@/components/ui/Navbar";
 import SiteFooter from "@/components/ui/SiteFooter";
-import { getAnimeDetailOverviewModel, getEpisodesForProvider } from "@/lib/anime/api";
-import { normalizeProviderParam } from "@/lib/anime/fallback";
-import type { ProviderId } from "@/lib/anime/types";
-import { Play, Sparkles, Loader2 } from "lucide-react";
+import AnilistCard from "@/components/anilist/AnilistCard";
+import {
+  getAnilistDetail,
+  anilistTitle,
+  anilistRating,
+  anilistFormat,
+  anilistStatus,
+  anilistYear,
+  encodeAnilistRouteId,
+  type AnilistDetailMedia,
+} from "@/lib/anilist/api";
+import { Play, Star, Calendar, Tv, Users, BookOpen, ChevronRight } from "lucide-react";
 import Link from "next/link";
-import { Suspense } from "react";
+import { notFound } from "next/navigation";
 
 function firstParam(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] || "" : value || "";
 }
 
-function DetailSkeleton() {
+function MetaBadge({ label, value }: { label: string; value: string }) {
   return (
-    <div className="animate-pulse">
-      <div className="relative mx-auto max-w-7xl px-6 py-20 mt-10">
-        <div className="grid gap-10 lg:grid-cols-[18rem_minmax(0,1fr)] lg:items-end">
-          <div className="hidden lg:block">
-            <div className="aspect-[2/3] w-full rounded-[1.75rem] border border-white/10 bg-[#161616] shadow-2xl" />
-          </div>
-          <div className="space-y-6">
-            <div className="flex gap-3">
-              <div className="h-6 w-24 rounded-full bg-white/10" />
-              <div className="h-6 w-16 rounded-full bg-white/10" />
-            </div>
-            <div className="space-y-4">
-              <div className="h-14 w-3/4 rounded-lg bg-white/10" />
-              <div className="h-24 w-full rounded-lg bg-white/5" />
-            </div>
-            <div className="flex gap-4 pt-4">
-              <div className="h-12 w-40 rounded-full bg-[#ff5500]/20 flex items-center justify-center border border-[#ff5500]/50">
-                 <Loader2 className="w-5 h-5 text-[#ff5500] animate-spin" />
-              </div>
-              <div className="h-12 w-48 rounded-full bg-white/10" />
-            </div>
-          </div>
-        </div>
-      </div>
+    <div className="flex flex-col gap-1 bg-white/5 rounded-xl p-4 border border-white/5">
+      <span className="text-[10px] font-bold uppercase tracking-widest text-white/30">{label}</span>
+      <span className="text-sm font-semibold text-white/80">{value}</span>
     </div>
   );
 }
 
-function EpisodeSectionSkeleton() {
+function CharacterCard({ char }: { char: { name: { full: string }; image: { medium: string } } }) {
   return (
-    <div className="rounded-[1.75rem] border border-white/5 bg-[#1a1a1a] p-6 shadow-lg animate-pulse">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <div className="h-3 w-20 rounded bg-white/10" />
-          <div className="mt-3 h-9 w-64 rounded bg-white/10" />
-        </div>
-        <div className="h-8 w-36 rounded-full bg-white/10" />
-      </div>
-      <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {Array.from({ length: 6 }).map((_, index) => (
-          <div key={index} className="rounded-[1.5rem] border border-white/5 bg-[#222] p-4">
-            <div className="h-3 w-24 rounded bg-white/10" />
-            <div className="mt-3 h-5 w-3/4 rounded bg-white/10" />
-            <div className="mt-4 flex gap-2">
-              <div className="h-6 w-16 rounded-full bg-white/10" />
-              <div className="h-6 w-16 rounded-full bg-white/10" />
-            </div>
-          </div>
-        ))}
-      </div>
+    <div className="flex items-center gap-3 bg-white/5 rounded-xl p-3 border border-white/5">
+      <img
+        src={char.image.medium}
+        alt={char.name.full}
+        className="w-10 h-10 rounded-full object-cover shrink-0"
+      />
+      <span className="text-sm font-semibold text-white/80 line-clamp-1">{char.name.full}</span>
     </div>
   );
 }
 
-/**
- * Episodes section that receives provider info directly from the parent
- * instead of re-fetching the full overview again. This eliminates a
- * duplicate API call waterfall.
- */
-async function EpisodesSection({
-  id,
-  activeProvider,
-  providerId,
-}: {
-  id: string;
-  activeProvider: ProviderId;
-  providerId: string;
-}) {
-  const episodes = await getEpisodesForProvider(activeProvider, providerId);
+async function AnilistDetailContent({ anilistId }: { anilistId: number }) {
+  const media = await getAnilistDetail(anilistId);
+  const title = anilistTitle(media);
+  const rating = anilistRating(media);
+  const format = anilistFormat(media);
+  const status = anilistStatus(media);
+  const year = anilistYear(media);
+  const studios = media.studios.nodes.map((s) => s.name).join(", ");
+  const description = media.description?.replace(/<[^>]*>/g, "") || "";
+  const accentColor = media.coverImage.color || "#ff5500";
+  const selfHref = `/anime/${encodeAnilistRouteId(anilistId)}`;
 
-  return (
-    <div className="rounded-[1.75rem] border border-white/5 bg-[#1a1a1a] p-6 shadow-lg">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-white/40">
-            Episodes
-          </p>
-          <h2 className="mt-2 text-3xl font-black text-white/90">
-            Episode list
-          </h2>
-        </div>
-        <span className="rounded-full border border-[#52ff7f]/20 bg-[#52ff7f]/5 px-3 py-1 text-xs text-[#52ff7f] font-semibold">
-          {episodes.length} episodes available
-        </span>
-      </div>
+  // Watch link: search AnimeKai by title (our Python API handles the lookup)
+  const watchHref = `/anime/${encodeAnilistRouteId(anilistId)}/watch?ep=1&provider=animekai`;
 
-      <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {episodes.map((episode) => (
-          <Link
-            key={episode.number}
-            href={`/anime/${id}/watch?ep=${episode.number}&provider=${activeProvider}`}
-            className="group rounded-[1.5rem] border border-white/5 bg-[#222] p-4 transition-all hover:border-[#ff5500]/50 hover:-translate-y-1 shadow-md"
-          >
-            <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-[#ff5500]/80">
-              Episode {episode.number}
-            </p>
-            <h3 className="mt-2 line-clamp-2 text-base font-semibold text-white group-hover:text-[#ff5500] transition-colors">
-              {episode.title}
-            </h3>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {episode.availableProviders.map((provider) => (
-                <ProviderBadge
-                  key={`${episode.number}-${provider}`}
-                  provider={provider}
-                  active={provider === activeProvider}
-                  subtle
-                />
-              ))}
-            </div>
-          </Link>
-        ))}
-      </div>
-    </div>
+  const relations = media.relations.edges.filter(
+    (e) => e.relationType === "SEQUEL" || e.relationType === "PREQUEL" || e.relationType === "SIDE_STORY"
   );
-}
 
-async function DetailContent({
-  idPromise,
-  searchParamsPromise,
-}: {
-  idPromise: Promise<{ id: string }>;
-  searchParamsPromise: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  const { id } = await idPromise;
-  const query = await searchParamsPromise;
-  const preferredProvider = normalizeProviderParam(firstParam(query.provider));
-  const detail = await getAnimeDetailOverviewModel(id, preferredProvider, {
-    resolveProviderFallbacks: false,
-  });
-  const heroImage =
-    detail.anime.banner ||
-    detail.anime.poster ||
-    "https://placehold.co/1600x900/131313/e5e2e1?text=KAIDO";
-
-  // Pre-compute episode section props so it doesn't need to re-fetch the overview
-  const episodeProviderId =
-    detail.anime.providerIds[detail.activeProvider] || detail.anime.providerId;
+  const recommendations = media.recommendations.nodes
+    .map((n) => n.mediaRecommendation)
+    .filter(Boolean)
+    .slice(0, 8) as AnilistDetailMedia[];
 
   return (
     <>
-      <section className="relative overflow-hidden pb-14 pt-24">
-        <div className="absolute inset-0">
-          <img src={heroImage} alt={detail.anime.title} className="h-full w-full object-cover opacity-25" />
-          <div className="absolute inset-0 bg-gradient-to-r from-surface-container-lowest via-surface-container-lowest/90 to-surface-container-lowest/35" />
-          <div className="absolute inset-0 bg-gradient-to-t from-surface-container-lowest via-transparent to-transparent" />
-        </div>
+      {/* Hero Section */}
+      <section className="relative overflow-hidden">
+        {/* Banner bg */}
+        {media.bannerImage && (
+          <div className="absolute inset-0 z-0">
+            <img src={media.bannerImage} alt={title} className="w-full h-full object-cover opacity-30" />
+            <div className="absolute inset-0 bg-gradient-to-b from-[#0a0b0c]/60 via-[#0a0b0c]/80 to-[#0a0b0c]" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[#0a0b0c] via-transparent to-transparent" />
+          </div>
+        )}
 
-        <div className="relative mx-auto max-w-7xl px-6">
-          <div className="grid gap-10 lg:grid-cols-[18rem_minmax(0,1fr)] lg:items-end">
+        {/* Glow from accent color */}
+        <div
+          className="absolute inset-0 z-0 opacity-10"
+          style={{ background: `radial-gradient(ellipse at 20% 50%, ${accentColor} 0%, transparent 60%)` }}
+        />
+
+        <div className="relative z-10 mx-auto max-w-7xl px-6 pt-28 pb-16">
+          <div className="grid gap-10 lg:grid-cols-[280px_1fr] items-end">
+            {/* Poster */}
             <div className="hidden lg:block">
-              <div className="overflow-hidden rounded-[1.75rem] border border-outline-variant/20 bg-surface-container-low shadow-[0_20px_40px_rgba(0,240,255,0.1)]">
-                <img src={detail.anime.poster || heroImage} alt={detail.anime.title} className="aspect-[2/3] w-full object-cover" />
+              <div className="relative">
+                <div
+                  className="absolute -inset-3 rounded-2xl blur-2xl opacity-30"
+                  style={{ backgroundColor: accentColor }}
+                />
+                <img
+                  src={media.coverImage.extraLarge}
+                  alt={title}
+                  className="relative w-full rounded-2xl shadow-2xl border border-white/10"
+                  style={{ aspectRatio: "2/3", objectFit: "cover" }}
+                />
               </div>
             </div>
 
-            <div className="space-y-6 py-12">
-              <div className="flex flex-wrap items-center gap-3">
-                <ProviderBadge provider={detail.activeProvider} active={true} />
-                {detail.anime.type ? (
-                  <span className="rounded-full border border-outline-variant/20 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.24em] text-on-surface-variant">
-                    {detail.anime.type}
+            {/* Info */}
+            <div className="space-y-6">
+              {/* Badges */}
+              <div className="flex flex-wrap items-center gap-2">
+                {media.status === "RELEASING" && (
+                  <span className="flex items-center gap-1.5 bg-[#ff5500] text-white text-[10px] font-black px-3 py-1.5 rounded-full uppercase tracking-wider">
+                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                    NOW AIRING
                   </span>
-                ) : null}
-                {detail.anime.year ? (
-                  <span className="rounded-full border border-outline-variant/20 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.24em] text-on-surface-variant">
-                    {detail.anime.year}
+                )}
+                <span className="bg-white/10 text-white/70 text-[10px] font-bold px-3 py-1.5 rounded-full flex items-center gap-1">
+                  <Tv className="w-3 h-3" /> {format}
+                </span>
+                {year && (
+                  <span className="bg-white/10 text-white/70 text-[10px] font-bold px-3 py-1.5 rounded-full flex items-center gap-1">
+                    <Calendar className="w-3 h-3" /> {year}
                   </span>
-                ) : null}
+                )}
+                {rating && (
+                  <span className="flex items-center gap-1 bg-yellow-400/20 text-yellow-400 text-[10px] font-black px-3 py-1.5 rounded-full">
+                    <Star className="w-3 h-3 fill-current" /> {rating}
+                  </span>
+                )}
               </div>
 
-              <div className="space-y-3">
-                <h1 className="max-w-4xl text-4xl font-black tracking-tight text-white md:text-6xl text-shadow-xl drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]">
-                  {detail.anime.title}
+              {/* Title */}
+              <div>
+                <h1 className="text-4xl lg:text-5xl font-black text-white leading-tight tracking-tight max-w-2xl">
+                  {title}
                 </h1>
-                <p className="max-w-3xl text-sm md:text-base leading-relaxed text-white/70">
-                  {detail.synopsis}
-                </p>
+                {media.title.native && media.title.native !== title && (
+                  <p className="text-white/30 text-lg font-semibold mt-2">{media.title.native}</p>
+                )}
               </div>
 
-              <div className="flex flex-wrap gap-4">
-                <Link
-                  href={`/anime/${id}/watch?ep=1&provider=${detail.activeProvider}`}
-                  className="inline-flex items-center gap-2 rounded-full bg-[#ff5500] px-8 py-3.5 text-sm font-black uppercase tracking-wider text-black transition-transform hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(255,85,0,0.4)]"
-                >
-                  <Play className="h-4 w-4 fill-current" />
-                  Start watching
-                </Link>
-                <Link
-                  href="/search"
-                  className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-black/20 backdrop-blur-md px-6 py-3.5 text-sm font-semibold text-white transition-colors hover:border-white/40 hover:bg-white/10"
-                >
-                  <Sparkles className="h-4 w-4 text-[#52ff7f]" />
-                  Browse another title
-                </Link>
-              </div>
-
-              <div className="flex flex-wrap gap-3">
-                {detail.availableProviders.map((provider) => (
+              {/* Studios + genres */}
+              <div className="flex flex-wrap items-center gap-2">
+                {studios && <span className="text-white/50 text-sm font-semibold">{studios}</span>}
+                {studios && media.genres.length > 0 && <span className="w-1 h-1 rounded-full bg-white/20" />}
+                {media.genres.slice(0, 4).map((g) => (
                   <Link
-                    key={provider}
-                    href={`/anime/${id}?provider=${provider}`}
-                    className={`rounded-full border px-4 py-2 text-sm font-semibold transition-colors ${
-                      provider === detail.activeProvider
-                        ? "border-[#ff5500]/50 bg-[#ff5500]/10 text-[#ff5500]"
-                        : "border-white/10 bg-black/40 text-white/50 hover:border-white/30 hover:text-white"
-                    }`}
+                    key={g}
+                    href={`/search?genre=${encodeURIComponent(g)}`}
+                    className="text-xs font-bold px-2.5 py-1 rounded-full transition-all hover:opacity-80"
+                    style={{ color: accentColor, background: `${accentColor}20`, border: `1px solid ${accentColor}30` }}
                   >
-                    {provider}
+                    {g}
                   </Link>
                 ))}
               </div>
-            </div>
-          </div>
 
-          <div className="mt-6">
-            <AttemptTrail
-              attempts={detail.attempts}
-              activeProvider={detail.activeProvider}
-              label="Detail provider trail"
-            />
+              {/* Description */}
+              {description && (
+                <p className="text-white/60 text-sm leading-relaxed max-w-2xl line-clamp-4">
+                  {description}
+                </p>
+              )}
+
+              {/* CTAs */}
+              <div className="flex flex-wrap items-center gap-3 pt-2">
+                <Link
+                  href={watchHref}
+                  className="flex items-center gap-2.5 text-white font-black text-sm px-8 py-4 rounded-full transition-all hover:scale-105 shadow-xl"
+                  style={{ backgroundColor: accentColor, boxShadow: `0 12px 32px ${accentColor}50` }}
+                >
+                  <Play className="w-4 h-4 fill-current" />
+                  WATCH NOW
+                </Link>
+                <Link
+                  href="/search"
+                  className="flex items-center gap-2 text-white/70 hover:text-white font-bold text-sm px-6 py-4 rounded-full bg-white/10 hover:bg-white/15 transition-all border border-white/10"
+                >
+                  Browse More
+                </Link>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
-      <section className="px-6 py-10 bg-[#121212]">
-        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[minmax(0,1fr)_22rem]">
-          <div className="space-y-8">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {detail.metadata.map((row) => (
-                <div
-                  key={row.label}
-                  className="rounded-[1.5rem] border border-white/5 bg-[#1a1a1a] p-5 shadow-lg"
-                >
-                  <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-white/40">
-                    {row.label}
-                  </p>
-                  <p className="mt-3 text-base font-semibold text-white/90">{row.value}</p>
-                </div>
-              ))}
-              {detail.anime.genres.length > 0 ? (
-                <div className="rounded-[1.5rem] border border-white/5 bg-[#1a1a1a] p-5 md:col-span-2 xl:col-span-3 shadow-lg">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-white/40">
-                    Genres
-                  </p>
-                  <div className="mt-4 flex flex-wrap gap-3">
-                    {detail.anime.genres.map((genre) => (
-                      <Link
-                         key={genre}
-                         href={`/search?genre=${encodeURIComponent(genre)}`}
-                         className="rounded-full border border-white/10 bg-[#222] px-4 py-2 text-sm font-semibold text-white/60 transition-colors hover:border-[#ff5500]/50 hover:text-[#ff5500]"
-                      >
-                         {genre}
-                      </Link>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
+      {/* Details Section */}
+      <section className="mx-auto max-w-7xl px-6 py-12">
+        <div className="grid gap-10 lg:grid-cols-[1fr_320px]">
+          {/* Left */}
+          <div className="space-y-10">
+            {/* Metadata grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <MetaBadge label="Status" value={status} />
+              {format && <MetaBadge label="Format" value={format} />}
+              {year && <MetaBadge label="Year" value={year} />}
+              {media.episodes && <MetaBadge label="Episodes" value={String(media.episodes)} />}
+              {studios && <MetaBadge label="Studio" value={studios} />}
+              {media.season && media.seasonYear && (
+                <MetaBadge label="Season" value={`${media.season} ${media.seasonYear}`} />
+              )}
+              {rating && <MetaBadge label="Score" value={`${rating} / 10`} />}
+              {media.popularity && <MetaBadge label="Popularity" value={`#${media.popularity.toLocaleString()}`} />}
             </div>
 
-            {episodeProviderId ? (
-              <Suspense fallback={<EpisodeSectionSkeleton />}>
-                <EpisodesSection
-                  id={id}
-                  activeProvider={detail.activeProvider}
-                  providerId={episodeProviderId}
-                />
-              </Suspense>
-            ) : (
-              <div className="rounded-[1.75rem] border border-white/5 bg-[#1a1a1a] p-6 shadow-lg text-center text-white/40">
-                No episodes available for this provider.
+            {/* Synopsis */}
+            {description && (
+              <div className="bg-white/5 rounded-2xl p-6 border border-white/5">
+                <div className="flex items-center gap-2 mb-4">
+                  <BookOpen className="w-4 h-4 text-white/40" />
+                  <h2 className="text-sm font-black uppercase tracking-widest text-white/40">Synopsis</h2>
+                </div>
+                <p className="text-white/70 leading-relaxed text-sm">{description}</p>
+              </div>
+            )}
+
+            {/* Characters */}
+            {media.characters.nodes.length > 0 && (
+              <div>
+                <div className="flex items-center gap-2 mb-4">
+                  <Users className="w-4 h-4 text-white/40" />
+                  <h2 className="text-sm font-black uppercase tracking-widest text-white/40">Characters</h2>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {media.characters.nodes.map((char) => (
+                    <CharacterCard key={char.name.full} char={char} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Relations */}
+            {relations.length > 0 && (
+              <div>
+                <div className="flex items-center gap-2 mb-4">
+                  <ChevronRight className="w-4 h-4 text-white/40" />
+                  <h2 className="text-sm font-black uppercase tracking-widest text-white/40">Related</h2>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  {relations.map((edge) => (
+                    <Link
+                      key={edge.node.id}
+                      href={`/anime/${encodeAnilistRouteId(edge.node.id)}`}
+                      className="flex items-center gap-3 bg-white/5 hover:bg-white/10 border border-white/5 rounded-xl p-3 transition-all"
+                    >
+                      <img
+                        src={edge.node.coverImage.large}
+                        alt={edge.node.title.english || edge.node.title.romaji}
+                        className="w-10 h-14 rounded-lg object-cover"
+                      />
+                      <div>
+                        <p className="text-[10px] text-white/40 font-bold uppercase">{edge.relationType}</p>
+                        <p className="text-sm font-bold text-white/80 line-clamp-1 max-w-[160px]">
+                          {edge.node.title.english || edge.node.title.romaji}
+                        </p>
+                        <p className="text-[10px] text-white/40">{edge.node.format}</p>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
               </div>
             )}
           </div>
 
-          <aside className="space-y-8">
-            {detail.recommended.length > 0 ? (
-              <div className="rounded-[1.75rem] border border-white/5 bg-[#1a1a1a] p-5 shadow-lg">
-                <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-white/40">
-                  Recommended
-                </p>
-                <div className="mt-5 space-y-4">
-                  {detail.recommended.slice(0, 4).map((anime) => (
-                    <AnimeCard key={anime.id} anime={anime} />
-                  ))}
-                </div>
+          {/* Right Sidebar: Recommendations */}
+          {recommendations.length > 0 && (
+            <aside>
+              <div className="flex items-center gap-2 mb-4">
+                <h2 className="text-sm font-black uppercase tracking-widest text-white/40">Recommended</h2>
               </div>
-            ) : null}
-
-            {detail.related.length > 0 ? (
-              <div className="rounded-[1.75rem] border border-white/5 bg-[#1a1a1a] p-5 shadow-lg">
-                <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-white/40">
-                  Related titles
-                </p>
-                <div className="mt-5 space-y-4">
-                  {detail.related.slice(0, 3).map((anime) => (
-                    <AnimeCard key={anime.id} anime={anime} />
-                  ))}
-                </div>
+              <div className="grid grid-cols-2 gap-4">
+                {recommendations.slice(0, 6).map((rec) => (
+                  <AnilistCard key={rec.id} media={rec as any} />
+                ))}
               </div>
-            ) : null}
-          </aside>
+            </aside>
+          )}
         </div>
       </section>
     </>
   );
 }
 
-export default function AnimeDetailPage({
+export default async function AnilistDetailPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const { id } = await params;
+
+  // Check if this is an anilist route
+  if (!id.startsWith("anilist~")) {
+    // Delegate to the original AnimeKai detail handler
+    const { default: AnimeKaiDetailPage } = await import("./animekai-detail");
+    return <AnimeKaiDetailPage params={params} searchParams={Promise.resolve({})} />;
+  }
+
+  const anilistId = parseInt(id.replace("anilist~", ""), 10);
+  if (isNaN(anilistId)) return notFound();
+
   return (
-    <main className="min-h-screen bg-[#121212] flex flex-col">
+    <main className="min-h-screen bg-[#0a0b0c] text-[#eaeaea]">
       <Navbar />
-      <div className="flex-1">
-        <Suspense fallback={<DetailSkeleton />}>
-          <DetailContent idPromise={params} searchParamsPromise={searchParams} />
-        </Suspense>
-      </div>
+      <AnilistDetailContent anilistId={anilistId} />
       <SiteFooter />
     </main>
   );

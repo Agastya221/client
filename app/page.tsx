@@ -1,140 +1,237 @@
-import AttemptTrail from "@/components/anime/AttemptTrail";
-import HomeHeroCarousel from "@/components/anime/HomeHeroCarousel";
-import AnimeCard from "@/components/ui/AnimeCard";
+import AnilistHeroCarousel from "@/components/anilist/AnilistHeroCarousel";
+import AnilistCard from "@/components/anilist/AnilistCard";
 import Navbar from "@/components/ui/Navbar";
 import SiteFooter from "@/components/ui/SiteFooter";
-import { getHomePageModel, getHindiDubbedAnimes } from "@/lib/anime/api";
+import {
+  getAnilistTrending,
+  getAnilistSeasonal,
+  getAnilistPopular,
+  anilistTitle,
+  anilistRating,
+  encodeAnilistRouteId,
+  type AnilistMedia,
+} from "@/lib/anilist/api";
 import Link from "next/link";
-import { ChevronRight, ChevronLeft, Heart } from "lucide-react";
+import { ChevronRight, Star, Flame, Zap, Clock, TrendingUp } from "lucide-react";
 
-export default async function Home() {
-  const [home, hindiDubbed] = await Promise.all([
-    getHomePageModel(),
-    getHindiDubbedAnimes(),
-  ]);
-
-  const heroSlides = [home.hero, ...home.trending].filter(
-    (anime, index, collection): anime is NonNullable<typeof anime> =>
-      Boolean(anime) && collection.findIndex((entry) => entry?.id === anime?.id) === index,
+// Section header component
+function SectionHeader({
+  title,
+  icon: Icon,
+  href,
+  accentColor = "#ff5500",
+}: {
+  title: string;
+  icon?: React.ElementType;
+  href?: string;
+  accentColor?: string;
+}) {
+  return (
+    <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center gap-3">
+        {Icon && (
+          <div
+            className="w-8 h-8 rounded-lg flex items-center justify-center"
+            style={{ backgroundColor: `${accentColor}20`, color: accentColor }}
+          >
+            <Icon className="w-4 h-4" />
+          </div>
+        )}
+        <h2 className="text-xl font-black text-white tracking-tight">{title}</h2>
+      </div>
+      {href && (
+        <Link
+          href={href}
+          className="flex items-center gap-1 text-xs font-bold text-white/40 hover:text-white transition-colors group"
+        >
+          View all
+          <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+        </Link>
+      )}
+    </div>
   );
+}
+
+// Trending rank list item
+function TrendingRow({ media, rank }: { media: AnilistMedia; rank: number }) {
+  const title = anilistTitle(media);
+  const rating = anilistRating(media);
+  const href = `/anime/${encodeAnilistRouteId(media.id)}`;
+  const isTop3 = rank <= 3;
 
   return (
-    <main className="min-h-screen bg-[#161616] text-[#eaeaea]">
+    <Link
+      href={href}
+      className="flex items-center gap-3 group rounded-xl hover:bg-white/5 p-2.5 -mx-2.5 transition-all duration-200"
+    >
+      {/* Rank */}
+      <div
+        className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 font-black text-sm ${
+          isTop3 ? "text-black" : "text-white/30 bg-white/5"
+        }`}
+        style={isTop3 ? { backgroundColor: media.coverImage.color || "#ff5500" } : {}}
+      >
+        {rank}
+      </div>
+
+      {/* Poster */}
+      <img
+        src={media.coverImage.large}
+        alt={title}
+        className="w-10 h-14 rounded-lg object-cover shrink-0"
+      />
+
+      {/* Info */}
+      <div className="min-w-0 flex-1">
+        <p className="text-white text-sm font-bold line-clamp-1 group-hover:text-[#ff5500] transition-colors">
+          {title}
+        </p>
+        <div className="flex items-center gap-2 mt-1">
+          {rating && (
+            <span className="flex items-center gap-0.5 text-yellow-400 text-[10px] font-bold">
+              <Star className="w-2.5 h-2.5 fill-current" /> {rating}
+            </span>
+          )}
+          <span className="text-white/30 text-[10px] font-semibold">{media.format}</span>
+          {media.status === "RELEASING" && (
+            <span className="text-[#52ff7f] text-[9px] font-black uppercase">LIVE</span>
+          )}
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+export default async function Home() {
+  const [trending, seasonal, popular] = await Promise.all([
+    getAnilistTrending(12),
+    getAnilistSeasonal(16),
+    getAnilistPopular(6),
+  ]);
+
+  // Hero: top trending with banner images first
+  const heroSlides = [...trending]
+    .filter((m) => m.bannerImage)
+    .slice(0, 8)
+    .concat(trending.filter((m) => !m.bannerImage).slice(0, 3));
+
+  return (
+    <main className="min-h-screen bg-[#0a0b0c] text-[#eaeaea]">
       <Navbar />
 
-      <HomeHeroCarousel slides={heroSlides} />
+      {/* Hero Carousel */}
+      <AnilistHeroCarousel slides={heroSlides.slice(0, 10)} />
 
-      <section className="w-full px-4 lg:px-12 xl:px-16 pb-12 pt-6">
-        {/* Banner */}
-        <div className="bg-[#1b1c20] rounded-lg p-4 flex items-center gap-4 mb-8 border border-white/5">
-          <div className="w-10 h-10 rounded-full bg-[#ff5500]/20 flex items-center justify-center border border-[#ff5500]/50 shrink-0">
-            <Heart className="w-5 h-5 text-[#ff5500] fill-current" />
-          </div>
-          <div>
-            <h3 className="text-[#52ff7f] font-bold text-sm">Love this site?</h3>
-            <p className="text-white/50 text-xs">Share it and let others know!</p>
-          </div>
-        </div>
+      {/* Main Content */}
+      <div className="w-full px-4 lg:px-12 xl:px-16 py-12">
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_340px] gap-10">
 
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8">
-          {/* Main Left Content */}
-          <div className="flex flex-col gap-10">
-            
-            {/* Latest Updates Section */}
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-black text-white tracking-widest uppercase">LATEST UPDATES</h2>
-                <div className="hidden sm:flex items-center gap-4 text-xs font-bold text-white/50">
-                  <span className="text-[#52ff7f] cursor-pointer">All</span>
-                  <span className="hover:text-white cursor-pointer transition-colors">Sub</span>
-                  <span className="hover:text-white cursor-pointer transition-colors">Dub</span>
-                  <span className="hover:text-white cursor-pointer transition-colors">China</span>
-                  <div className="flex gap-2 ml-4">
-                    <button className="w-6 h-6 rounded-full bg-[#20222a] flex items-center justify-center hover:text-white"><ChevronLeft className="w-4 h-4"/></button>
-                    <button className="w-6 h-6 rounded-full bg-white text-black flex items-center justify-center hover:bg-white/80"><ChevronRight className="w-4 h-4"/></button>
-                  </div>
-                </div>
-              </div>
+          {/* Left: Main content */}
+          <div className="flex flex-col gap-16">
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4 gap-y-6">
-                {(home.newReleases || heroSlides).map((anime) => (
-                  <AnimeCard key={anime.id} anime={anime} highlightProvider={anime.provider !== "hianime"} />
+            {/* Current Season */}
+            <section>
+              <SectionHeader
+                title={`This Season`}
+                icon={Zap}
+                href="/search?sort=season"
+                accentColor="#52ff7f"
+              />
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 gap-y-8">
+                {seasonal.slice(0, 12).map((media) => (
+                  <AnilistCard key={media.id} media={media} />
                 ))}
               </div>
-            </div>
+            </section>
 
-            {/* Hindi Dubbed Section */}
-            {hindiDubbed && hindiDubbed.length > 0 && (
-              <div>
-                <div className="flex items-center justify-between mb-4 mt-4">
-                  <h2 className="text-xl font-black text-white tracking-widest uppercase flex items-center gap-2">
-                    HINDI DUBBED
-                    <span className="bg-[#ff5500] text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm">DESI</span>
-                  </h2>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4 gap-y-6">
-                  {hindiDubbed.slice(0, 10).map((anime) => (
-                    <AnimeCard key={anime.id} anime={anime} highlightProvider={true} />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Provider Trail (Optional / Debug) */}
-            <div className="mt-8 pt-8 border-t border-white/5">
-              <AttemptTrail
-                attempts={home.attempts}
-                activeProvider={home.activeProvider}
-                label="Home provider trail"
+            {/* Trending Now */}
+            <section>
+              <SectionHeader
+                title="Trending Now"
+                icon={Flame}
+                href="/search?sort=trending"
+                accentColor="#ff5500"
               />
-            </div>
-          </div>
-
-          {/* Right Sidebar - Top Trending */}
-          <div className="w-full">
-            <div className="bg-[#1b1c20] rounded-xl overflow-hidden p-4 border border-white/5">
-              <div className="flex items-center gap-3 mb-4 border-b border-white/5 pb-4">
-                <span className="text-[#ff5500]">🏆</span>
-                <h2 className="font-black text-lg text-white">Top Trending</h2>
-                <div className="ml-auto bg-[#ff5500] text-white text-[10px] font-bold px-2 py-1 rounded flex items-center gap-1">
-                  NOW <ChevronRight className="w-3 h-3 rotate-90" />
-                </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 gap-y-8">
+                {trending.slice(0, 8).map((media, i) => (
+                  <AnilistCard key={media.id} media={media} rank={i + 1} />
+                ))}
               </div>
+            </section>
 
-              <div className="flex flex-col gap-3">
-                {home.topAiring.map((anime, index) => (
+            {/* Browse Genres */}
+            <section>
+              <SectionHeader title="Browse by Genre" icon={TrendingUp} accentColor="#a855f7" />
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {[
+                  { name: "Action", color: "#ef4444", emoji: "⚔️" },
+                  { name: "Romance", color: "#ec4899", emoji: "💕" },
+                  { name: "Fantasy", color: "#8b5cf6", emoji: "🔮" },
+                  { name: "Adventure", color: "#f97316", emoji: "🗺️" },
+                  { name: "Comedy", color: "#eab308", emoji: "😂" },
+                  { name: "Sci-Fi", color: "#06b6d4", emoji: "🤖" },
+                  { name: "Horror", color: "#6b7280", emoji: "💀" },
+                  { name: "Mystery", color: "#3b82f6", emoji: "🔍" },
+                ].map(({ name, color, emoji }) => (
                   <Link
-                    key={anime.id}
-                    href={anime.href}
-                    className="flex items-center gap-3 group rounded-md hover:bg-white/5 p-2 -mx-2 transition-colors relative"
+                    key={name}
+                    href={`/search?genre=${name}`}
+                    className="group relative overflow-hidden rounded-2xl p-4 border border-white/5 hover:border-white/15 transition-all duration-200 flex items-center gap-3"
+                    style={{ background: `linear-gradient(135deg, ${color}15, ${color}05)` }}
                   >
-                    {/* Rank Circle */}
-                    <div className="w-8 h-8 rounded-full border border-white/20 flex flex-col justify-center items-center shrink-0">
-                       <span className="text-white text-sm font-bold">{index + 1}</span>
+                    <span className="text-2xl">{emoji}</span>
+                    <div>
+                      <p className="text-white font-bold text-sm">{name}</p>
+                      <p className="text-white/40 text-[10px]">Explore →</p>
                     </div>
-
-                    <img
-                      src={anime.poster || "https://placehold.co/100x140"}
-                      alt={anime.title}
-                      className="h-16 w-11 rounded object-cover shadow-md"
+                    <div
+                      className="absolute -right-4 -bottom-4 w-16 h-16 rounded-full opacity-10 group-hover:opacity-20 transition-opacity"
+                      style={{ backgroundColor: color }}
                     />
-
-                    <div className="min-w-0 pr-2">
-                       <h4 className="text-white text-sm font-bold line-clamp-1 group-hover:text-[#ff5500] transition-colors">{anime.title}</h4>
-                       <div className="flex items-center gap-2 mt-1 text-[10px]">
-                         {anime.subCount && <span className="bg-[#ff5500]/20 text-[#ff5500] px-1 py-0.5 rounded flex items-center gap-1"><span className="bg-[#ff5500] text-black px-0.5 rounded-[2px] leading-none">CC</span> {anime.subCount}</span>}
-                         {anime.dubCount && <span className="bg-[#52ff7f]/20 text-[#52ff7f] px-1 py-0.5 rounded flex items-center gap-1"><span className="bg-[#52ff7f] text-black px-0.5 rounded-[2px] leading-none">🎤</span> {anime.dubCount}</span>}
-                         <span className="text-white/50">{anime.type || "TV"}</span>
-                       </div>
-                    </div>
                   </Link>
                 ))}
               </div>
-            </div>
+            </section>
           </div>
+
+          {/* Right Sidebar */}
+          <aside className="flex flex-col gap-8">
+
+            {/* Popular Right Now */}
+            <div className="bg-[#111215] rounded-2xl border border-white/5 overflow-hidden">
+              <div className="p-5 border-b border-white/5 flex items-center gap-3">
+                <div className="w-7 h-7 rounded-lg bg-[#ff5500]/20 flex items-center justify-center">
+                  <Flame className="w-4 h-4 text-[#ff5500]" />
+                </div>
+                <h2 className="font-black text-white">Top Trending</h2>
+                <div className="ml-auto bg-[#ff5500] text-white text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                  LIVE
+                </div>
+              </div>
+              <div className="p-3 flex flex-col">
+                {trending.slice(0, 8).map((media, i) => (
+                  <TrendingRow key={media.id} media={media} rank={i + 1} />
+                ))}
+              </div>
+            </div>
+
+            {/* Popular Airing */}
+            <div className="bg-[#111215] rounded-2xl border border-white/5 overflow-hidden">
+              <div className="p-5 border-b border-white/5 flex items-center gap-3">
+                <div className="w-7 h-7 rounded-lg bg-[#52ff7f]/20 flex items-center justify-center">
+                  <Clock className="w-4 h-4 text-[#52ff7f]" />
+                </div>
+                <h2 className="font-black text-white">Popular Airing</h2>
+              </div>
+              <div className="p-3 flex flex-col">
+                {popular.map((media, i) => (
+                  <TrendingRow key={media.id} media={media} rank={i + 1} />
+                ))}
+              </div>
+            </div>
+          </aside>
         </div>
-      </section>
+      </div>
 
       <SiteFooter />
     </main>

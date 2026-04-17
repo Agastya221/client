@@ -436,8 +436,37 @@ async function fetchHianimeDetail(providerId: string): Promise<ProviderDetailBun
   };
 }
 
+async function resolveAnimeKaiSlug(providerId: string): Promise<string> {
+  // Handle AniList-originated routes: "anilist:{anilistId}"
+  if (providerId.startsWith("anilist:")) {
+    const anilistId = providerId.replace("anilist:", "");
+    // Fetch title from AniList, then search AnimeKai
+    try {
+      const alRes = await fetch(`https://graphql.anilist.co`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: `query ($id: Int) { Media(id: $id, type: ANIME) { title { english romaji } } }`,
+          variables: { id: parseInt(anilistId, 10) },
+        }),
+        next: { revalidate: 3600 },
+      });
+      const alJson = await alRes.json();
+      const title = alJson?.data?.Media?.title?.english || alJson?.data?.Media?.title?.romaji || "";
+      if (title) {
+        const slug = await searchAnimeKaiByTitle(title);
+        if (slug) return slug;
+      }
+    } catch { /* fall through to best-effort */ }
+    // Fallback: use anilistId as slug — will 404 gracefully
+    return anilistId;
+  }
+  return providerId;
+}
+
 async function fetchAnimeKaiDetailMeta(providerId: string): Promise<ProviderDetailMetaBundle> {
-  const detail = await apiJson<JsonValue>(`/api/anime/${encodeURIComponent(providerId)}`, {
+  const resolvedId = await resolveAnimeKaiSlug(providerId);
+  const detail = await apiJson<JsonValue>(`/api/anime/${encodeURIComponent(resolvedId)}`, {
     revalidate: DETAIL_REVALIDATE_SECONDS,
   });
   const subCount = numberOrNull(detail.subCount ?? detail.sub_episodes);
@@ -471,8 +500,9 @@ async function fetchAnimeKaiDetailMeta(providerId: string): Promise<ProviderDeta
 }
 
 async function fetchAnimeKaiEpisodes(providerId: string): Promise<EpisodeModel[]> {
+  const resolvedId = await resolveAnimeKaiSlug(providerId);
   // First we need the ani_id from the detail endpoint.
-  const meta = await apiJson<JsonValue>(`/api/anime/${encodeURIComponent(providerId)}`);
+  const meta = await apiJson<JsonValue>(`/api/anime/${encodeURIComponent(resolvedId)}`);
   const aniId = meta.ani_id;
   if (!aniId) return [];
 

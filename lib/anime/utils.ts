@@ -4,15 +4,28 @@ export function encodeAnimeId(provider: ProviderId, providerId: string): string 
   return `${provider}~${encodeURIComponent(providerId)}`;
 }
 
+/**
+ * Decode a route ID into provider + providerId.
+ * Special prefixes:
+ * - `anilist~{id}` → treated as animekai with the numeric anilistId as providerId
+ *   (the API layer will do a title-based AnimeKai search when it sees this)
+ * - `{provider}~{id}` → standard provider routing
+ * - bare string → defaults to animekai
+ */
 export function decodeAnimeId(value: string): { provider: ProviderId; providerId: string } {
   const [maybeProvider, ...rest] = value.split("~");
+  
+  // AniList passthrough — API layer handles lookup
+  if (maybeProvider === "anilist" && rest.length > 0) {
+    return { provider: "animekai", providerId: `anilist:${rest.join("~")}` };
+  }
+  
   if (rest.length > 0 && PROVIDERS.includes(maybeProvider as any)) {
     return {
       provider: maybeProvider as ProviderId,
       providerId: decodeURIComponent(rest.join("~")),
     };
   }
-  
 
   return { provider: "animekai", providerId: decodeURIComponent(value) };
 }
