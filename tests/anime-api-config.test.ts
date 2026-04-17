@@ -30,5 +30,8 @@ test("resolveAnimeApiBaseUrl uses environment-aware fallbacks", () => {
   assert.equal(resolveAnimeApiBaseUrl({ NODE_ENV: "development" }), LOCAL_ANIME_API_BASE_URL);
   assert.equal(resolveAnimeApiBaseUrl({ NODE_ENV: "test" }), LOCAL_ANIME_API_BASE_URL);
   assert.equal(resolveAnimeApiBaseUrl({ NODE_ENV: "production" }), PRODUCTION_ANIME_API_BASE_URL);
-  assert.equal(resolveAnimeApiBaseUrl({ NODE_ENV: "staging" }), PRODUCTION_ANIME_API_BASE_URL);
+  assert.equal(
+    resolveAnimeApiBaseUrl({ NODE_ENV: "staging" } as unknown as NodeJS.ProcessEnv),
+    PRODUCTION_ANIME_API_BASE_URL,
+  );
 });

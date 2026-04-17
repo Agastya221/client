@@ -87,6 +87,7 @@ export interface AnimeDetailModel {
   synopsis: string;
   metadata: AnimeMetadataRow[];
   episodes: EpisodeModel[];
+  episodeCoverageMode: "active-provider" | "merged-providers";
   related: CatalogAnime[];
   recommended: CatalogAnime[];
   activeProvider: ProviderId;

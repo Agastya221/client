@@ -53,12 +53,16 @@ async function DetailContent({
   const { id } = await idPromise;
   const query = await searchParamsPromise;
   const preferredProvider = normalizeProviderParam(firstParam(query.provider));
-  const detail = await getAnimeDetailModel(id, preferredProvider);
+  const detail = await getAnimeDetailModel(id, preferredProvider, {
+    resolveProviderFallbacks: false,
+    mergeEpisodeProviders: false,
+  });
   const heroImage =
     detail.anime.banner ||
     detail.anime.poster ||
     "https://placehold.co/1600x900/131313/e5e2e1?text=KAIDO";
   const firstEpisode = detail.episodes[0];
+  const isMergedEpisodeMap = detail.episodeCoverageMode === "merged-providers";
 
   return (
     <>
@@ -189,10 +193,12 @@ async function DetailContent({
                   <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-white/40">
                     Episodes
                   </p>
-                  <h2 className="mt-2 text-3xl font-black text-white/90">Cross-provider episode map</h2>
+                  <h2 className="mt-2 text-3xl font-black text-white/90">
+                    {isMergedEpisodeMap ? "Cross-provider episode map" : "Episode list"}
+                  </h2>
                 </div>
                 <span className="rounded-full border border-[#52ff7f]/20 bg-[#52ff7f]/5 px-3 py-1 text-xs text-[#52ff7f] font-semibold">
-                  {detail.episodes.length} episodes detected
+                  {detail.episodes.length} {isMergedEpisodeMap ? "episodes detected" : "episodes available"}
                 </span>
               </div>
 
