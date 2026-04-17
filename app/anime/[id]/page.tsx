@@ -3,8 +3,9 @@ import ProviderBadge from "@/components/anime/ProviderBadge";
 import AnimeCard from "@/components/ui/AnimeCard";
 import Navbar from "@/components/ui/Navbar";
 import SiteFooter from "@/components/ui/SiteFooter";
-import { getAnimeDetailOverviewModel, getAnimeEpisodeListModel } from "@/lib/anime/api";
+import { getAnimeDetailOverviewModel, getEpisodesForProvider } from "@/lib/anime/api";
 import { normalizeProviderParam } from "@/lib/anime/fallback";
+import type { ProviderId } from "@/lib/anime/types";
 import { Play, Sparkles, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { Suspense } from "react";
@@ -69,15 +70,21 @@ function EpisodeSectionSkeleton() {
   );
 }
 
+/**
+ * Episodes section that receives provider info directly from the parent
+ * instead of re-fetching the full overview again. This eliminates a
+ * duplicate API call waterfall.
+ */
 async function EpisodesSection({
   id,
-  preferredProvider,
+  activeProvider,
+  providerId,
 }: {
   id: string;
-  preferredProvider: ReturnType<typeof normalizeProviderParam>;
+  activeProvider: ProviderId;
+  providerId: string;
 }) {
-  const detail = await getAnimeEpisodeListModel(id, preferredProvider);
-  const isMergedEpisodeMap = detail.episodeCoverageMode === "merged-providers";
+  const episodes = await getEpisodesForProvider(activeProvider, providerId);
 
   return (
     <div className="rounded-[1.75rem] border border-white/5 bg-[#1a1a1a] p-6 shadow-lg">
@@ -87,19 +94,19 @@ async function EpisodesSection({
             Episodes
           </p>
           <h2 className="mt-2 text-3xl font-black text-white/90">
-            {isMergedEpisodeMap ? "Cross-provider episode map" : "Episode list"}
+            Episode list
           </h2>
         </div>
         <span className="rounded-full border border-[#52ff7f]/20 bg-[#52ff7f]/5 px-3 py-1 text-xs text-[#52ff7f] font-semibold">
-          {detail.episodes.length} {isMergedEpisodeMap ? "episodes detected" : "episodes available"}
+          {episodes.length} episodes available
         </span>
       </div>
 
       <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {detail.episodes.map((episode) => (
+        {episodes.map((episode) => (
           <Link
             key={episode.number}
-            href={`/anime/${id}/watch?ep=${episode.number}&provider=${detail.activeProvider}`}
+            href={`/anime/${id}/watch?ep=${episode.number}&provider=${activeProvider}`}
             className="group rounded-[1.5rem] border border-white/5 bg-[#222] p-4 transition-all hover:border-[#ff5500]/50 hover:-translate-y-1 shadow-md"
           >
             <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-[#ff5500]/80">
@@ -113,7 +120,7 @@ async function EpisodesSection({
                 <ProviderBadge
                   key={`${episode.number}-${provider}`}
                   provider={provider}
-                  active={provider === detail.activeProvider}
+                  active={provider === activeProvider}
                   subtle
                 />
               ))}
@@ -142,6 +149,10 @@ async function DetailContent({
     detail.anime.banner ||
     detail.anime.poster ||
     "https://placehold.co/1600x900/131313/e5e2e1?text=KAIDO";
+
+  // Pre-compute episode section props so it doesn't need to re-fetch the overview
+  const episodeProviderId =
+    detail.anime.providerIds[detail.activeProvider] || detail.anime.providerId;
 
   return (
     <>
@@ -264,9 +275,19 @@ async function DetailContent({
               ) : null}
             </div>
 
-            <Suspense fallback={<EpisodeSectionSkeleton />}>
-              <EpisodesSection id={id} preferredProvider={preferredProvider} />
-            </Suspense>
+            {episodeProviderId ? (
+              <Suspense fallback={<EpisodeSectionSkeleton />}>
+                <EpisodesSection
+                  id={id}
+                  activeProvider={detail.activeProvider}
+                  providerId={episodeProviderId}
+                />
+              </Suspense>
+            ) : (
+              <div className="rounded-[1.75rem] border border-white/5 bg-[#1a1a1a] p-6 shadow-lg text-center text-white/40">
+                No episodes available for this provider.
+              </div>
+            )}
           </div>
 
           <aside className="space-y-8">

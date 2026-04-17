@@ -947,14 +947,14 @@ async function tryBaseProviderDetail(routeId: string): Promise<ProviderDetailBun
   }
 }
 
-async function tryBaseProviderDetailMeta(routeId: string): Promise<ProviderDetailMetaBundle | null> {
+const tryBaseProviderDetailMeta = cache(async function tryBaseProviderDetailMeta(routeId: string): Promise<ProviderDetailMetaBundle | null> {
   const decoded = decodeAnimeId(routeId);
   try {
     return await fetchProviderDetailMeta(decoded.provider, decoded.providerId);
   } catch {
     return null;
   }
-}
+});
 
 export async function getAnimeDetailOverviewModel(
   routeId: string,
@@ -1087,6 +1087,21 @@ export async function getAnimeEpisodeListModel(
       activeProvider: detail.activeProvider,
       availableProviders: detail.availableProviders,
     };
+  }
+}
+
+/**
+ * Lightweight episode fetch — skips the full overview resolution.
+ * Use when the caller already knows the active provider and provider ID.
+ */
+export async function getEpisodesForProvider(
+  provider: ProviderId,
+  providerId: string,
+): Promise<EpisodeModel[]> {
+  try {
+    return await fetchProviderEpisodes(provider, providerId);
+  } catch {
+    return [];
   }
 }
 
