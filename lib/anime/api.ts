@@ -1191,7 +1191,7 @@ async function fetchHianimeWatchSession(
     url: current.link || null,
     iframeUrl: current.iframe || null,
     referer: current.iframe || null,
-    preferEmbed: Boolean(current.iframe),
+    preferEmbed: false,
   });
 
   return {
