@@ -8,7 +8,7 @@ export interface WatchFallbackTarget {
 
 export function normalizeProviderParam(value: string | null | undefined): ProviderId | null {
   if (!value) return null;
-  return PROVIDERS.includes(value as ProviderId) ? (value as ProviderId) : null;
+  return PROVIDERS.includes(value as any) ? (value as ProviderId) : null;
 }
 
 export function getFallbackWatchTargets(session: WatchSessionModel): WatchFallbackTarget[] {

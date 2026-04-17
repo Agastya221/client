@@ -1,6 +1,6 @@
 export const PROVIDERS = ["animekai", "desidub"] as const;
 
-export type ProviderId = (typeof PROVIDERS)[number];
+export type ProviderId = (typeof PROVIDERS)[number] | "hianime";
 
 export type ProviderAttemptState = "success" | "error" | "empty" | "skipped";
 

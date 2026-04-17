@@ -34,7 +34,7 @@ import {
 } from "./utils";
 
 export const LOCAL_ANIME_API_BASE_URL = "http://localhost:5000";
-export const PRODUCTION_ANIME_API_BASE_URL = "https://animeapi-production-5e2c.up.railway.app";
+export const PRODUCTION_ANIME_API_BASE_URL = "https://animekai-api-production-a143.up.railway.app";
 
 export function resolveAnimeApiBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
   const configuredBaseUrl = String(env.ANIME_API_BASE_URL || env.NEXT_PUBLIC_ANIME_API_BASE_URL || "").trim();
@@ -660,31 +660,13 @@ function withProviderIds(anime: CatalogAnime, providerIds: Partial<Record<Provid
 
 const getHomePageModelUncached = async (): Promise<HomePageModel> => {
   const attempts: ProviderAttemptStatus[] = [];
-  let activeProvider: ProviderId = "hianime";
+  let activeProvider: ProviderId = "animekai";
   let hero: CatalogAnime | null = null;
   let trending: CatalogAnime[] = [];
   let newReleases: CatalogAnime[] = [];
   let topAiring: CatalogAnime[] = [];
   let genres: string[] = [];
   const sectionProviders: HomePageModel["sectionProviders"] = {};
-
-  try {
-    const home = await fetchHianimeHome();
-    attempts.push(providerSuccess("hianime", "Home data loaded"));
-    activeProvider = "hianime";
-    hero = normalizeHianimeCatalogItem(ensureArray(home.spotlightAnimes)[0] || ensureArray(home.trendingAnimes)[0] || {});
-    hero = hero.providerId ? hero : null;
-    trending = ensureArray(home.trendingAnimes).slice(0, 10).map(normalizeHianimeCatalogItem);
-    newReleases = ensureArray(home.latestEpisodeAnimes).slice(0, 8).map(normalizeHianimeCatalogItem);
-    topAiring = ensureArray(home.topAiringAnimes).slice(0, 6).map(normalizeHianimeCatalogItem);
-    genres = uniqueStrings(ensureArray(home.genres));
-    if (hero) sectionProviders.hero = "hianime";
-    if (trending.length > 0) sectionProviders.trending = "hianime";
-    if (newReleases.length > 0) sectionProviders.newReleases = "hianime";
-    if (topAiring.length > 0) sectionProviders.topAiring = "hianime";
-  } catch (error) {
-    attempts.push(providerFailure("hianime", error instanceof Error ? error.message : "Failed to load home"));
-  }
 
   if (!hero || trending.length === 0 || newReleases.length === 0 || topAiring.length === 0) {
     try {
@@ -723,7 +705,7 @@ const getHomePageModelUncached = async (): Promise<HomePageModel> => {
         genres = uniqueStrings(ensureArray(genreRes.genres).map(String));
       }
 
-      if (!sectionProviders.hero || sectionProviders.hero !== "hianime") {
+      if (!sectionProviders.hero || sectionProviders.hero !== "animekai") {
         activeProvider = "animekai";
       }
     } catch (error) {
@@ -820,7 +802,7 @@ export async function getSearchPageModel(options: {
   const dubbed = Boolean(options.dubbed);
   const lockedProvider = options.provider || null;
   const attempts: ProviderAttemptStatus[] = [];
-  const providerOrder = lockedProvider ? [lockedProvider] : buildProviderOrder("hianime");
+  const providerOrder = lockedProvider ? [lockedProvider] : buildProviderOrder("animekai");
 
   const genresFromHome = (await getHomePageModel()).genres;
   const browsingLabel = query
@@ -834,23 +816,6 @@ export async function getSearchPageModel(options: {
       let results: CatalogAnime[] = [];
       let totalPages: number | null = null;
       let hasNextPage = false;
-
-      if (provider === "hianime") {
-        if (query) {
-          const response = await fetchHianimeSearch(query, page);
-          results = ensureArray(response.animes).map(normalizeHianimeCatalogItem);
-          totalPages = numberOrNull(response.totalPages);
-          hasNextPage = Boolean(response.hasNextPage);
-        } else if (genre) {
-          const response = await fetchHianimeGenre(genre, page);
-          results = ensureArray(response.animes).map(normalizeHianimeCatalogItem);
-          totalPages = numberOrNull(response.totalPages);
-          hasNextPage = Boolean(response.hasNextPage);
-        } else {
-          const home = await getHomePageModel();
-          results = [...home.trending, ...home.newReleases].slice(0, 18);
-        }
-      }
 
       if (provider === "animekai") {
         if (query) {
@@ -934,7 +899,7 @@ export async function getSearchPageModel(options: {
     lockedProvider,
     results: [],
     genres: genresFromHome,
-    activeProvider: lockedProvider || "hianime",
+    activeProvider: lockedProvider || "animekai",
     attempts,
     totalPages: null,
     hasNextPage: false,
@@ -1311,6 +1276,8 @@ async function fetchProviderWatch(
       return fetchAnimeKaiWatchSession(episodeId, dubbed, requestedServer);
     case "desidub":
       return fetchDesidubWatchSession(episodeId, requestedServer);
+    default:
+      throw new Error(`Provider ${provider} is not supported for streaming`);
   }
 }
 

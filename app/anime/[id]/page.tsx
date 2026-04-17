@@ -173,7 +173,7 @@ async function DetailContent({
 
             <div className="space-y-6 py-12">
               <div className="flex flex-wrap items-center gap-3">
-                <ProviderBadge provider={detail.activeProvider} active={detail.activeProvider !== "hianime"} />
+                <ProviderBadge provider={detail.activeProvider} active={true} />
                 {detail.anime.type ? (
                   <span className="rounded-full border border-outline-variant/20 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.24em] text-on-surface-variant">
                     {detail.anime.type}

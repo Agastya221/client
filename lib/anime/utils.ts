@@ -6,12 +6,13 @@ export function encodeAnimeId(provider: ProviderId, providerId: string): string 
 
 export function decodeAnimeId(value: string): { provider: ProviderId; providerId: string } {
   const [maybeProvider, ...rest] = value.split("~");
-  if (rest.length > 0 && PROVIDERS.includes(maybeProvider as ProviderId)) {
+  if (rest.length > 0 && PROVIDERS.includes(maybeProvider as any)) {
     return {
       provider: maybeProvider as ProviderId,
       providerId: decodeURIComponent(rest.join("~")),
     };
   }
+  
 
   return { provider: "hianime", providerId: decodeURIComponent(value) };
 }
