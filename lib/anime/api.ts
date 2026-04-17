@@ -33,7 +33,7 @@ import {
   uniqueStrings,
 } from "./utils";
 
-export const LOCAL_ANIME_API_BASE_URL = "http://localhost:4000";
+export const LOCAL_ANIME_API_BASE_URL = "http://localhost:5000";
 export const PRODUCTION_ANIME_API_BASE_URL = "https://animeapi-production-5e2c.up.railway.app";
 
 export function resolveAnimeApiBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
@@ -432,16 +432,16 @@ async function fetchHianimeDetail(providerId: string): Promise<ProviderDetailBun
 }
 
 async function fetchAnimeKaiDetailMeta(providerId: string): Promise<ProviderDetailMetaBundle> {
-  const detail = await apiJson<JsonValue>(`/api/v2/anime/animekai/meta/${encodeURIComponent(providerId)}`, {
+  const detail = await apiJson<JsonValue>(`/api/anime/${encodeURIComponent(providerId)}`, {
     revalidate: DETAIL_REVALIDATE_SECONDS,
   });
-  const subCount = numberOrNull(detail.subCount);
-  const dubCount = numberOrNull(detail.dubCount);
+  const subCount = numberOrNull(detail.subCount ?? detail.sub_episodes);
+  const dubCount = numberOrNull(detail.dubCount ?? detail.dub_episodes);
   const anime = normalizeBaseAnime({
     provider: "animekai",
     providerId,
     title: pickFirstNonEmpty(detail.title, humanizeProviderId(providerId)),
-    poster: pickFirstNonEmpty(detail.image),
+    poster: pickFirstNonEmpty(detail.image, detail.poster),
     description: detail.description || null,
     genres: mapGenres(detail.genres),
     type: detail.type || null,
@@ -466,7 +466,13 @@ async function fetchAnimeKaiDetailMeta(providerId: string): Promise<ProviderDeta
 }
 
 async function fetchAnimeKaiEpisodes(providerId: string): Promise<EpisodeModel[]> {
-  const detail = await apiJson<JsonValue>(`/api/v2/anime/animekai/episodes/${encodeURIComponent(providerId)}`, {
+  // First we need the ani_id from the detail endpoint.
+  // The python API expects ani_id for episodes. We'll fetch it if needed.
+  const meta = await apiJson<JsonValue>(`/api/anime/${encodeURIComponent(providerId)}`);
+  const aniId = meta.ani_id;
+  if (!aniId) return [];
+
+  const detail = await apiJson<JsonValue>(`/api/episodes/${encodeURIComponent(aniId)}`, {
     revalidate: DETAIL_REVALIDATE_SECONDS,
   });
   return normalizeAnimeKaiEpisodesPayload(detail);
@@ -491,7 +497,7 @@ async function fetchAnimeKaiDetail(providerId: string): Promise<ProviderDetailBu
 }
 
 async function fetchDesidubDetailMeta(providerId: string): Promise<ProviderDetailMetaBundle> {
-  const detail = await apiJson<JsonValue>(`/api/v2/anime/desidub/info/${encodeURIComponent(providerId)}`, {
+  const detail = await apiJson<JsonValue>(`/api/desidub/anime/${encodeURIComponent(providerId)}`, {
     revalidate: DETAIL_REVALIDATE_SECONDS,
   });
 
@@ -518,7 +524,7 @@ async function fetchDesidubDetailMeta(providerId: string): Promise<ProviderDetai
 }
 
 async function fetchDesidubEpisodes(providerId: string): Promise<EpisodeModel[]> {
-  const detail = await apiJson<JsonValue>(`/api/v2/anime/desidub/info/${encodeURIComponent(providerId)}`, {
+  const detail = await apiJson<JsonValue>(`/api/desidub/anime/${encodeURIComponent(providerId)}`, {
     revalidate: DETAIL_REVALIDATE_SECONDS,
   });
   return normalizeDesidubEpisodesPayload(detail);
@@ -581,7 +587,7 @@ async function searchHianimeByTitle(title: string): Promise<string | null> {
 
 async function searchAnimeKaiByTitle(title: string): Promise<string | null> {
   const response = await apiJson<JsonValue>(
-    `/api/v2/anime/animekai/search/${encodeURIComponent(title)}?page=1`,
+    `/api/search?keyword=${encodeURIComponent(title)}`,
     { revalidate: SEARCH_REVALIDATE_SECONDS },
   );
   const match = bestTitleMatch(title, ensureArray(response.results));
@@ -589,7 +595,7 @@ async function searchAnimeKaiByTitle(title: string): Promise<string | null> {
 }
 
 async function searchDesidubByTitle(title: string): Promise<string | null> {
-  const response = await apiJson<JsonValue>(`/api/v2/anime/desidub/search?q=${encodeURIComponent(title)}`, {
+  const response = await apiJson<JsonValue>(`/api/desidub/search?keyword=${encodeURIComponent(title)}`, {
     revalidate: SEARCH_REVALIDATE_SECONDS,
   });
   const match = bestTitleMatch(title, ensureArray(response.results));
@@ -682,15 +688,16 @@ const getHomePageModelUncached = async (): Promise<HomePageModel> => {
 
   if (!hero || trending.length === 0 || newReleases.length === 0 || topAiring.length === 0) {
     try {
-      const [spotlight, releases, recent] = await Promise.all([
-        apiJson<JsonValue>("/api/v2/anime/animekai/spotlight", { revalidate: HOME_REVALIDATE_SECONDS }),
-        apiJson<JsonValue>("/api/v2/anime/animekai/new-releases?page=1", { revalidate: HOME_REVALIDATE_SECONDS }),
-        apiJson<JsonValue>("/api/v2/anime/animekai/recent-episodes?page=1", { revalidate: HOME_REVALIDATE_SECONDS }),
+      const [home, releases, recent, genreRes] = await Promise.all([
+        apiJson<JsonValue>("/api/home", { revalidate: HOME_REVALIDATE_SECONDS }),
+        apiJson<JsonValue>("/api/category/new-releases?page=1", { revalidate: HOME_REVALIDATE_SECONDS }),
+        apiJson<JsonValue>("/api/category/updates?page=1", { revalidate: HOME_REVALIDATE_SECONDS }),
+        apiJson<JsonValue>("/api/genres", { revalidate: HOME_REVALIDATE_SECONDS }),
       ]);
-      attempts.push(providerSuccess("animekai", "Used to backfill home sections"));
+      attempts.push(providerSuccess("animekai", "Loaded straight from Python API"));
 
       if (!hero) {
-        const heroItem = normalizeAnimeKaiCatalogItem(ensureArray(spotlight.results)[0] || {});
+        const heroItem = normalizeAnimeKaiCatalogItem(ensureArray(home.banner)[0] || {});
         if (heroItem.providerId) {
           hero = heroItem;
           sectionProviders.hero = "animekai";
@@ -698,7 +705,7 @@ const getHomePageModelUncached = async (): Promise<HomePageModel> => {
       }
 
       if (trending.length === 0) {
-        trending = ensureArray(spotlight.results).slice(0, 10).map(normalizeAnimeKaiCatalogItem);
+        trending = ensureArray(home.trending?.NOW || []).slice(0, 10).map(normalizeAnimeKaiCatalogItem);
         if (trending.length > 0) sectionProviders.trending = "animekai";
       }
 
@@ -713,23 +720,20 @@ const getHomePageModelUncached = async (): Promise<HomePageModel> => {
       }
 
       if (genres.length === 0) {
-        const animeKaiGenres = await apiJson<JsonValue>("/api/v2/anime/animekai/genres", {
-          revalidate: HOME_REVALIDATE_SECONDS,
-        });
-        genres = uniqueStrings(ensureArray(animeKaiGenres.results).map(String));
+        genres = uniqueStrings(ensureArray(genreRes.genres).map(String));
       }
 
       if (!sectionProviders.hero || sectionProviders.hero !== "hianime") {
         activeProvider = "animekai";
       }
     } catch (error) {
-      attempts.push(providerFailure("animekai", error instanceof Error ? error.message : "Failed to backfill home"));
+      attempts.push(providerFailure("animekai", error instanceof Error ? error.message : "Failed to load Python home"));
     }
   }
 
   if (!hero || trending.length === 0) {
     try {
-      const desidub = await apiJson<JsonValue>("/api/v2/anime/desidub/home", {
+      const desidub = await apiJson<JsonValue>("/api/desidub/home", {
         revalidate: HOME_REVALIDATE_SECONDS,
       });
       attempts.push(providerSuccess("desidub", "Used as final home fallback"));
@@ -1222,7 +1226,7 @@ async function fetchAnimeKaiWatchSession(
   requestedServer?: string | null,
 ): Promise<ProviderWatchPayload> {
   const response = await apiJson<JsonValue>(
-    `/api/v2/anime/animekai/watch/${encodeURIComponent(episodeId)}?dub=${dubbed ? "1" : "0"}`,
+    `/api/watch/${encodeURIComponent(episodeId)}?dub=${dubbed ? "1" : "0"}`,
     { noStore: true },
   );
   const entries = ensureArray(response.results);
@@ -1266,7 +1270,7 @@ async function fetchDesidubWatchSession(
   episodeId: string,
   requestedServer?: string | null,
 ): Promise<ProviderWatchPayload> {
-  const response = await apiJson<JsonValue>(`/api/v2/anime/desidub/watch/${encodeURIComponent(episodeId)}`, {
+  const response = await apiJson<JsonValue>(`/api/desidub/watch/${encodeURIComponent(episodeId)}`, {
     noStore: true,
   });
   const sources = ensureArray(response.sources);
@@ -1303,8 +1307,6 @@ async function fetchProviderWatch(
   requestedServer?: string | null,
 ): Promise<ProviderWatchPayload> {
   switch (provider) {
-    case "hianime":
-      return fetchHianimeWatchSession(episodeId, dubbed, requestedServer);
     case "animekai":
       return fetchAnimeKaiWatchSession(episodeId, dubbed, requestedServer);
     case "desidub":
