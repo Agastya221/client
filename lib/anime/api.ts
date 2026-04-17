@@ -1199,22 +1199,33 @@ async function fetchAnimeKaiWatchSession(
     entries.find((entry) => String(entry.name || "").toLowerCase() === String(requestedServer || "").toLowerCase()) ||
     entries[0] ||
     {};
+
+  // Python API returns sources[].file (not .url) and embed URL in selected.url
   const stream = ensureArray(selected.sources)[0] || {};
+  const streamUrl = stream.file || stream.url || null;
+  const embedUrl = selected.url || null;
+
   const source = normalizeStreamSourceFromUrl({
     label: selected.name || "AnimeKai",
-    url: stream.url || null,
-    iframeUrl: selected.url || null,
-    referer: selected.url || null,
-    preferEmbed: Boolean(selected.url),
+    url: streamUrl,
+    iframeUrl: embedUrl && !streamUrl ? embedUrl : null,
+    referer: embedUrl || null,
+    preferEmbed: false,
   });
+
+  // Normalize subtitles — Python returns tracks with .file field
+  const subtitles = ensureArray(selected.subtitles ?? selected.tracks)
+    .filter((t: JsonValue) => t.kind !== "thumbnails")
+    .map((subtitle: JsonValue) => ({
+      label: String(subtitle.lang || subtitle.label || subtitle.kind || "Subtitle"),
+      lang: String(subtitle.lang || subtitle.label || subtitle.kind || "Unknown"),
+      url: String(subtitle.file || subtitle.url || ""),
+    }))
+    .filter((s) => s.url);
 
   return {
     source: source.url || source.iframeUrl ? source : null,
-    subtitles: ensureArray(selected.subtitles).map((subtitle) => ({
-      label: subtitle.lang || subtitle.label || "Subtitle",
-      lang: subtitle.lang || subtitle.label || "Unknown",
-      url: subtitle.url,
-    })),
+    subtitles,
     serverOptions: entries.map((entry) => ({
       id: String(entry.name || "animekai"),
       label: String(entry.name || "AnimeKai"),
@@ -1223,13 +1234,14 @@ async function fetchAnimeKaiWatchSession(
     })),
     activeServerId: String(selected.name || entries[0]?.name || ""),
     intro: selected.intro
-      ? { start: Number(selected.intro[0] || selected.intro.start || 0), end: Number(selected.intro[1] || selected.intro.end || 0) }
+      ? { start: Number(selected.intro[0] ?? selected.intro.start ?? 0), end: Number(selected.intro[1] ?? selected.intro.end ?? 0) }
       : null,
     outro: selected.outro
-      ? { start: Number(selected.outro[0] || selected.outro.start || 0), end: Number(selected.outro[1] || selected.outro.end || 0) }
+      ? { start: Number(selected.outro[0] ?? selected.outro.start ?? 0), end: Number(selected.outro[1] ?? selected.outro.end ?? 0) }
       : null,
   };
 }
+
 
 async function fetchDesidubWatchSession(
   episodeId: string,
