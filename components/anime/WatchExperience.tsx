@@ -329,6 +329,113 @@ export default function WatchExperience({ initialSession }: WatchExperienceProps
               )}
             </div>
 
+            {/* SERVER SELECTION */}
+            <div className="flex flex-col md:flex-row rounded-xl overflow-hidden shadow-[0_4px_20px_rgba(0,0,0,0.5)] border border-white/10 bg-[#161618]">
+              <div className="bg-[#b0e3af] text-black shrink-0 px-6 py-4 flex flex-col justify-center items-center text-center md:min-w-[170px]">
+                <span className="text-xs font-bold opacity-80 mb-1 tracking-wider uppercase">You are watching</span>
+                <span className="font-black text-[15px] mb-1">Episode {session.episode.number}</span>
+                <span className="text-[9px] font-medium opacity-80 leading-snug hidden md:block max-w-[130px]">
+                  If current server doesn't work<br />please try other servers beside.
+                </span>
+              </div>
+              <div className="flex-1 flex flex-col justify-center px-6 py-4 gap-3 bg-[#161618]">
+                {(() => {
+                  const isDesidub = session.provider === "desidub";
+                  const subServers = isDesidub ? [] : session.serverOptions.filter(s => s.category !== "dub" && s.category !== "raw");
+                  const dubServers = isDesidub ? [] : session.serverOptions.filter(s => s.category === "dub" || s.category === "raw");
+                  const hindiServers = isDesidub ? session.serverOptions : [];
+                  
+                  const mainFallback = session.availableProviders.find(p => p !== "desidub") || "hianime";
+                  const showHindi = session.availableProviders.includes("desidub") || isDesidub;
+
+                  const ServerBtn = ({ label, active, onClick }: { label: string, active: boolean, onClick: () => void }) => (
+                    <button
+                      onClick={onClick}
+                      className={`px-3 py-1.5 rounded text-xs font-semibold transition-all ${
+                        active
+                          ? "bg-[#b0e3af] text-black shadow-[0_0_10px_rgba(176,227,175,0.2)]"
+                          : "bg-white/5 text-white/60 hover:bg-white/10 hover:text-white"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+
+                  return (
+                    <>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <span className="text-[11px] font-black text-white/50 w-16 uppercase tracking-wider">SUB:</span>
+                        <div className="flex flex-wrap gap-2">
+                          {subServers.length > 0 ? (
+                            subServers.map(s => (
+                              <ServerBtn
+                                key={s.id}
+                                label={s.label}
+                                active={!session.dubbed && session.activeServerId === s.id}
+                                onClick={() => queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: s.id, dubbed: false })}
+                              />
+                            ))
+                          ) : (
+                            <ServerBtn
+                              label={`Try Sub (${humanizeProviderId(mainFallback)})`}
+                              active={false}
+                              onClick={() => queueSession({ episodeNumber: session.episode.number, provider: mainFallback, server: null, dubbed: false })}
+                            />
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-3">
+                        <span className="text-[11px] font-black text-white/50 w-16 uppercase tracking-wider">DUB:</span>
+                        <div className="flex flex-wrap gap-2">
+                          {dubServers.length > 0 ? (
+                            dubServers.map(s => (
+                              <ServerBtn
+                                key={s.id}
+                                label={s.label}
+                                active={session.dubbed && session.activeServerId === s.id && !isDesidub}
+                                onClick={() => queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: s.id, dubbed: true })}
+                              />
+                            ))
+                          ) : (
+                            <ServerBtn
+                              label={`Try Dub (${humanizeProviderId(mainFallback)})`}
+                              active={false}
+                              onClick={() => queueSession({ episodeNumber: session.episode.number, provider: mainFallback, server: null, dubbed: true })}
+                            />
+                          )}
+                        </div>
+                      </div>
+
+                      {showHindi && (
+                        <div className="flex flex-wrap items-center gap-3">
+                          <span className="text-[11px] font-black text-[#ff5500]/90 w-16 uppercase tracking-wider">HINDI:</span>
+                          <div className="flex flex-wrap gap-2">
+                            {hindiServers.length > 0 ? (
+                              hindiServers.map(s => (
+                                <ServerBtn
+                                  key={s.id}
+                                  label={s.label}
+                                  active={isDesidub && session.activeServerId === s.id}
+                                  onClick={() => queueSession({ episodeNumber: session.episode.number, provider: "desidub", server: s.id, dubbed: true })}
+                                />
+                              ))
+                            ) : (
+                              <ServerBtn
+                                label="DesiDub (Hindi)"
+                                active={false}
+                                onClick={() => queueSession({ episodeNumber: session.episode.number, provider: "desidub", server: null, dubbed: true })}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
               <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl">
                 <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
@@ -355,20 +462,6 @@ export default function WatchExperience({ initialSession }: WatchExperienceProps
                         queueSession({
                           episodeNumber: session.episode.number,
                           provider: session.provider,
-                          dubbed: !session.dubbed,
-                          server: null,
-                        })
-                      }
-                      className="rounded-full border border-white/12 bg-white/6 px-4 py-2 text-sm font-semibold text-white transition-colors hover:border-primary/40 hover:text-primary"
-                    >
-                      {session.dubbed ? "Switch to sub" : "Try dubbed"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        queueSession({
-                          episodeNumber: session.episode.number,
-                          provider: session.provider,
                           dubbed: session.dubbed,
                           server: null,
                         })
@@ -388,59 +481,7 @@ export default function WatchExperience({ initialSession }: WatchExperienceProps
                   </div>
                 </div>
 
-                <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
-                  <div>
-                    <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-white/45">Provider lanes</p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {session.availableProviders.map((provider) => (
-                        <button
-                          key={provider}
-                          type="button"
-                          onClick={() =>
-                            queueSession({
-                              episodeNumber: session.episode.number,
-                              provider,
-                              dubbed: session.dubbed,
-                              server: null,
-                            })
-                          }
-                          className={`rounded-full border px-3 py-2 text-sm font-semibold transition-colors ${
-                            provider === session.provider
-                              ? "border-primary/40 bg-primary/15 text-primary"
-                              : "border-white/10 bg-white/[0.04] text-white/70 hover:border-primary/35 hover:text-white"
-                          }`}
-                        >
-                          {humanizeProviderId(provider)}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
 
-                  <label className="space-y-2">
-                    <span className="text-[10px] font-bold uppercase tracking-[0.24em] text-white/45">
-                      Server
-                    </span>
-                    <select
-                      value={session.activeServerId || ""}
-                      onChange={(event) =>
-                        queueSession({
-                          episodeNumber: session.episode.number,
-                          provider: session.provider,
-                          dubbed: session.dubbed,
-                          server: event.target.value || null,
-                        })
-                      }
-                      className="w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none transition-colors focus:border-primary/40"
-                    >
-                      <option value="">Automatic</option>
-                      {session.serverOptions.map((option) => (
-                        <option key={`${option.provider}-${option.id}`} value={option.id}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
 
                 {(playbackMessage || isPending || isRecovering) ? (
                   <div className="mt-5 space-y-3">

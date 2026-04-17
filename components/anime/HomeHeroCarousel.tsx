@@ -86,40 +86,19 @@ export default function HomeHeroCarousel({ slides }: HomeHeroCarouselProps) {
             {activeSlide.description || "In a world where shadows dictate fate, the elite must fight. An intense new season brings back all your favorite characters..."}
           </p>
 
-          {/* Info Blocks */}
-          {(rating || release || quality) && (
-            <div className="flex gap-4 mb-8">
-              {rating && (
-                <div className="bg-[#0e0f11] rounded-lg px-4 py-3 flex flex-col min-w-[5rem] border border-white/5">
-                  <span className="text-[10px] text-white/50 uppercase font-bold">Rating</span>
-                  <span className="font-bold text-white text-sm mt-1">{rating}</span>
-                </div>
-              )}
-              {release && (
-                <div className="bg-[#0e0f11] rounded-lg px-4 py-3 flex flex-col min-w-[5rem] border border-white/5">
-                  <span className="text-[10px] text-white/50 uppercase font-bold">Release</span>
-                  <span className="font-bold text-white text-sm mt-1">{release}</span>
-                </div>
-              )}
-              {quality && (
-                <div className="bg-[#0e0f11] rounded-lg px-4 py-3 flex flex-col min-w-[5rem] border border-white/5">
-                  <span className="text-[10px] text-white/50 uppercase font-bold">Quality</span>
-                  <span className="font-bold text-white text-sm mt-1">{quality}</span>
-                </div>
-              )}
-            </div>
-          )}
-
           {/* Action Buttons */}
           <div className="flex items-center gap-4">
             <Link
               href={`${activeSlide.href}/watch?ep=1&provider=${activeSlide.provider}`}
-              className="flex items-center gap-2 bg-[#ff5500] hover:bg-[#ff6600] text-white px-8 py-3.5 rounded-md font-bold transition-colors shadow-[0_0_20px_rgba(255,85,0,0.3)]"
+              className="flex items-center justify-center gap-2 bg-[#ff5500] hover:bg-[#ff6600] text-black font-black uppercase tracking-wider px-8 py-3.5 rounded-lg transition-transform hover:scale-105 active:scale-95"
             >
-              WATCH NOW
+              Watch Now
             </Link>
-            <button className="flex items-center justify-center p-3.5 rounded-md border border-white/10 hover:bg-white/5 text-white transition-colors">
-              <Bookmark className="w-5 h-5 line-clamp-1" />
+            <button className="flex items-center justify-center w-12 h-12 rounded-lg bg-[#0e0f11] border border-white/5 text-white/70 hover:text-white hover:bg-white/5 hover:border-white/10 transition-colors">
+              <span className="sr-only">Bookmark</span>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>
+              </svg>
             </button>
           </div>
         </div>
