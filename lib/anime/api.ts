@@ -319,18 +319,15 @@ export function normalizeHianimeEpisodesPayload(data: JsonValue): EpisodeModel[]
 }
 
 export function normalizeAnimeKaiEpisodesPayload(data: JsonValue): EpisodeModel[] {
-  const subCount = numberOrNull(data.subCount);
-  const dubCount = numberOrNull(data.dubCount);
-  return ensureArray(data.episodes).map((episode) => ({
+  const episodes = Array.isArray(data) ? data : ensureArray((data as any)?.episodes);
+  return episodes.map((episode) => ({
     number: Number(episode.number || 0),
     title: pickFirstNonEmpty(episode.title, `Episode ${episode.number}`),
     isFiller: Boolean(episode.isFiller),
-    isSubbed:
-      episode.isSubbed === undefined ? (subCount !== null ? Number(episode.number || 0) <= subCount : false) : Boolean(episode.isSubbed),
-    isDubbed:
-      episode.isDubbed === undefined ? (dubCount !== null ? Number(episode.number || 0) <= dubCount : false) : Boolean(episode.isDubbed),
-    idByProvider: { animekai: String(episode.id) },
-    availableProviders: ["animekai"],
+    isSubbed: episode.has_sub !== undefined ? Boolean(episode.has_sub) : Boolean(episode.isSubbed ?? true),
+    isDubbed: episode.has_dub !== undefined ? Boolean(episode.has_dub) : Boolean(episode.isDubbed ?? false),
+    idByProvider: { animekai: String(episode.token || episode.id || "") },
+    availableProviders: ["animekai"] as ProviderId[],
   }));
 }
 
@@ -467,15 +464,16 @@ async function fetchAnimeKaiDetailMeta(providerId: string): Promise<ProviderDeta
 
 async function fetchAnimeKaiEpisodes(providerId: string): Promise<EpisodeModel[]> {
   // First we need the ani_id from the detail endpoint.
-  // The python API expects ani_id for episodes. We'll fetch it if needed.
   const meta = await apiJson<JsonValue>(`/api/anime/${encodeURIComponent(providerId)}`);
   const aniId = meta.ani_id;
   if (!aniId) return [];
 
-  const detail = await apiJson<JsonValue>(`/api/episodes/${encodeURIComponent(aniId)}`, {
+  const episodes = await apiJson<JsonValue>(`/api/episodes/${encodeURIComponent(String(aniId))}`, {
     revalidate: DETAIL_REVALIDATE_SECONDS,
   });
-  return normalizeAnimeKaiEpisodesPayload(detail);
+  // Python returns a plain array of episodes
+  const arr = Array.isArray(episodes) ? episodes : ensureArray((episodes as any)?.episodes);
+  return normalizeAnimeKaiEpisodesPayload(arr);
 }
 
 async function fetchAnimeKaiDetail(providerId: string): Promise<ProviderDetailBundle> {
@@ -554,6 +552,8 @@ async function fetchProviderDetailMeta(provider: ProviderId, providerId: string)
       return fetchAnimeKaiDetailMeta(providerId);
     case "desidub":
       return fetchDesidubDetailMeta(providerId);
+    default:
+      throw new Error(`Provider ${provider} is not supported`);
   }
 }
 
@@ -565,6 +565,8 @@ async function fetchProviderEpisodes(provider: ProviderId, providerId: string): 
       return fetchAnimeKaiEpisodes(providerId);
     case "desidub":
       return fetchDesidubEpisodes(providerId);
+    default:
+      throw new Error(`Provider ${provider} is not supported`);
   }
 }
 
@@ -576,6 +578,8 @@ async function fetchProviderDetail(provider: ProviderId, providerId: string): Pr
       return fetchAnimeKaiDetail(providerId);
     case "desidub":
       return fetchDesidubDetail(providerId);
+    default:
+      throw new Error(`Provider ${provider} is not supported`);
   }
 }
 
@@ -820,22 +824,18 @@ export async function getSearchPageModel(options: {
       if (provider === "animekai") {
         if (query) {
           const response = await apiJson<JsonValue>(
-            `/api/v2/anime/animekai/search/${encodeURIComponent(query)}?page=${page}`,
+            `/api/search?keyword=${encodeURIComponent(query)}`,
             { revalidate: SEARCH_REVALIDATE_SECONDS },
           );
           results = ensureArray(response.results).map(normalizeAnimeKaiCatalogItem);
-          totalPages = numberOrNull(response.totalPages);
-          hasNextPage = Boolean(response.hasNextPage);
         } else if (genre) {
           const response = await apiJson<JsonValue>(
-            `/api/v2/anime/animekai/genre/${encodeURIComponent(genre.toLowerCase())}?page=${page}`,
+            `/api/genres/${encodeURIComponent(genre.toLowerCase())}?page=${page}`,
             { revalidate: SEARCH_REVALIDATE_SECONDS },
           );
           results = ensureArray(response.results).map(normalizeAnimeKaiCatalogItem);
-          totalPages = numberOrNull(response.totalPages);
-          hasNextPage = Boolean(response.hasNextPage);
         } else {
-          const response = await apiJson<JsonValue>("/api/v2/anime/animekai/recent-episodes?page=1", {
+          const response = await apiJson<JsonValue>(`/api/category/updates?page=${page}`, {
             revalidate: SEARCH_REVALIDATE_SECONDS,
           });
           results = ensureArray(response.results).map(normalizeAnimeKaiCatalogItem);
