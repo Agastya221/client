@@ -59,6 +59,8 @@ export default function SearchControls({
       >
         <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-on-surface-variant" />
         <input
+          id="search-input-main"
+          name="search-input-main"
           type="search"
           value={draftQuery}
           onChange={(event) => setDraftQuery(event.target.value)}
