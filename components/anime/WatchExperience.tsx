@@ -76,6 +76,32 @@ function buildWatchSessionUrl(session: WatchSessionModel, request: SessionReques
   return `/api/watch-session?${params.toString()}`;
 }
 
+/* ── Client-side session cache ─────────────────────
+   Keeps up to 20 recently fetched sessions in memory.
+   Going back to a previously visited episode is instant. */
+const SESSION_CACHE_MAX = 20;
+const sessionCache = new Map<string, { data: WatchSessionModel; ts: number }>();
+
+function getCachedSession(url: string): WatchSessionModel | null {
+  const entry = sessionCache.get(url);
+  if (!entry) return null;
+  // Expire after 5 minutes
+  if (Date.now() - entry.ts > 5 * 60 * 1000) {
+    sessionCache.delete(url);
+    return null;
+  }
+  return entry.data;
+}
+
+function setCachedSession(url: string, data: WatchSessionModel): void {
+  // Evict oldest if full
+  if (sessionCache.size >= SESSION_CACHE_MAX) {
+    const oldest = [...sessionCache.entries()].sort((a, b) => a[1].ts - b[1].ts)[0];
+    if (oldest) sessionCache.delete(oldest[0]);
+  }
+  sessionCache.set(url, { data, ts: Date.now() });
+}
+
 function readStoredBoolean(key: string, fallback: boolean): boolean {
   if (typeof window === "undefined") return fallback;
   const raw = window.localStorage.getItem(key);
@@ -385,6 +411,32 @@ export default function WatchExperience({ initialSession, recommendations = [], 
     setWatchedEpisodes(getWatchedEpisodes(session.anime.id));
   }, [session.anime.id, session.anime.title, session.anime.poster, session.anime.href, session.provider, session.episode.number]);
 
+  /* ── Prefetch next episode (cache warming) ─── */
+  useEffect(() => {
+    const currentIdx = session.episodes.findIndex((ep) => ep.number === session.episode.number);
+    const nextEp = currentIdx >= 0 && currentIdx < session.episodes.length - 1
+      ? session.episodes[currentIdx + 1]
+      : null;
+
+    if (!nextEp) return;
+
+    // Wait 3 seconds after current episode loads, then silently prefetch next
+    const timer = setTimeout(() => {
+      const prefetchUrl = buildWatchSessionUrl(session, {
+        episodeNumber: nextEp.number,
+        provider: session.provider,
+        dubbed: session.dubbed,
+        server: null,
+      });
+
+      // Use low-priority fetch — won't block anything
+      fetch(prefetchUrl, { priority: "low" as RequestPriority })
+        .catch(() => undefined); // Silently ignore errors
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [session.anime.id, session.episode.number, session.episodes, session.provider, session.dubbed]);
+
   /* ── Resume from saved progress ────────────── */
   useEffect(() => {
     const video = videoRef.current;
@@ -498,7 +550,13 @@ export default function WatchExperience({ initialSession, recommendations = [], 
   });
 
   const fetchSession = useEffectEvent(async (request: SessionRequest): Promise<WatchSessionModel> => {
-    const response = await fetch(buildWatchSessionUrl(session, request), { cache: "no-store" });
+    const url = buildWatchSessionUrl(session, request);
+
+    // Check client-side cache first (instant!)
+    const cached = getCachedSession(url);
+    if (cached) return cached;
+
+    const response = await fetch(url);
     const payload = (await response.json().catch(() => null)) as WatchSessionModel | { message?: string } | null;
     if (!response.ok) {
       throw new Error(
@@ -507,7 +565,10 @@ export default function WatchExperience({ initialSession, recommendations = [], 
           : `Watch session failed with ${response.status}`
       );
     }
-    return payload as WatchSessionModel;
+
+    const result = payload as WatchSessionModel;
+    setCachedSession(url, result); // Store for future use
+    return result;
   });
 
   const applySession = useEffectEvent(async (request: SessionRequest): Promise<WatchSessionModel> => {

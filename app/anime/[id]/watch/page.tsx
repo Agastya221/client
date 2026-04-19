@@ -128,9 +128,9 @@ async function WatchContent({
   idPromise: Promise<{ id: string }>;
   searchParamsPromise: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { id } = await idPromise;
-  const query = await searchParamsPromise;
+  const [{ id }, query] = await Promise.all([idPromise, searchParamsPromise]);
 
+  // Fire session + auth in parallel (auth is cheap, session is heavy)
   const [session, authSession] = await Promise.all([
     getWatchSession({
       animeId: id,
@@ -143,12 +143,18 @@ async function WatchContent({
     auth(),
   ]);
 
-  // Fetch recommendations aggressively with multi-strategy fallback
-  const recommendations = await fetchRecommendations(
+  // Fetch recommendations — fire and don't block render for too long
+  const recommendationsPromise = fetchRecommendations(
     session.anime.anilistId,
     session.anime.title,
     session.anime.genres
   );
+
+  // Give recommendations 2 seconds max, then render with whatever we have
+  const recommendations = await Promise.race([
+    recommendationsPromise,
+    new Promise<AnilistMedia[]>((resolve) => setTimeout(() => resolve([]), 2000)),
+  ]);
 
   return (
     <>

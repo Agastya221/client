@@ -37,7 +37,8 @@ export async function GET(request: Request) {
 
     return NextResponse.json(session, {
       headers: {
-        "Cache-Control": "no-store",
+        // SWR: serve from browser cache for 60s, revalidate in background for 5 min
+        "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
       },
     });
   } catch (error) {
