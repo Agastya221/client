@@ -11,10 +11,42 @@ import {
   encodeAnilistRouteId,
   type AnilistDetailMedia,
 } from "@/lib/anilist/api";
-import { resolveAnimeKaiWatchHref } from "@/lib/anime/api";
+
 import { Play, Star, Calendar, Tv, Users, BookOpen, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
+import AddToListButton from "@/components/anime/AddToListButton";
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  if (!id.startsWith("anilist~")) {
+    return { title: "Anime Details | AnimeKAI" };
+  }
+  const anilistId = parseInt(id.replace("anilist~", ""), 10);
+  if (isNaN(anilistId)) return { title: "Not Found | AnimeKAI" };
+
+  try {
+    const media = await getAnilistDetail(anilistId);
+    const title = anilistTitle(media);
+    const desc = media.description?.replace(/<[^>]*>/g, "").slice(0, 160) || `Watch ${title} on AnimeKAI`;
+    return {
+      title: `${title} | AnimeKAI`,
+      description: desc,
+      openGraph: {
+        title: `${title} | AnimeKAI`,
+        description: desc,
+        images: [media.coverImage.extraLarge || media.coverImage.large],
+      },
+    };
+  } catch {
+    return { title: "Anime Details | AnimeKAI" };
+  }
+}
 
 function firstParam(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] || "" : value || "";
@@ -53,7 +85,7 @@ async function AnilistDetailContent({ anilistId }: { anilistId: number }) {
   const description = media.description?.replace(/<[^>]*>/g, "") || "";
   const accentColor = media.coverImage.color || "#ff5500";
   const selfHref = `/anime/${encodeAnilistRouteId(anilistId)}`;
-  const watchHref = await resolveAnimeKaiWatchHref(encodeAnilistRouteId(anilistId), title);
+  const watchHref = `/anime/${encodeAnilistRouteId(anilistId)}/watch?ep=1&provider=animekai`;
 
   const relations = media.relations.edges.filter(
     (e) => e.relationType === "SEQUEL" || e.relationType === "PREQUEL" || e.relationType === "SIDE_STORY"
@@ -169,12 +201,12 @@ async function AnilistDetailContent({ anilistId }: { anilistId: number }) {
                   <Play className="w-4 h-4 fill-current" />
                   WATCH NOW
                 </Link>
-                <Link
-                  href="/search"
-                  className="flex items-center gap-2 text-white/70 hover:text-white font-bold text-sm px-6 py-4 rounded-full bg-white/10 hover:bg-white/15 transition-all border border-white/10"
-                >
-                  Browse More
-                </Link>
+                <AddToListButton
+                  animeId={`anilist~${anilistId}`}
+                  title={title}
+                  poster={media.coverImage.extraLarge || media.coverImage.large}
+                  href={selfHref}
+                />
               </div>
             </div>
           </div>

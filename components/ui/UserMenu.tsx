@@ -72,7 +72,7 @@ export default function UserMenu({ user }: UserMenuProps) {
 
           {/* Links */}
           <div className="p-1.5">
-            <MenuLink href="/bookmarks" icon={Bookmark} label="My Bookmarks" onClick={() => setOpen(false)} />
+            <MenuLink href="/my-list" icon={Bookmark} label="My List" onClick={() => setOpen(false)} />
             <MenuLink href="/history" icon={History} label="Watch History" onClick={() => setOpen(false)} />
           </div>
 

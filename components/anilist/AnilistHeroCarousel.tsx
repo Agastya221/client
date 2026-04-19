@@ -54,7 +54,16 @@ export default function AnilistHeroCarousel({ slides, watchHrefs }: HeroCarousel
   const isAiring = slide.status === "RELEASING";
 
   return (
-    <section className="relative w-full overflow-hidden bg-[#0a0b0c]" style={{ minHeight: "92vh" }}>
+    <section
+      className="relative w-full overflow-hidden bg-[#0a0b0c]"
+      style={{ minHeight: "92vh" }}
+      aria-label="Featured anime carousel"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowLeft") goPrev();
+        if (e.key === "ArrowRight") goNext();
+      }}
+    >
       {/* Background image with parallax-like effect */}
       {deck.map((s, i) => (
         <div
@@ -191,8 +200,10 @@ export default function AnilistHeroCarousel({ slides, watchHrefs }: HeroCarousel
       {/* Navigation controls */}
       <div className="absolute bottom-8 left-6 lg:left-16 xl:left-24 z-20 flex items-center gap-4">
         <button
+          type="button"
           onClick={goPrev}
-          className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center border border-white/20 backdrop-blur transition-all"
+          aria-label="Previous slide"
+          className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center border border-white/20 backdrop-blur transition-all focus:outline-none focus:ring-2 focus:ring-[#ff5500]/50"
         >
           <ChevronLeft className="w-4 h-4 text-white" />
         </button>
@@ -214,8 +225,10 @@ export default function AnilistHeroCarousel({ slides, watchHrefs }: HeroCarousel
         </div>
 
         <button
+          type="button"
           onClick={goNext}
-          className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center border border-white/20 backdrop-blur transition-all"
+          aria-label="Next slide"
+          className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center border border-white/20 backdrop-blur transition-all focus:outline-none focus:ring-2 focus:ring-[#ff5500]/50"
         >
           <ChevronRight className="w-4 h-4 text-white" />
         </button>

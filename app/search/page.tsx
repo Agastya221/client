@@ -4,11 +4,41 @@ import AnilistCard from "@/components/anilist/AnilistCard";
 import { searchAnilist, getAnilistGenres, anilistTitle } from "@/lib/anilist/api";
 import { Search, SlidersHorizontal, ChevronRight } from "lucide-react";
 import Link from "next/link";
+import type { Metadata } from "next";
 
 function firstParam(v: string | string[] | undefined): string {
   return Array.isArray(v) ? v[0] || "" : v || "";
 }
 
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}): Promise<Metadata> {
+  const query = await searchParams;
+  const search = firstParam(query.q || query.search || query.keyword);
+  const genre = firstParam(query.genre);
+  const sort = firstParam(query.sort);
+
+  const title = genre
+    ? `${genre} Anime | AnimeKAI`
+    : search
+    ? `Search: ${search} | AnimeKAI`
+    : sort === "trending"
+    ? "Trending Anime | AnimeKAI"
+    : sort === "season"
+    ? "This Season | AnimeKAI"
+    : "Browse Anime | AnimeKAI";
+
+  return {
+    title,
+    description: genre
+      ? `Browse the best ${genre} anime on AnimeKAI. HD streaming with multi-provider fallback.`
+      : search
+      ? `Search results for "${search}" on AnimeKAI.`
+      : "Browse and search anime on AnimeKAI.",
+  };
+}
 export default async function SearchPage({
   searchParams,
 }: {
@@ -56,9 +86,9 @@ export default async function SearchPage({
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-[260px_1fr] gap-8">
-          {/* Sidebar Filters */}
+          {/* Sidebar Filters — collapsible on mobile */}
           <aside className="space-y-6">
-            {/* Search box */}
+            {/* Search box (always visible) */}
             <div>
               <label className="text-[10px] font-black uppercase tracking-widest text-white/40 block mb-2">Search</label>
               <form method="GET" className="relative">
@@ -75,57 +105,70 @@ export default async function SearchPage({
               </form>
             </div>
 
-            {/* Genres */}
-            <div>
-              <label className="text-[10px] font-black uppercase tracking-widest text-white/40 block mb-3">Genre</label>
-              <div className="flex flex-col gap-1">
-                <Link
-                  href={search ? `/search?q=${encodeURIComponent(search)}` : "/search"}
-                  className={`px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
-                    !genre ? "bg-[#ff5500]/20 text-[#ff5500] border border-[#ff5500]/30" : "text-white/50 hover:text-white hover:bg-white/5"
-                  }`}
-                >
-                  All Genres
-                </Link>
-                {genres.map((g) => (
-                  <Link
-                    key={g}
-                    href={search ? `/search?q=${encodeURIComponent(search)}&genre=${encodeURIComponent(g)}` : `/search?genre=${encodeURIComponent(g)}`}
-                    className={`px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
-                      genre === g
-                        ? "bg-[#ff5500]/20 text-[#ff5500] border border-[#ff5500]/30"
-                        : "text-white/50 hover:text-white hover:bg-white/5"
-                    }`}
-                  >
-                    {g}
-                  </Link>
-                ))}
-              </div>
-            </div>
+            {/* Filters: collapsible on mobile */}
+            <details className="xl:open group" open={!!(genre || sortParam)}>
+              <summary className="xl:hidden flex items-center gap-2 cursor-pointer text-sm font-bold text-white/60 hover:text-white transition-colors list-none [&::-webkit-details-marker]:hidden">
+                <SlidersHorizontal className="w-4 h-4" />
+                Filters
+                {(genre || sortParam) && (
+                  <span className="text-[10px] bg-[#ff5500]/20 text-[#ff5500] px-2 py-0.5 rounded-full font-black">Active</span>
+                )}
+              </summary>
 
-            {/* Quick sort */}
-            <div>
-              <label className="text-[10px] font-black uppercase tracking-widest text-white/40 block mb-3">Sort By</label>
-              <div className="flex flex-col gap-1">
-                {[
-                  { label: "Popularity", value: "" },
-                  { label: "Trending", value: "trending" },
-                  { label: "This Season", value: "season" },
-                ].map(({ label, value }) => (
-                  <Link
-                    key={value}
-                    href={`/search${genre ? `?genre=${encodeURIComponent(genre)}&sort=${value}` : `?sort=${value}`}`}
-                    className={`px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
-                      sortParam === value
-                        ? "bg-white/10 text-white border border-white/20"
-                        : "text-white/50 hover:text-white hover:bg-white/5"
-                    }`}
-                  >
-                    {label}
-                  </Link>
-                ))}
+              <div className="mt-4 xl:mt-0 space-y-6">
+                {/* Genres — scrollable */}
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-white/40 block mb-3">Genre</label>
+                  <div className="flex flex-col gap-1 max-h-[320px] overflow-y-auto hide-scrollbar">
+                    <Link
+                      href={search ? `/search?q=${encodeURIComponent(search)}` : "/search"}
+                      className={`px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                        !genre ? "bg-[#ff5500]/20 text-[#ff5500] border border-[#ff5500]/30" : "text-white/50 hover:text-white hover:bg-white/5"
+                      }`}
+                    >
+                      All Genres
+                    </Link>
+                    {genres.map((g) => (
+                      <Link
+                        key={g}
+                        href={search ? `/search?q=${encodeURIComponent(search)}&genre=${encodeURIComponent(g)}` : `/search?genre=${encodeURIComponent(g)}`}
+                        className={`px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                          genre === g
+                            ? "bg-[#ff5500]/20 text-[#ff5500] border border-[#ff5500]/30"
+                            : "text-white/50 hover:text-white hover:bg-white/5"
+                        }`}
+                      >
+                        {g}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Quick sort */}
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-white/40 block mb-3">Sort By</label>
+                  <div className="flex flex-col gap-1">
+                    {[
+                      { label: "Popularity", value: "" },
+                      { label: "Trending", value: "trending" },
+                      { label: "This Season", value: "season" },
+                    ].map(({ label, value }) => (
+                      <Link
+                        key={value}
+                        href={`/search${genre ? `?genre=${encodeURIComponent(genre)}&sort=${value}` : `?sort=${value}`}`}
+                        className={`px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                          sortParam === value
+                            ? "bg-white/10 text-white border border-white/20"
+                            : "text-white/50 hover:text-white hover:bg-white/5"
+                        }`}
+                      >
+                        {label}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
               </div>
-            </div>
+            </details>
           </aside>
 
           {/* Results Grid */}

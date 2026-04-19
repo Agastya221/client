@@ -51,7 +51,7 @@ export default async function GenresPage() {
                 {model.activeProvider === "hianime" ? "Primary genre map" : "Fallback genre map"}
               </p>
               <p className="mt-2 text-sm leading-relaxed text-on-surface-variant">
-                When the primary provider does not return enough catalog metadata, Kaido keeps the genre links alive
+                When the primary provider does not return enough catalog metadata, AnimeKAI keeps the genre links alive
                 by reusing the next working provider.
               </p>
             </div>

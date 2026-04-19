@@ -6,6 +6,8 @@
 
 const ANILIST_URL = "https://graphql.anilist.co";
 
+import { cache } from "react";
+
 const MEDIA_FRAGMENT = `
   fragment MediaFields on Media {
     id
@@ -165,10 +167,10 @@ const POPULAR_QUERY = `
 
 const SEARCH_QUERY = `
   ${MEDIA_FRAGMENT}
-  query Search($search: String, $genre: String, $page: Int, $perPage: Int, $sort: [MediaSort]) {
+  query Search($search: String, $genre: String, $page: Int, $perPage: Int, $sort: [MediaSort], $status: MediaStatus, $format: MediaFormat) {
     Page(page: $page, perPage: $perPage) {
       pageInfo { total currentPage lastPage hasNextPage }
-      media(search: $search, genre: $genre, type: ANIME, sort: $sort, isAdult: false) {
+      media(search: $search, genre: $genre, type: ANIME, sort: $sort, isAdult: false, status: $status, format: $format) {
         ...MediaFields
       }
     }
@@ -250,6 +252,8 @@ export async function searchAnilist(options: {
   page?: number;
   perPage?: number;
   sort?: string[];
+  status?: string;
+  format?: string;
 }): Promise<{ media: AnilistMedia[]; pageInfo: AnilistPageInfo }> {
   const data = await anilistQuery<{
     Page: { media: AnilistMedia[]; pageInfo: AnilistPageInfo };
@@ -259,6 +263,8 @@ export async function searchAnilist(options: {
     page: options.page || 1,
     perPage: options.perPage || 24,
     sort: options.sort || (options.search ? ["SEARCH_MATCH"] : ["POPULARITY_DESC"]),
+    status: options.status || undefined,
+    format: options.format || undefined,
   });
   return { media: data.Page.media, pageInfo: data.Page.pageInfo };
 }
@@ -287,7 +293,7 @@ export interface AnilistDetailMedia extends AnilistMedia {
   };
 }
 
-export async function getAnilistDetail(id: number): Promise<AnilistDetailMedia> {
+export const getAnilistDetail = cache(async (id: number): Promise<AnilistDetailMedia> => {
   const data = await anilistQuery<{ Media: AnilistDetailMedia }>(ANIME_DETAIL_QUERY, { id });
   return data.Media;
-}
+});

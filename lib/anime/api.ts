@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { cacheFetch, cacheInvalidatePrefix } from "@/lib/cache";
 import {
   PROVIDERS,
   type AnimeDetailModel,
@@ -184,7 +185,7 @@ async function apiJson<T>(path: string, options?: { revalidate?: number; noStore
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
       Accept: "application/json, text/plain, */*",
-      "User-Agent": "Kaido-Frontend/1.0",
+      "User-Agent": "AnimeKAI-Frontend/1.0",
     },
     cache: options?.noStore ? "no-store" : undefined,
     next: options?.noStore ? undefined : { revalidate: options?.revalidate ?? DETAIL_REVALIDATE_SECONDS },
@@ -1240,7 +1241,7 @@ export async function getEpisodesForProvider(
   }
 }
 
-export async function getAnimeDetailModel(
+async function _getAnimeDetailModelRaw(
   routeId: string,
   preferredProvider?: ProviderId | null,
   options: AnimeDetailModelOptions = {},
@@ -1279,6 +1280,24 @@ export async function getAnimeDetailModel(
     episodes: Array.from(episodeMap.values()).sort((a, b) => a.number - b.number),
     episodeCoverageMode: "merged-providers",
   };
+}
+
+
+/**
+ * Cached wrapper for getAnimeDetailModel.
+ * Detail data is stable - cache for 10 min, serve stale for 1 hour while refreshing.
+ */
+export async function getAnimeDetailModel(
+  routeId: string,
+  preferredProvider?: ProviderId | null,
+  options: AnimeDetailModelOptions = {},
+): Promise<AnimeDetailModel> {
+  const cacheKey = `detail-model:${routeId}:${preferredProvider || "auto"}:${options.mergeEpisodeProviders ?? true}`;
+  return cacheFetch(
+    cacheKey,
+    () => _getAnimeDetailModelRaw(routeId, preferredProvider, options),
+    { freshMs: 10 * 60 * 1000, staleMs: 60 * 60 * 1000, expireMs: 2 * 60 * 60 * 1000 },
+  );
 }
 
 export function normalizeStreamSourceFromUrl(input: {
@@ -1571,6 +1590,9 @@ export async function getWatchSession(input: {
       });
     }
   }
+
+  // All providers failed — invalidate cached detail so next request re-resolves
+  cacheInvalidatePrefix(`detail-model:${input.animeId}`);
 
   return {
     anime: detail.anime,

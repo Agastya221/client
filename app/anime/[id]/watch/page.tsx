@@ -8,11 +8,46 @@ import {
   getAnilistDetail,
   searchAnilist,
   getAnilistTrending,
+  anilistTitle,
   type AnilistMedia,
 } from "@/lib/anilist/api";
 import { ChevronRight, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { Suspense } from "react";
+import type { Metadata } from "next";
+
+export async function generateMetadata({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  const query = await searchParams;
+  const ep = query.ep ? String(query.ep) : "1";
+
+  if (id.startsWith("anilist~")) {
+    const anilistId = parseInt(id.replace("anilist~", ""), 10);
+    if (!isNaN(anilistId)) {
+      try {
+        const media = await getAnilistDetail(anilistId);
+        const title = anilistTitle(media);
+        return {
+          title: `Watch ${title} Episode ${ep} | AnimeKAI`,
+          description: `Stream ${title} Episode ${ep} in HD on AnimeKAI. Multiple servers, sub & dub available.`,
+        };
+      } catch {
+        // fall through
+      }
+    }
+  }
+
+  return {
+    title: `Watch Episode ${ep} | AnimeKAI`,
+    description: `Stream anime episodes in HD on AnimeKAI.`,
+  };
+}
 
 function firstParam(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] || "" : value || "";

@@ -60,10 +60,10 @@ interface SessionRequest {
 type SkipWindow = { start: number; end: number } | null;
 
 const STORAGE_KEYS = {
-  preferEmbed: "kaido-watch:prefer-embed",
-  autoNext: "kaido-watch:auto-next",
-  autoSkip: "kaido-watch:auto-skip",
-  autoPlay: "kaido-watch:auto-play",
+  preferEmbed: "animekai-watch:prefer-embed",
+  autoNext: "animekai-watch:auto-next",
+  autoSkip: "animekai-watch:auto-skip",
+  autoPlay: "animekai-watch:auto-play",
 } as const;
 
 function buildWatchSessionUrl(session: WatchSessionModel, request: SessionRequest): string {
@@ -411,31 +411,67 @@ export default function WatchExperience({ initialSession, recommendations = [], 
     setWatchedEpisodes(getWatchedEpisodes(session.anime.id));
   }, [session.anime.id, session.anime.title, session.anime.poster, session.anime.href, session.provider, session.episode.number]);
 
-  /* ── Prefetch next episode (cache warming) ─── */
+  /* ── Prefetch next episode + opposite dub/sub (cache warming) ─── */
   useEffect(() => {
+    const prefetchUrls: string[] = [];
+
+    // 1. Prefetch next episode (same dub/sub mode)
     const currentIdx = session.episodes.findIndex((ep) => ep.number === session.episode.number);
     const nextEp = currentIdx >= 0 && currentIdx < session.episodes.length - 1
       ? session.episodes[currentIdx + 1]
       : null;
 
-    if (!nextEp) return;
-
-    // Wait 3 seconds after current episode loads, then silently prefetch next
-    const timer = setTimeout(() => {
-      const prefetchUrl = buildWatchSessionUrl(session, {
+    if (nextEp) {
+      prefetchUrls.push(buildWatchSessionUrl(session, {
         episodeNumber: nextEp.number,
         provider: session.provider,
         dubbed: session.dubbed,
         server: null,
-      });
+      }));
+    }
 
-      // Use low-priority fetch — won't block anything
-      fetch(prefetchUrl, { priority: "low" as RequestPriority })
-        .catch(() => undefined); // Silently ignore errors
-    }, 3000);
+    // 2. Prefetch the OPPOSITE dub/sub mode for the CURRENT episode
+    //    So switching sub↔dub is instant
+    prefetchUrls.push(buildWatchSessionUrl(session, {
+      episodeNumber: session.episode.number,
+      provider: session.provider,
+      dubbed: !session.dubbed,
+      server: null,
+    }));
+
+    if (prefetchUrls.length === 0) return;
+
+    // Wait 2 seconds after current episode loads, then silently prefetch
+    const timer = setTimeout(() => {
+      for (const url of prefetchUrls) {
+        // Use low-priority fetch — won't block anything
+        fetch(url, { priority: "low" as RequestPriority }).catch(() => undefined);
+      }
+    }, 2000);
 
     return () => clearTimeout(timer);
   }, [session.anime.id, session.episode.number, session.episodes, session.provider, session.dubbed]);
+
+  /* ── Prefetch other available servers ──────── */
+  useEffect(() => {
+    if (session.serverOptions.length <= 1) return;
+
+    // Wait 4 seconds, then prefetch non-active servers
+    const timer = setTimeout(() => {
+      for (const srv of session.serverOptions) {
+        if (srv.id === session.activeServerId) continue; // Skip the current one
+        const url = buildWatchSessionUrl(session, {
+          episodeNumber: session.episode.number,
+          provider: session.provider,
+          dubbed: srv.category === "dub" || srv.category === "raw",
+          server: srv.id,
+        });
+        fetch(url, { priority: "low" as RequestPriority }).catch(() => undefined);
+      }
+    }, 4000);
+
+    return () => clearTimeout(timer);
+  }, [session.anime.id, session.episode.number, session.provider, session.activeServerId, session.serverOptions]);
 
   /* ── Resume from saved progress ────────────── */
   useEffect(() => {
@@ -800,7 +836,7 @@ export default function WatchExperience({ initialSession, recommendations = [], 
   const heroImage =
     session.anime.banner ||
     session.anime.poster ||
-    "https://placehold.co/1600x900/09090b/f5f5f5?text=KAIDO";
+    "https://placehold.co/1600x900/09090b/f5f5f5?text=AnimeKAI";
 
   const filteredEpisodes = session.episodes.filter((episode) => {
     const query = episodeQuery.trim().toLowerCase();
@@ -1137,19 +1173,39 @@ export default function WatchExperience({ initialSession, recommendations = [], 
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Sub/Dub mode indicator */}
-            <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 ${
-              !session.dubbed ? "bg-[#ff5500]/15 text-[#ff5500] border border-[#ff5500]/25" : "bg-white/5 text-white/50 border border-white/8"
-            }`}>
+            {/* Sub/Dub mode toggle buttons */}
+            <button
+              type="button"
+              onClick={() => {
+                if (session.dubbed) {
+                  queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: null, dubbed: false });
+                }
+              }}
+              className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 transition-all cursor-pointer ${
+                !session.dubbed
+                  ? "bg-[#ff5500]/15 text-[#ff5500] border border-[#ff5500]/25 shadow-[0_0_8px_rgba(255,85,0,0.15)]"
+                  : "bg-white/5 text-white/50 border border-white/8 hover:bg-white/10 hover:text-white/70"
+              }`}
+            >
               <Captions className="w-3 h-3" />
-              Hard Sub
-            </span>
-            <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 ${
-              session.dubbed ? "bg-[#4ade80]/15 text-[#4ade80] border border-[#4ade80]/25" : "bg-white/5 text-white/50 border border-white/8"
-            }`}>
+              Sub
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!session.dubbed) {
+                  queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: null, dubbed: true });
+                }
+              }}
+              className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 transition-all cursor-pointer ${
+                session.dubbed
+                  ? "bg-[#4ade80]/15 text-[#4ade80] border border-[#4ade80]/25 shadow-[0_0_8px_rgba(74,222,128,0.15)]"
+                  : "bg-white/5 text-white/50 border border-white/8 hover:bg-white/10 hover:text-white/70"
+              }`}
+            >
               <Captions className="w-3 h-3" />
               Dub
-            </span>
+            </button>
           </div>
         </div>
 
@@ -1333,7 +1389,15 @@ export default function WatchExperience({ initialSession, recommendations = [], 
 
         {/* Expandable list view */}
         {showEpisodeList && (
-          <div className="max-h-[400px] overflow-y-auto hide-scrollbar border-t border-white/5">
+          <div
+            className="max-h-[400px] overflow-y-auto hide-scrollbar border-t border-white/5"
+            ref={(el) => {
+              if (el) {
+                const active = el.querySelector('[data-active-episode="true"]');
+                if (active) active.scrollIntoView({ block: "center", behavior: "instant" });
+              }
+            }}
+          >
             {filteredEpisodes.map((episode) => {
               const active = episode.number === session.episode.number;
               const watched = watchedEpisodes.has(episode.number);
@@ -1342,6 +1406,7 @@ export default function WatchExperience({ initialSession, recommendations = [], 
                   key={episode.number}
                   type="button"
                   onClick={() => goToEpisode(episode.number)}
+                  data-active-episode={active ? "true" : undefined}
                   className={`group/ep w-full flex items-center gap-3 px-4 py-2.5 text-left transition-all border-b border-white/[0.03] last:border-0 ${
                     active
                       ? "bg-[#ff5500]/8 border-l-2 border-l-[#ff5500]"

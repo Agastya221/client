@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -13,9 +13,28 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+export const viewport: Viewport = {
+  themeColor: "#0a0b0c",
+};
+
 export const metadata: Metadata = {
   title: "AnimeKAI | The Ultimate Anime Experience",
-  description: "Watch your favorite anime online in high quality.",
+  description: "Watch your favorite anime online in high quality. Multi-provider streaming with sub, dub, and server fallback.",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://animekai.app"),
+  openGraph: {
+    title: "AnimeKAI | The Ultimate Anime Experience",
+    description: "Watch your favorite anime online in high quality with multi-provider streaming.",
+    siteName: "AnimeKAI",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "AnimeKAI | The Ultimate Anime Experience",
+    description: "Watch your favorite anime online in high quality.",
+  },
+  icons: {
+    icon: "/favicon.ico",
+  },
 };
 
 export default function RootLayout({
@@ -24,9 +43,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
         className={`${inter.variable} ${geistMono.variable} antialiased bg-surface text-on-surface`}
+        suppressHydrationWarning
       >
         {children}
       </body>

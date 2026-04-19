@@ -1,8 +1,19 @@
-export default function RandomPage() {
-  return (
-    <div className="min-h-[80vh] flex flex-col items-center justify-center">
-      <h1 className="text-4xl font-black text-white mb-4">Random Anime</h1>
-      <p className="text-white/50 text-xl">This feature is coming soon to AnimeKAI.</p>
-    </div>
-  );
+import { getAnilistTrending, encodeAnilistRouteId } from "@/lib/anilist/api";
+import { redirect } from "next/navigation";
+
+export const dynamic = "force-dynamic";
+
+export default async function RandomPage() {
+  // Fetch trending anime and pick a random one
+  const trending = await getAnilistTrending(50);
+
+  if (trending.length === 0) {
+    redirect("/search");
+  }
+
+  const randomIndex = Math.floor(Math.random() * trending.length);
+  const pick = trending[randomIndex];
+  const routeId = encodeAnilistRouteId(pick.id);
+
+  redirect(`/anime/${routeId}`);
 }
