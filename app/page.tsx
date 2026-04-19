@@ -1,5 +1,6 @@
 import AnilistHeroCarousel from "@/components/anilist/AnilistHeroCarousel";
 import AnilistCard from "@/components/anilist/AnilistCard";
+import ContinueWatchingRail from "@/components/anime/ContinueWatchingRail";
 import Navbar from "@/components/ui/Navbar";
 import SiteFooter from "@/components/ui/SiteFooter";
 import {
@@ -11,6 +12,7 @@ import {
   encodeAnilistRouteId,
   type AnilistMedia,
 } from "@/lib/anilist/api";
+import { resolveAnimeKaiWatchHref } from "@/lib/anime/api";
 import Link from "next/link";
 import { ChevronRight, Star, Flame, Zap, Clock, TrendingUp } from "lucide-react";
 
@@ -114,16 +116,31 @@ export default async function Home() {
     .filter((m) => m.bannerImage)
     .slice(0, 8)
     .concat(trending.filter((m) => !m.bannerImage).slice(0, 3));
+  const heroSlidesForCarousel = heroSlides.slice(0, 10);
+  const heroWatchHrefs = Object.fromEntries(
+    await Promise.all(
+      heroSlidesForCarousel.map(async (media) => [
+        String(media.id),
+        await resolveAnimeKaiWatchHref(encodeAnilistRouteId(media.id), anilistTitle(media)),
+      ]),
+    ),
+  );
 
   return (
     <main className="min-h-screen bg-[#0a0b0c] text-[#eaeaea]">
       <Navbar />
 
       {/* Hero Carousel */}
-      <AnilistHeroCarousel slides={heroSlides.slice(0, 10)} />
+      <AnilistHeroCarousel slides={heroSlidesForCarousel} watchHrefs={heroWatchHrefs} />
 
       {/* Main Content */}
       <div className="w-full px-4 lg:px-12 xl:px-16 py-12">
+
+        {/* Continue Watching (client-side, reads localStorage) */}
+        <div className="mb-12">
+          <ContinueWatchingRail />
+        </div>
+
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_340px] gap-10">
 
           {/* Left: Main content */}

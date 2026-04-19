@@ -5,6 +5,7 @@ import {
   type AnimeDetailOverviewModel,
   type AnimeEpisodeListModel,
   type AnimeMetadataRow,
+  type AnimeSeasonEntry,
   type CatalogAnime,
   type EpisodeModel,
   type GenresPageModel,
@@ -61,6 +62,7 @@ type ProviderDetailBundle = {
   anime: CatalogAnime;
   synopsis: string;
   metadata: AnimeMetadataRow[];
+  seasons: AnimeSeasonEntry[];
   episodes: EpisodeModel[];
   related: CatalogAnime[];
   recommended: CatalogAnime[];
@@ -103,6 +105,11 @@ function mapGenres(value: unknown): string[] {
     return uniqueStrings(value.split(",").map((entry) => entry.trim()));
   }
   return [];
+}
+
+function extractEpisodeCount(value: string | null | undefined): number | null {
+  const match = String(value || "").match(/\d+/);
+  return match ? Number(match[0]) : null;
 }
 
 function normalizeBaseAnime(input: {
@@ -192,6 +199,34 @@ async function apiJson<T>(path: string, options?: { revalidate?: number; noStore
   return (await response.json()) as T;
 }
 
+async function apiJsonWithFallback<T>(
+  paths: string[],
+  options?: { revalidate?: number; noStore?: boolean },
+): Promise<T> {
+  let lastError: unknown = null;
+
+  for (const path of paths) {
+    try {
+      return await apiJson<T>(path, options);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`Failed to resolve API payload from ${paths.join(", ")}`);
+}
+
+const ANIMEKAI_V2_BASE_PATH = "/api/v2/anime/animekai";
+
+type AnimeKaiResolvedMeta = {
+  detail: JsonValue;
+  resolvedId: string;
+  aniId: string | null;
+  flavor: "python" | "v2";
+};
+
 export function normalizeHianimeCatalogItem(item: JsonValue): CatalogAnime {
   const title = pickFirstNonEmpty(item.name, item.title, humanizeProviderId(String(item.id || "")));
   const poster = pickFirstNonEmpty(item.poster, item.image);
@@ -247,6 +282,25 @@ export function normalizeAnimeKaiCatalogItem(item: JsonValue): CatalogAnime {
     anilistId: numberOrNull(item.anilistId),
     malId: numberOrNull(item.malId),
   });
+}
+
+function normalizeAnimeKaiSeasonEntries(value: unknown): AnimeSeasonEntry[] {
+  return ensureArray<JsonValue>(value)
+    .map((entry) => {
+      const rawUrl = pickFirstNonEmpty(entry.url);
+      const slugMatch = rawUrl.match(/\/watch\/([^/?#]+)/);
+      const slug = slugMatch?.[1] ? decodeURIComponent(slugMatch[1]) : "";
+
+      return {
+        title: pickFirstNonEmpty(entry.title, humanizeProviderId(slug || rawUrl)),
+        href: slug ? `/anime/${encodeAnimeId("animekai", slug)}` : rawUrl || "#",
+        poster: pickFirstNonEmpty(entry.poster) || null,
+        episodeLabel: pickFirstNonEmpty(entry.episodes) || null,
+        episodeCount: extractEpisodeCount(pickFirstNonEmpty(entry.episodes) || null),
+        isActive: Boolean(entry.active),
+      };
+    })
+    .filter((entry) => Boolean(entry.title) && Boolean(entry.href));
 }
 
 export function normalizeDesidubCatalogItem(item: JsonValue): CatalogAnime {
@@ -407,6 +461,7 @@ async function fetchHianimeDetailMeta(providerId: string): Promise<ProviderDetai
     anime,
     synopsis: pickFirstNonEmpty(info.description),
     metadata: toHianimeMetadata(detail),
+    seasons: [],
     related: ensureArray(detail.relatedAnimes).map(normalizeHianimeCatalogItem),
     recommended: ensureArray(detail.recommendedAnimes).map(normalizeHianimeCatalogItem),
   };
@@ -464,11 +519,36 @@ async function resolveAnimeKaiSlug(providerId: string): Promise<string> {
   return providerId;
 }
 
-async function fetchAnimeKaiDetailMeta(providerId: string): Promise<ProviderDetailMetaBundle> {
+async function fetchAnimeKaiResolvedMeta(providerId: string): Promise<AnimeKaiResolvedMeta> {
   const resolvedId = await resolveAnimeKaiSlug(providerId);
-  const detail = await apiJson<JsonValue>(`/api/anime/${encodeURIComponent(resolvedId)}`, {
-    revalidate: DETAIL_REVALIDATE_SECONDS,
-  });
+
+  try {
+    const detail = await apiJson<JsonValue>(`/api/anime/${encodeURIComponent(resolvedId)}`, {
+      revalidate: DETAIL_REVALIDATE_SECONDS,
+    });
+
+    return {
+      detail,
+      resolvedId,
+      aniId: pickFirstNonEmpty(String(detail.ani_id || "")) || null,
+      flavor: "python",
+    };
+  } catch {
+    const detail = await apiJson<JsonValue>(`${ANIMEKAI_V2_BASE_PATH}/info/${encodeURIComponent(resolvedId)}`, {
+      revalidate: DETAIL_REVALIDATE_SECONDS,
+    });
+
+    return {
+      detail,
+      resolvedId,
+      aniId: null,
+      flavor: "v2",
+    };
+  }
+}
+
+async function fetchAnimeKaiDetailMeta(providerId: string): Promise<ProviderDetailMetaBundle> {
+  const { detail } = await fetchAnimeKaiResolvedMeta(providerId);
   const subCount = numberOrNull(detail.subCount ?? detail.sub_episodes);
   const dubCount = numberOrNull(detail.dubCount ?? detail.dub_episodes);
   const anime = normalizeBaseAnime({
@@ -494,24 +574,34 @@ async function fetchAnimeKaiDetailMeta(providerId: string): Promise<ProviderDeta
     anime,
     synopsis: pickFirstNonEmpty(detail.description),
     metadata: toAnimeKaiMetadata(detail),
+    seasons: normalizeAnimeKaiSeasonEntries(detail.seasons),
     related: ensureArray(detail.relations).map(normalizeAnimeKaiCatalogItem),
     recommended: ensureArray(detail.recommendations).map(normalizeAnimeKaiCatalogItem),
   };
 }
 
 async function fetchAnimeKaiEpisodes(providerId: string): Promise<EpisodeModel[]> {
-  const resolvedId = await resolveAnimeKaiSlug(providerId);
-  // First we need the ani_id from the detail endpoint.
-  const meta = await apiJson<JsonValue>(`/api/anime/${encodeURIComponent(resolvedId)}`);
-  const aniId = meta.ani_id;
-  if (!aniId) return [];
+  const { detail, resolvedId, aniId, flavor } = await fetchAnimeKaiResolvedMeta(providerId);
 
-  const episodes = await apiJson<JsonValue>(`/api/episodes/${encodeURIComponent(String(aniId))}`, {
+  if (flavor === "python") {
+    if (!aniId) return [];
+
+    const episodes = await apiJson<JsonValue>(`/api/episodes/${encodeURIComponent(aniId)}`, {
+      revalidate: DETAIL_REVALIDATE_SECONDS,
+    });
+    const arr = Array.isArray(episodes) ? episodes : ensureArray((episodes as any)?.episodes);
+    return normalizeAnimeKaiEpisodesPayload(arr);
+  }
+
+  const embeddedEpisodes = ensureArray((detail as any)?.episodes);
+  if (embeddedEpisodes.length > 0) {
+    return normalizeAnimeKaiEpisodesPayload(embeddedEpisodes);
+  }
+
+  const episodes = await apiJson<JsonValue>(`${ANIMEKAI_V2_BASE_PATH}/episodes/${encodeURIComponent(resolvedId)}`, {
     revalidate: DETAIL_REVALIDATE_SECONDS,
   });
-  // Python returns a plain array of episodes
-  const arr = Array.isArray(episodes) ? episodes : ensureArray((episodes as any)?.episodes);
-  return normalizeAnimeKaiEpisodesPayload(arr);
+  return normalizeAnimeKaiEpisodesPayload(episodes);
 }
 
 async function fetchAnimeKaiDetail(providerId: string): Promise<ProviderDetailBundle> {
@@ -554,6 +644,7 @@ async function fetchDesidubDetailMeta(providerId: string): Promise<ProviderDetai
     anime,
     synopsis: pickFirstNonEmpty(detail.description),
     metadata: toDesidubMetadata(detail),
+    seasons: [],
     related: [],
     recommended: [],
   };
@@ -628,13 +719,48 @@ async function searchHianimeByTitle(title: string): Promise<string | null> {
 }
 
 async function searchAnimeKaiByTitle(title: string): Promise<string | null> {
-  const response = await apiJson<JsonValue>(
-    `/api/search?keyword=${encodeURIComponent(title)}`,
+  const response = await apiJsonWithFallback<JsonValue>(
+    [
+      `/api/search?keyword=${encodeURIComponent(title)}`,
+      `${ANIMEKAI_V2_BASE_PATH}/search/${encodeURIComponent(title)}`,
+    ],
     { revalidate: SEARCH_REVALIDATE_SECONDS },
   );
   const match = bestTitleMatch(title, ensureArray(response.results));
-  return match?.id ? String(match.id) : null;
+  if (!match) return null;
+  // AnimeKai search items have a `slug` field, e.g. "jujutsu-kaisen-4gm6"
+  // Fall back to extracting from `url` if slug is missing
+  const slug =
+    match.slug ||
+    (match.url ? String(match.url).split("/").filter(Boolean).pop() : null);
+  return slug ? String(slug) : null;
 }
+
+export const resolveAnimeKaiWatchHref = cache(async function resolveAnimeKaiWatchHref(
+  routeId: string,
+  title?: string | null,
+): Promise<string> {
+  const defaultHref = `/anime/${routeId}/watch?ep=1&provider=animekai`;
+  const decoded = decodeAnimeId(routeId);
+
+  if (decoded.provider !== "animekai" || !decoded.providerId.startsWith("anilist:")) {
+    return defaultHref;
+  }
+
+  const candidateTitle = String(title || "").trim();
+  if (!candidateTitle) {
+    return defaultHref;
+  }
+
+  try {
+    const slug = await searchAnimeKaiByTitle(candidateTitle);
+    return slug
+      ? `/anime/${encodeAnimeId("animekai", slug)}/watch?ep=1&provider=animekai`
+      : defaultHref;
+  } catch {
+    return defaultHref;
+  }
+});
 
 async function searchDesidubByTitle(title: string): Promise<string | null> {
   const response = await apiJson<JsonValue>(`/api/desidub/search?keyword=${encodeURIComponent(title)}`, {
@@ -1034,6 +1160,7 @@ export async function getAnimeDetailOverviewModel(
       anime,
       synopsis: anime.description || "No synopsis available right now.",
       metadata: [],
+      seasons: [],
       related: [],
       recommended: [],
       activeProvider: decoded.provider,
@@ -1049,6 +1176,7 @@ export async function getAnimeDetailOverviewModel(
     anime: mergedAnime,
     synopsis: activeBundle.synopsis || mergedAnime.description || "No synopsis available right now.",
     metadata: activeBundle.metadata,
+    seasons: activeBundle.seasons,
     related: activeBundle.related.map((anime) => withProviderIds(anime, anime.providerIds)),
     recommended: activeBundle.recommended.map((anime) => withProviderIds(anime, anime.providerIds)),
     activeProvider: activeBundle.provider,
@@ -1198,7 +1326,7 @@ async function fetchHianimeWatchSession(
     url: current.link || null,
     iframeUrl: current.iframe || null,
     referer: current.iframe || null,
-    preferEmbed: false,
+    preferEmbed: Boolean(current.iframe),
   });
 
   return {
@@ -1228,11 +1356,37 @@ async function fetchAnimeKaiWatchSession(
   dubbed: boolean,
   requestedServer?: string | null,
 ): Promise<ProviderWatchPayload> {
-  const response = await apiJson<JsonValue>(
-    `/api/watch/${encodeURIComponent(episodeId)}?dub=${dubbed ? "1" : "0"}`,
-    { noStore: true },
-  );
-  const entries = ensureArray(response.results);
+  const watchPaths = episodeId.includes("$token=")
+    ? [
+        `${ANIMEKAI_V2_BASE_PATH}/watch/${encodeURIComponent(episodeId)}?dub=${dubbed ? "1" : "0"}`,
+        `/api/watch/${encodeURIComponent(episodeId)}?dub=${dubbed ? "1" : "0"}`,
+      ]
+    : [
+        `/api/watch/${encodeURIComponent(episodeId)}?dub=${dubbed ? "1" : "0"}`,
+        `${ANIMEKAI_V2_BASE_PATH}/watch/${encodeURIComponent(episodeId)}?dub=${dubbed ? "1" : "0"}`,
+      ];
+
+  let response: JsonValue | null = null;
+  let entries: JsonValue[] = [];
+  let lastError: unknown = null;
+
+  for (const path of watchPaths) {
+    try {
+      const payload = await apiJson<JsonValue>(path, { noStore: true });
+      const candidateEntries = ensureArray(payload.results);
+
+      response = payload;
+      entries = candidateEntries;
+      if (candidateEntries.length > 0) break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (!response && lastError) {
+    throw lastError instanceof Error ? lastError : new Error("Failed to resolve AnimeKai watch session");
+  }
+
   const selected =
     entries.find((entry) => String(entry.name || "").toLowerCase() === String(requestedServer || "").toLowerCase()) ||
     entries[0] ||
@@ -1246,9 +1400,9 @@ async function fetchAnimeKaiWatchSession(
   const source = normalizeStreamSourceFromUrl({
     label: selected.name || "AnimeKai",
     url: streamUrl,
-    iframeUrl: embedUrl && !streamUrl ? embedUrl : null,
+    iframeUrl: embedUrl || null,
     referer: embedUrl || null,
-    preferEmbed: false,
+    preferEmbed: Boolean(embedUrl),
   });
 
   // Normalize subtitles — Python returns tracks with .file field
@@ -1369,6 +1523,7 @@ export async function getWatchSession(input: {
       subtitles: [],
       serverOptions: [],
       activeServerId: null,
+      seasons: detail.seasons,
       dubbed: Boolean(input.dubbed),
       fallbackHistory: ["Episode not found in current provider map"],
     };
@@ -1393,6 +1548,7 @@ export async function getWatchSession(input: {
         anime: detail.anime,
         episode: targetEpisode,
         episodes: detail.episodes,
+        seasons: detail.seasons,
         provider,
         availableProviders: detail.availableProviders,
         attempts: detail.attempts,
@@ -1420,6 +1576,7 @@ export async function getWatchSession(input: {
     anime: detail.anime,
     episode: targetEpisode,
     episodes: detail.episodes,
+    seasons: detail.seasons,
     provider: preferredProvider,
     availableProviders: detail.availableProviders,
     attempts: detail.attempts,

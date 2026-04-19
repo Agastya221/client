@@ -1,0 +1,139 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ─── NextAuth.js Models ────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts      Account[]
+  sessions      Session[]
+  bookmarks     Bookmark[]
+  watchHistory  WatchHistory[]
+  comments      Comment[]
+  commentLikes  CommentLike[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─── App Models ─────────────────────────────────────────
+
+model Bookmark {
+  id        String   @id @default(cuid())
+  userId    String
+  animeId   String   // AniList ID or AnimeKAI ID
+  title     String
+  poster    String?
+  href      String   // Link like /anime/animekai~solo-leveling-9038n
+  status    String   @default("WATCHING") // WATCHING, COMPLETED, PLAN_TO_WATCH, DROPPED, ON_HOLD
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, animeId])
+  @@index([userId])
+}
+
+model WatchHistory {
+  id            String   @id @default(cuid())
+  userId        String
+  animeId       String
+  episodeNumber Int
+  progress      Float    @default(0) // 0 to 1
+  duration      Float    @default(0) // in seconds
+  title         String   // Anime title
+  poster        String?
+  href          String
+  provider      String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, animeId, episodeNumber])
+  @@index([userId])
+  @@index([userId, animeId])
+}
+
+model Comment {
+  id            String   @id @default(cuid())
+  userId        String
+  animeId       String
+  episodeNumber Int?     // null = general anime comment
+  content       String
+  isSpoiler     Boolean  @default(false)
+  timestamp     Float?   // optional video timestamp in seconds (for linking)
+  parentId      String?  // for replies (threaded comments)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent   Comment?      @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies  Comment[]     @relation("CommentReplies")
+  likes    CommentLike[]
+
+  @@index([animeId, episodeNumber])
+  @@index([userId])
+  @@index([parentId])
+}
+
+model CommentLike {
+  id        String   @id @default(cuid())
+  userId    String
+  commentId String
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  comment Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, commentId])
+}

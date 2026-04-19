@@ -7,9 +7,10 @@ import { useEffect, useState, useCallback } from "react";
 
 interface HeroCarouselProps {
   slides: AnilistMedia[];
+  watchHrefs?: Record<string, string>;
 }
 
-export default function AnilistHeroCarousel({ slides }: HeroCarouselProps) {
+export default function AnilistHeroCarousel({ slides, watchHrefs }: HeroCarouselProps) {
   const deck = slides.slice(0, 10);
   const [activeIndex, setActiveIndex] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
@@ -45,7 +46,7 @@ export default function AnilistHeroCarousel({ slides }: HeroCarouselProps) {
   const title = anilistTitle(slide);
   const rating = anilistRating(slide);
   const href = `/anime/${encodeAnilistRouteId(slide.id)}`;
-  const watchHref = `${href}/watch?ep=1&provider=animekai`;
+  const watchHref = watchHrefs?.[String(slide.id)] || `${href}/watch?ep=1&provider=animekai`;
   const banner = slide.bannerImage || slide.coverImage.extraLarge;
   const description = slide.description?.replace(/<[^>]*>/g, "").slice(0, 200) || "";
   const studios = slide.studios.nodes.map((s) => s.name).join(", ");

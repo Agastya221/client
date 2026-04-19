@@ -11,6 +11,7 @@ import {
   encodeAnilistRouteId,
   type AnilistDetailMedia,
 } from "@/lib/anilist/api";
+import { resolveAnimeKaiWatchHref } from "@/lib/anime/api";
 import { Play, Star, Calendar, Tv, Users, BookOpen, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -52,9 +53,7 @@ async function AnilistDetailContent({ anilistId }: { anilistId: number }) {
   const description = media.description?.replace(/<[^>]*>/g, "") || "";
   const accentColor = media.coverImage.color || "#ff5500";
   const selfHref = `/anime/${encodeAnilistRouteId(anilistId)}`;
-
-  // Watch link: search AnimeKai by title (our Python API handles the lookup)
-  const watchHref = `/anime/${encodeAnilistRouteId(anilistId)}/watch?ep=1&provider=animekai`;
+  const watchHref = await resolveAnimeKaiWatchHref(encodeAnilistRouteId(anilistId), title);
 
   const relations = media.relations.edges.filter(
     (e) => e.relationType === "SEQUEL" || e.relationType === "PREQUEL" || e.relationType === "SIDE_STORY"

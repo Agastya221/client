@@ -71,6 +71,15 @@ export interface AnimeMetadataRow {
   value: string;
 }
 
+export interface AnimeSeasonEntry {
+  title: string;
+  href: string;
+  poster?: string | null;
+  episodeLabel?: string | null;
+  episodeCount?: number | null;
+  isActive?: boolean;
+}
+
 export interface EpisodeModel {
   number: number;
   title: string;
@@ -86,6 +95,7 @@ export interface AnimeDetailModel {
   anime: CatalogAnime;
   synopsis: string;
   metadata: AnimeMetadataRow[];
+  seasons: AnimeSeasonEntry[];
   episodes: EpisodeModel[];
   episodeCoverageMode: "active-provider" | "merged-providers";
   related: CatalogAnime[];
@@ -99,6 +109,7 @@ export interface AnimeDetailOverviewModel {
   anime: CatalogAnime;
   synopsis: string;
   metadata: AnimeMetadataRow[];
+  seasons: AnimeSeasonEntry[];
   related: CatalogAnime[];
   recommended: CatalogAnime[];
   activeProvider: ProviderId;
@@ -149,6 +160,7 @@ export interface WatchSessionModel {
   anime: CatalogAnime;
   episode: EpisodeModel;
   episodes: EpisodeModel[];
+  seasons: AnimeSeasonEntry[];
   provider: ProviderId;
   availableProviders: ProviderId[];
   attempts: ProviderAttemptStatus[];

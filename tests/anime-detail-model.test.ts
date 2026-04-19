@@ -4,6 +4,7 @@ import {
   getAnimeDetailModel,
   getAnimeDetailOverviewModel,
   getAnimeEpisodeListModel,
+  resolveAnimeKaiWatchHref,
 } from "../lib/anime/api.ts";
 
 function jsonResponse(payload: unknown, status = 200): Response {
@@ -273,6 +274,32 @@ test("getAnimeEpisodeListModel loads animekai episodes separately from meta", as
     assert.equal(detail.episodes[0]?.idByProvider.animekai, "ak-1");
     assert.ok(calls.some((url) => url.endsWith("/api/v2/anime/animekai/meta/solo-leveling-ak")));
     assert.ok(calls.some((url) => url.endsWith("/api/v2/anime/animekai/episodes/solo-leveling-ak")));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("resolveAnimeKaiWatchHref upgrades AniList banner links to direct animekai watch routes", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: string[] = [];
+
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    calls.push(url);
+
+    if (url.endsWith("/api/search?keyword=Solo%20Leveling")) {
+      return jsonResponse({
+        results: [{ slug: "solo-leveling-93rg", title: "Solo Leveling" }],
+      });
+    }
+
+    throw new Error(`Unexpected fetch: ${url}`);
+  }) as typeof fetch;
+
+  try {
+    const href = await resolveAnimeKaiWatchHref("anilist~151807", "Solo Leveling");
+    assert.equal(href, "/anime/animekai~solo-leveling-93rg/watch?ep=1&provider=animekai");
+    assert.ok(calls.some((url) => url.endsWith("/api/search?keyword=Solo%20Leveling")));
   } finally {
     globalThis.fetch = originalFetch;
   }
