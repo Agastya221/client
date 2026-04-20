@@ -3,45 +3,37 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Clock, Play, Trash2, ChevronRight } from "lucide-react";
-import type { WatchHistory as WatchHistoryType, WatchHistoryEntry } from "@/lib/anime/watch-history";
+import {
+  clearHistory as clearWatchHistory,
+  getContinueWatching,
+  removeFromHistory,
+  subscribeToWatchHistory,
+  type WatchHistoryEntry,
+} from "@/lib/anime/watch-history";
 
 export default function HistoryPage() {
-  const [history, setHistory] = useState<[string, WatchHistoryEntry][]>([]);
+  const [history, setHistory] = useState<(WatchHistoryEntry & { animeId: string })[]>([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("animekai:watch-history");
-      if (raw) {
-        const parsed: WatchHistoryType = JSON.parse(raw);
-        const entries = Object.entries(parsed).sort(
-          ([, a], [, b]) => b.lastUpdated - a.lastUpdated
-        );
-        setHistory(entries);
-      }
-    } catch {
-      // ignore
-    }
-    setLoaded(true);
+    const syncHistory = () => {
+      setHistory(getContinueWatching());
+      setLoaded(true);
+    };
+
+    syncHistory();
+
+    return subscribeToWatchHistory(syncHistory);
   }, []);
 
   const clearHistory = () => {
-    localStorage.removeItem("animekai:watch-history");
+    clearWatchHistory();
     setHistory([]);
   };
 
   const removeEntry = (animeId: string) => {
-    try {
-      const raw = localStorage.getItem("animekai:watch-history");
-      if (raw) {
-        const parsed: WatchHistoryType = JSON.parse(raw);
-        delete parsed[animeId];
-        localStorage.setItem("animekai:watch-history", JSON.stringify(parsed));
-        setHistory(Object.entries(parsed).sort(([, a], [, b]) => b.lastUpdated - a.lastUpdated));
-      }
-    } catch {
-      // ignore
-    }
+    removeFromHistory(animeId);
+    setHistory((prev) => prev.filter((entry) => entry.animeId !== animeId));
   };
 
   const formatTime = (ms: number) => {
@@ -101,7 +93,8 @@ export default function HistoryPage() {
           </div>
         ) : (
           <div className="grid gap-3">
-            {history.map(([animeId, entry]) => {
+            {history.map((entry) => {
+              const animeId = entry.animeId;
               const epKeys = Object.keys(entry.episodes);
               const latestEpKey = epKeys.sort((a, b) => (entry.episodes[b]?.timestamp || 0) - (entry.episodes[a]?.timestamp || 0))[0];
               const latestProgress = latestEpKey ? entry.episodes[latestEpKey] : null;
@@ -150,7 +143,7 @@ export default function HistoryPage() {
                   {/* Actions */}
                   <div className="flex items-center gap-2 shrink-0">
                     <Link
-                      href={`${entry.href}?ep=${entry.lastEpisode}`}
+                      href={`${entry.href}/watch?ep=${entry.lastEpisode}&provider=${entry.provider}`}
                       className="w-8 h-8 rounded-full bg-[#ff5500]/15 flex items-center justify-center hover:bg-[#ff5500]/30 transition-colors"
                     >
                       <Play className="w-3.5 h-3.5 text-[#ff5500] fill-[#ff5500] ml-0.5" />

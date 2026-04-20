@@ -24,6 +24,7 @@
 
 const STORAGE_KEY = "animekai:watch-history";
 const MAX_ENTRIES = 100;
+export const WATCH_HISTORY_UPDATED_EVENT = "animekai:watch-history-updated";
 
 export type EpisodeProgress = {
   progress: number; // 0-1 fraction
@@ -42,6 +43,26 @@ export type WatchHistoryEntry = {
 };
 
 export type WatchHistory = Record<string, WatchHistoryEntry>;
+
+function scoreHistoryTitleQuality(title: string | null | undefined): number {
+  const normalized = title?.trim();
+  if (!normalized) return 0;
+
+  let score = 1;
+  if (/\s/.test(normalized)) score += 2;
+  if (/[A-Z]/.test(normalized)) score += 1;
+  if (normalized.length >= 12) score += 1;
+  if (/^(anilist|animekai|desidub|hianime)[:~]/i.test(normalized)) score -= 4;
+  if (/^[a-z0-9-]+$/i.test(normalized)) score -= 1;
+
+  return score;
+}
+
+function shouldReplaceHistoryTitle(current: string | null | undefined, incoming: string | null | undefined): boolean {
+  const normalizedIncoming = incoming?.trim();
+  if (!normalizedIncoming) return false;
+  return scoreHistoryTitleQuality(normalizedIncoming) >= scoreHistoryTitleQuality(current);
+}
 
 function readHistory(): WatchHistory {
   if (typeof window === "undefined") return {};
@@ -63,9 +84,29 @@ function writeHistory(history: WatchHistory): void {
       history = Object.fromEntries(entries.slice(0, MAX_ENTRIES));
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+    window.dispatchEvent(new CustomEvent(WATCH_HISTORY_UPDATED_EVENT));
   } catch {
     // localStorage full or unavailable — silently fail
   }
+}
+
+export function subscribeToWatchHistory(listener: () => void): () => void {
+  if (typeof window === "undefined") return () => undefined;
+
+  const handleCustomUpdate = () => listener();
+  const handleStorage = (event: StorageEvent) => {
+    if (!event.key || event.key === STORAGE_KEY) {
+      listener();
+    }
+  };
+
+  window.addEventListener(WATCH_HISTORY_UPDATED_EVENT, handleCustomUpdate);
+  window.addEventListener("storage", handleStorage);
+
+  return () => {
+    window.removeEventListener(WATCH_HISTORY_UPDATED_EVENT, handleCustomUpdate);
+    window.removeEventListener("storage", handleStorage);
+  };
 }
 
 /**
@@ -92,9 +133,17 @@ export function trackEpisodeWatch(
     episodes: {},
   };
 
-  existing.title = meta.title || existing.title;
-  existing.poster = meta.poster || existing.poster;
-  existing.href = meta.href || existing.href;
+  const shouldAdoptIncomingIdentity = shouldReplaceHistoryTitle(existing.title, meta.title);
+
+  if (shouldAdoptIncomingIdentity) {
+    existing.title = meta.title.trim();
+  }
+  if (meta.poster && (!existing.poster || shouldAdoptIncomingIdentity)) {
+    existing.poster = meta.poster;
+  }
+  if (meta.href && (!existing.href || shouldAdoptIncomingIdentity)) {
+    existing.href = meta.href;
+  }
   existing.provider = meta.provider || existing.provider;
   existing.lastEpisode = episodeNumber;
   existing.lastUpdated = Date.now();
@@ -205,4 +254,5 @@ export function removeFromHistory(animeId: string): void {
 export function clearHistory(): void {
   if (typeof window === "undefined") return;
   localStorage.removeItem(STORAGE_KEY);
+  window.dispatchEvent(new CustomEvent(WATCH_HISTORY_UPDATED_EVENT));
 }
