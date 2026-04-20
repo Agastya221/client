@@ -1148,25 +1148,6 @@ async function fetchAnimeKaiResolvedMeta(providerId: string): Promise<AnimeKaiRe
     throw new Error("No provider mapping available");
   }
 
-  if (!providerId.startsWith("anilist:") && providerId === resolvedId) {
-    const detail = await apiJsonWithFallback<JsonValue>(
-      [
-        `${ANIMEKAI_V2_BASE_PATH}/meta/${encodeURIComponent(resolvedId)}`,
-        `${ANIMEKAI_V2_BASE_PATH}/info/${encodeURIComponent(resolvedId)}`,
-      ],
-      {
-        revalidate: DETAIL_REVALIDATE_SECONDS,
-      },
-    );
-
-    return {
-      detail,
-      resolvedId,
-      aniId: null,
-      flavor: "v2",
-    };
-  }
-
   try {
     const detail = await apiJson<JsonValue>(`/api/anime/${encodeURIComponent(resolvedId)}`, {
       revalidate: DETAIL_REVALIDATE_SECONDS,
@@ -1234,14 +1215,18 @@ async function fetchAnimeKaiDetailMeta(providerId: string): Promise<ProviderDeta
 async function fetchAnimeKaiEpisodes(providerId: string): Promise<EpisodeModel[]> {
   const { detail, resolvedId, aniId, flavor } = await fetchAnimeKaiResolvedMeta(providerId);
 
-  if (flavor === "python") {
-    if (!aniId) return [];
-
-    const episodes = await apiJson<JsonValue>(`/api/episodes/${encodeURIComponent(aniId)}`, {
-      revalidate: DETAIL_REVALIDATE_SECONDS,
-    });
-    const arr = Array.isArray(episodes) ? episodes : ensureArray((episodes as any)?.episodes);
-    return normalizeAnimeKaiEpisodesPayload(arr);
+  if (flavor === "python" && aniId) {
+    try {
+      const episodes = await apiJson<JsonValue>(`/api/episodes/${encodeURIComponent(aniId)}`, {
+        revalidate: DETAIL_REVALIDATE_SECONDS,
+      });
+      const arr = Array.isArray(episodes) ? episodes : ensureArray((episodes as any)?.episodes);
+      if (arr.length > 0) {
+        return normalizeAnimeKaiEpisodesPayload(arr);
+      }
+    } catch {
+      // Fall through to v2/embedded episode recovery below.
+    }
   }
 
   const embeddedEpisodes = ensureArray((detail as any)?.episodes);

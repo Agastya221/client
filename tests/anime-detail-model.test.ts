@@ -128,34 +128,27 @@ test("getAnimeDetailModel resolves only the requested fallback provider for prov
       });
     }
 
-    if (url.endsWith("/api/v2/anime/animekai/meta/solo-leveling-ak")) {
+    if (url.endsWith("/api/anime/solo-leveling-ak")) {
       return jsonResponse({
-        id: "solo-leveling-ak",
         title: "Solo Leveling",
         image: "https://cdn.example/poster-ak.jpg",
-        description: "AnimeKai detail",
+        description: "AnimeKai Python detail",
         genres: ["Action", "Fantasy"],
         type: "TV",
         status: "Releasing",
         season: "Winter 2024",
-        duration: "24m",
-        totalEpisodes: 12,
-        hasSub: true,
-        hasDub: true,
-        episodes: [{ id: "ak-1", number: 1, title: "Arise", isSubbed: true, isDubbed: true }],
+        ani_id: "ani-solo-ak",
+        subCount: 12,
+        dubCount: 12,
         relations: [],
         recommendations: [],
       });
     }
 
-    if (url.endsWith("/api/v2/anime/animekai/episodes/solo-leveling-ak")) {
-      return jsonResponse({
-        id: "solo-leveling-ak",
-        totalEpisodes: 12,
-        subCount: 12,
-        dubCount: 12,
-        episodes: [{ id: "ak-1", number: 1, title: "Arise" }],
-      });
+    if (url.endsWith("/api/episodes/ani-solo-ak")) {
+      return jsonResponse([
+        { id: "ak-1", number: 1, title: "Arise", isSubbed: true, isDubbed: true },
+      ]);
     }
 
     throw new Error(`Unexpected fetch: ${url}`);
@@ -172,7 +165,8 @@ test("getAnimeDetailModel resolves only the requested fallback provider for prov
     assert.deepEqual(detail.availableProviders, ["hianime", "animekai"]);
     assert.equal(detail.episodes[0]?.idByProvider.animekai, "ak-1");
     assert.ok(calls.some((url) => url.endsWith("/api/v2/anime/animekai/search/Solo%20Leveling?page=1")));
-    assert.ok(calls.some((url) => url.endsWith("/api/v2/anime/animekai/meta/solo-leveling-ak")));
+    assert.ok(calls.some((url) => url.endsWith("/api/anime/solo-leveling-ak")));
+    assert.ok(calls.some((url) => url.endsWith("/api/episodes/ani-solo-ak")));
     assert.ok(!calls.some((url) => url.includes("/api/v2/anime/desidub/")));
   } finally {
     globalThis.fetch = originalFetch;
@@ -187,21 +181,19 @@ test("getAnimeDetailOverviewModel loads animekai hero data without waiting for e
     const url = String(input);
     calls.push(url);
 
-    if (url.endsWith("/api/v2/anime/animekai/meta/solo-leveling-ak")) {
+    if (url.endsWith("/api/anime/solo-leveling-ak")) {
       return jsonResponse({
-        id: "solo-leveling-ak",
         title: "Solo Leveling",
         image: "https://cdn.example/poster-ak.jpg",
-        description: "AnimeKai detail",
+        description: "AnimeKai Python detail",
         genres: ["Action", "Fantasy"],
         type: "TV",
         status: "Releasing",
         season: "Winter 2024",
         duration: "24m",
+        ani_id: "ani-solo-ak",
         subCount: 12,
         dubCount: 12,
-        hasSub: true,
-        hasDub: true,
         relations: [],
         recommendations: [],
       });
@@ -219,8 +211,58 @@ test("getAnimeDetailOverviewModel loads animekai hero data without waiting for e
     assert.equal(detail.anime.title, "Solo Leveling");
     assert.deepEqual(
       calls.map((url) => new URL(url).pathname),
-      ["/api/v2/anime/animekai/meta/solo-leveling-ak"],
+      ["/api/anime/solo-leveling-ak"],
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("direct animekai slugs fall back to v2 detail when the Python endpoint is missing", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: string[] = [];
+
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    calls.push(url);
+
+    if (url.endsWith("/api/anime/isekai-nonbiri-nouka-r4e8")) {
+      return jsonResponse({ message: "Not Found" }, 404);
+    }
+
+    if (url.endsWith("/api/v2/anime/animekai/meta/isekai-nonbiri-nouka-r4e8")) {
+      return jsonResponse({
+        id: "isekai-nonbiri-nouka-r4e8",
+        title: "Farming Life in Another World",
+        image: "https://cdn.example/poster-ak.jpg",
+        description: "V2 detail fallback",
+        genres: ["Fantasy", "Slice of Life"],
+        type: "TV",
+        status: "Finished",
+        season: "Winter 2023",
+        totalEpisodes: 12,
+        hasSub: true,
+        hasDub: false,
+        episodes: [{ id: "ak-1", number: 1, title: "Episode 1", isSubbed: true, isDubbed: false }],
+        relations: [],
+        recommendations: [],
+      });
+    }
+
+    throw new Error(`Unexpected fetch: ${url}`);
+  }) as typeof fetch;
+
+  try {
+    const detail = await getAnimeDetailModel("animekai~isekai-nonbiri-nouka-r4e8", "animekai", {
+      resolveProviderFallbacks: false,
+      mergeEpisodeProviders: false,
+    });
+
+    assert.equal(detail.activeProvider, "animekai");
+    assert.equal(detail.anime.title, "Farming Life in Another World");
+    assert.equal(detail.episodes[0]?.idByProvider.animekai, "ak-1");
+    assert.ok(calls.some((url) => url.endsWith("/api/anime/isekai-nonbiri-nouka-r4e8")));
+    assert.ok(calls.some((url) => url.endsWith("/api/v2/anime/animekai/meta/isekai-nonbiri-nouka-r4e8")));
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -234,34 +276,28 @@ test("getAnimeEpisodeListModel loads animekai episodes separately from meta", as
     const url = String(input);
     calls.push(url);
 
-    if (url.endsWith("/api/v2/anime/animekai/meta/solo-leveling-ak")) {
+    if (url.endsWith("/api/anime/solo-leveling-ak")) {
       return jsonResponse({
-        id: "solo-leveling-ak",
         title: "Solo Leveling",
         image: "https://cdn.example/poster-ak.jpg",
-        description: "AnimeKai detail",
+        description: "AnimeKai Python detail",
         genres: ["Action", "Fantasy"],
         type: "TV",
         status: "Releasing",
         season: "Winter 2024",
         duration: "24m",
+        ani_id: "ani-solo-ak",
         subCount: 12,
         dubCount: 12,
-        hasSub: true,
-        hasDub: true,
         relations: [],
         recommendations: [],
       });
     }
 
-    if (url.endsWith("/api/v2/anime/animekai/episodes/solo-leveling-ak")) {
-      return jsonResponse({
-        id: "solo-leveling-ak",
-        totalEpisodes: 12,
-        subCount: 12,
-        dubCount: 12,
-        episodes: [{ id: "ak-1", number: 1, title: "Arise" }],
-      });
+    if (url.endsWith("/api/episodes/ani-solo-ak")) {
+      return jsonResponse([
+        { id: "ak-1", number: 1, title: "Arise", isSubbed: true, isDubbed: true },
+      ]);
     }
 
     throw new Error(`Unexpected fetch: ${url}`);
@@ -272,8 +308,8 @@ test("getAnimeEpisodeListModel loads animekai episodes separately from meta", as
     assert.equal(detail.activeProvider, "animekai");
     assert.equal(detail.episodeCoverageMode, "active-provider");
     assert.equal(detail.episodes[0]?.idByProvider.animekai, "ak-1");
-    assert.ok(calls.some((url) => url.endsWith("/api/v2/anime/animekai/meta/solo-leveling-ak")));
-    assert.ok(calls.some((url) => url.endsWith("/api/v2/anime/animekai/episodes/solo-leveling-ak")));
+    assert.ok(calls.some((url) => url.endsWith("/api/anime/solo-leveling-ak")));
+    assert.ok(calls.some((url) => url.endsWith("/api/episodes/ani-solo-ak")));
   } finally {
     globalThis.fetch = originalFetch;
   }

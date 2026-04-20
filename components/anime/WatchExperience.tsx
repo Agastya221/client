@@ -390,9 +390,14 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
   const canRequestEnhancedPlayback = Boolean(session.episode.idByProvider?.[session.provider]);
   const canToggleDirectStream = embedAvailable && (directAvailable || canRequestEnhancedPlayback);
   const canUseEmbedFallback = embedAvailable;
+  const cameFromAnilistCatalog =
+    session.anime.id.startsWith("anilist~") || session.anime.href.includes("/anime/anilist~");
   const mappingUnavailable =
-    session.attempts.some((attempt) => /No provider mapping available/i.test(attempt.message)) ||
-    session.fallbackHistory.some((entry) => /No provider mapping available/i.test(entry));
+    cameFromAnilistCatalog &&
+    (session.attempts.some(
+      (attempt) => attempt.provider === "animekai" && /No provider mapping available/i.test(attempt.message),
+    ) ||
+      session.fallbackHistory.some((entry) => /animekai:\s*No provider mapping available/i.test(entry)));
   const introWindow = normalizeSkipWindow(session.intro);
   const outroWindow = normalizeSkipWindow(session.outro);
 
