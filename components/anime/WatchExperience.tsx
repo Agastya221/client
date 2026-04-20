@@ -244,11 +244,13 @@ function EpisodeNumberGrid({
   episodes,
   activeNumber,
   onSelect,
+  onHover,
   watchedSet = new Set(),
 }: {
   episodes: { number: number; title: string; isSubbed?: boolean; isDubbed?: boolean }[];
   activeNumber: number;
   onSelect: (num: number) => void;
+  onHover?: (num: number) => void;
   watchedSet?: Set<number>;
 }) {
   const [rangeStart, setRangeStart] = useState(0);
@@ -305,6 +307,8 @@ function EpisodeNumberGrid({
               key={ep.number}
               type="button"
               onClick={() => onSelect(ep.number)}
+              onMouseEnter={() => onHover?.(ep.number)}
+              onFocus={() => onHover?.(ep.number)}
               title={`${ep.title}${isWatched ? " ✓ Watched" : ""}`}
               className={`
                 relative w-10 h-9 rounded-md text-xs font-bold transition-all
@@ -383,7 +387,8 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
   const embedAvailable = Boolean(session.source?.iframeUrl);
   const directSourceUrl = session.source?.proxiedUrl || session.source?.url || null;
   const directAvailable = Boolean(directSourceUrl);
-  const canToggleDirectStream = embedAvailable && directAvailable;
+  const canRequestEnhancedPlayback = Boolean(session.episode.idByProvider?.[session.provider]);
+  const canToggleDirectStream = embedAvailable && (directAvailable || canRequestEnhancedPlayback);
   const canUseEmbedFallback = embedAvailable;
   const introWindow = normalizeSkipWindow(session.intro);
   const outroWindow = normalizeSkipWindow(session.outro);
@@ -427,75 +432,125 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
     triedTargetsRef.current.clear();
   }, [initialSession, preferEmbeddedPlayback]);
 
-  /* ── Auto-resolve stream source on mount (two-phase rendering) ── */
+  const resolveEnhancedPlayback = useEffectEvent(async (options?: {
+    activate?: boolean;
+    silent?: boolean;
+    provider?: string;
+    episodeNumber?: number;
+    dubbed?: boolean;
+    server?: string;
+  }): Promise<boolean> => {
+    const provider = options?.provider || session.provider;
+    const body = {
+      animeId: session.anime.id,
+      episodeNumber: options?.episodeNumber ?? session.episode.number,
+      provider,
+      episodeId: session.episode.idByProvider?.[provider as ProviderId] || "",
+      dubbed: options?.dubbed ?? session.dubbed,
+      server: options?.server ?? session.activeServerId ?? "",
+    };
+
+    setIsResolvingStream(true);
+
+    try {
+      const res = await fetch("/api/resolve-source", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        if (!options?.silent) {
+          setPlaybackMessage("Failed to load the enhanced player");
+        }
+        return false;
+      }
+
+      const data = await res.json();
+      setSession((prev) => ({
+        ...prev,
+        source: data.source || prev.source,
+        subtitles: data.subtitles || prev.subtitles,
+        serverOptions: data.serverOptions || prev.serverOptions,
+        activeServerId: data.activeServerId || prev.activeServerId,
+        provider: data.provider || prev.provider,
+        intro: data.intro ?? prev.intro,
+        outro: data.outro ?? prev.outro,
+        watchAttempts: data.watchAttempts || prev.watchAttempts,
+      }));
+      if (data.subtitles?.[0]) {
+        setSelectedSubtitle(subtitleValue(data.subtitles[0]));
+      }
+
+      const hasDirectUrl = Boolean(data.source?.proxiedUrl || data.source?.url);
+      if (hasDirectUrl) {
+        if (options?.activate) {
+          setPlayerActivated(true);
+          setShowEmbed(false);
+          setPlaybackMessage("Enhanced player ready.");
+        }
+        return true;
+      }
+
+      if (data.source?.iframeUrl && preferEmbeddedPlayback) {
+        setShowEmbed(true);
+      }
+
+      if (!options?.silent) {
+        setPlaybackMessage("Enhanced player is not available for this episode yet.");
+      }
+      return false;
+    } catch {
+      if (!options?.silent) {
+        setPlaybackMessage("Connection error while loading the enhanced player");
+      }
+      return false;
+    } finally {
+      setIsResolvingStream(false);
+    }
+  });
+
+  /* ── Auto-resolve only when no embed/direct source exists ── */
   useEffect(() => {
     if (!resolveParams || initialSession.source) return;
 
     let cancelled = false;
-    setIsResolvingStream(true);
 
     (async () => {
-      try {
-        const res = await fetch("/api/resolve-source", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(resolveParams),
-        });
-        if (cancelled) return;
-        if (!res.ok) {
-          setPlaybackMessage("Failed to connect to stream servers");
-          setIsResolvingStream(false);
-          return;
-        }
-        const data = await res.json();
-        if (cancelled) return;
-
-        // Merge resolved stream data into the session
-        setSession((prev) => ({
-          ...prev,
-          source: data.source,
-          subtitles: data.subtitles || prev.subtitles,
-          serverOptions: data.serverOptions || prev.serverOptions,
-          activeServerId: data.activeServerId || prev.activeServerId,
-          provider: data.provider || prev.provider,
-          intro: data.intro ?? prev.intro,
-          outro: data.outro ?? prev.outro,
-          watchAttempts: data.watchAttempts || prev.watchAttempts,
-        }));
-        setIsResolvingStream(false);
-
-        // Prefer direct HLS stream — only show iframe if no direct URL available
-        // (iframe sites like megaup.nl block streams behind Cloudflare bot protection)
-        const hasDirectUrl = Boolean(data.source?.proxiedUrl || data.source?.url);
-        if (hasDirectUrl) {
-          setShowEmbed(false);
-        } else if (data.source?.iframeUrl && preferEmbeddedPlayback) {
-          setShowEmbed(true);
-        }
-        // Update subtitle selection
-        if (data.subtitles?.[0]) {
-          setSelectedSubtitle(subtitleValue(data.subtitles[0]));
-        }
-
-        if (!data.source) {
-          setPlaybackMessage("No stream source available. Try a different server.");
-        }
-      } catch {
-        if (!cancelled) {
-          setPlaybackMessage("Connection error — try refreshing the page");
-          setIsResolvingStream(false);
-        }
-      }
+      const ok = await resolveEnhancedPlayback({
+        silent: true,
+        provider: resolveParams.provider || session.provider,
+        episodeNumber: resolveParams.episodeNumber,
+        dubbed: resolveParams.dubbed,
+        server: resolveParams.server,
+      });
+      if (cancelled || ok) return;
+      setPlaybackMessage("No stream source available. Try a different server.");
     })();
 
     return () => { cancelled = true; };
-  }, [resolveParams, initialSession.source, preferEmbeddedPlayback]);
+  }, [initialSession.source, resolveEnhancedPlayback, resolveParams, session.provider]);
 
   useEffect(() => {
     if (autoPlayEnabled && directAvailable && !embedAvailable) {
       setPlayerActivated(true);
     }
   }, [autoPlayEnabled, directAvailable, embedAvailable, session.episode.number]);
+
+  const prefetchSession = useEffectEvent((request: SessionRequest) => {
+    const url = buildWatchSessionUrl(session, request);
+    if (getCachedSession(url)) return;
+
+    void fetch(url, { priority: "low" as RequestPriority })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const payload = (await response.json().catch(() => null)) as WatchSessionModel | null;
+        if (payload) {
+          setCachedSession(url, payload);
+        }
+      })
+      .catch(() => undefined);
+  });
 
   /* ── Watch history tracking ─────────────────── */
   useEffect(() => {
@@ -510,46 +565,36 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
     setWatchedEpisodes(getWatchedEpisodes(session.anime.id));
   }, [session.anime.id, session.anime.title, session.anime.poster, session.anime.href, session.provider, session.episode.number]);
 
-  /* ── Prefetch next episode + opposite dub/sub (cache warming) ─── */
+  /* ── Prefetch nearby episodes + opposite dub/sub (cache warming) ─── */
   useEffect(() => {
-    const prefetchUrls: string[] = [];
-
-    // 1. Prefetch next episode (same dub/sub mode)
     const currentIdx = session.episodes.findIndex((ep) => ep.number === session.episode.number);
-    const nextEp = currentIdx >= 0 && currentIdx < session.episodes.length - 1
-      ? session.episodes[currentIdx + 1]
-      : null;
+    if (currentIdx < 0) return;
 
-    if (nextEp) {
-      prefetchUrls.push(buildWatchSessionUrl(session, {
-        episodeNumber: nextEp.number,
-        provider: session.provider,
-        dubbed: session.dubbed,
-        server: null,
-      }));
+    const nearbyEpisodes = new Set<number>();
+    for (const offset of [-1, 1, 2, 3]) {
+      const episode = session.episodes[currentIdx + offset];
+      if (episode) nearbyEpisodes.add(episode.number);
     }
 
-    // 2. Prefetch the OPPOSITE dub/sub mode for the CURRENT episode
-    //    So switching sub↔dub is instant
-    prefetchUrls.push(buildWatchSessionUrl(session, {
-      episodeNumber: session.episode.number,
-      provider: session.provider,
-      dubbed: !session.dubbed,
-      server: null,
-    }));
-
-    if (prefetchUrls.length === 0) return;
-
-    // Wait 2 seconds after current episode loads, then silently prefetch
     const timer = setTimeout(() => {
-      for (const url of prefetchUrls) {
-        // Use low-priority fetch — won't block anything
-        fetch(url, { priority: "low" as RequestPriority }).catch(() => undefined);
+      for (const episodeNumber of nearbyEpisodes) {
+        prefetchSession({
+          episodeNumber,
+          provider: session.provider,
+          dubbed: session.dubbed,
+          server: null,
+        });
       }
+      prefetchSession({
+        episodeNumber: session.episode.number,
+        provider: session.provider,
+        dubbed: !session.dubbed,
+        server: null,
+      });
     }, 2000);
 
     return () => clearTimeout(timer);
-  }, [session.anime.id, session.episode.number, session.episodes, session.provider, session.dubbed]);
+  }, [prefetchSession, session.anime.id, session.dubbed, session.episode.number, session.episodes, session.provider]);
 
   /* ── Prefetch other available servers ──────── */
   useEffect(() => {
@@ -559,18 +604,17 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
     const timer = setTimeout(() => {
       for (const srv of session.serverOptions) {
         if (srv.id === session.activeServerId) continue; // Skip the current one
-        const url = buildWatchSessionUrl(session, {
+        prefetchSession({
           episodeNumber: session.episode.number,
           provider: session.provider,
           dubbed: srv.category === "dub" || srv.category === "raw",
           server: srv.id,
         });
-        fetch(url, { priority: "low" as RequestPriority }).catch(() => undefined);
       }
     }, 4000);
 
     return () => clearTimeout(timer);
-  }, [session.anime.id, session.episode.number, session.provider, session.activeServerId, session.serverOptions]);
+  }, [prefetchSession, session.anime.id, session.activeServerId, session.episode.number, session.provider, session.serverOptions]);
 
   /* ── Resume from saved progress ────────────── */
   useEffect(() => {
@@ -743,6 +787,16 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
       });
     });
   };
+
+  const prefetchEpisode = useEffectEvent((episodeNumber: number) => {
+    if (episodeNumber === session.episode.number) return;
+    prefetchSession({
+      episodeNumber,
+      provider: session.provider,
+      dubbed: session.dubbed,
+      server: null,
+    });
+  });
 
   const recoverPlayback = useEffectEvent(async () => {
     if (!showEmbed && activateEmbedFallback(`Direct stream failed on ${humanizeProviderId(session.provider)}. Switched to the embedded player.`)) {
@@ -1271,11 +1325,19 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
           <div className="flex items-center gap-0.5 flex-wrap">
             {canToggleDirectStream && (
               <ControlBtn
-                icon={showEmbed ? Maximize2 : MonitorPlay}
-                label={showEmbed ? "Enhanced" : "Embed"}
+                icon={showEmbed ? (isResolvingStream ? LoaderCircle : Maximize2) : MonitorPlay}
+                label={showEmbed ? (isResolvingStream ? "Loading..." : "Enhanced") : "Embed"}
+                disabled={showEmbed ? isResolvingStream : false}
                 onClick={() => {
-                  if (showEmbed) activateDirectMode("Enhanced player enabled.");
-                  else activateEmbedFallback("Embed player restored.");
+                  if (showEmbed) {
+                    if (directAvailable) {
+                      activateDirectMode("Enhanced player enabled.");
+                    } else if (canRequestEnhancedPlayback) {
+                      void resolveEnhancedPlayback({ activate: true });
+                    }
+                  } else {
+                    activateEmbedFallback("Embed player restored.");
+                  }
                 }}
               />
             )}
@@ -1571,6 +1633,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
             episodes={filteredEpisodes}
             activeNumber={session.episode.number}
             onSelect={goToEpisode}
+            onHover={prefetchEpisode}
             watchedSet={watchedEpisodes}
           />
         </div>
@@ -1594,6 +1657,8 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
                   key={episode.number}
                   type="button"
                   onClick={() => goToEpisode(episode.number)}
+                  onMouseEnter={() => prefetchEpisode(episode.number)}
+                  onFocus={() => prefetchEpisode(episode.number)}
                   data-active-episode={active ? "true" : undefined}
                   className={`group/ep w-full flex items-center gap-3 px-4 py-2.5 text-left transition-all border-b border-white/[0.03] last:border-0 ${
                     active

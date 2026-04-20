@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { getFastWatchSession } from "@/lib/anime/api";
+import { normalizeProviderParam } from "@/lib/anime/fallback";
 
 export const dynamic = "force-dynamic";
 
@@ -9,31 +11,42 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(request: Request) {
   try {
-    const { episodes } = await request.json();
+    const body = await request.json();
+    const episodesFromBody = Array.isArray(body?.episodes) ? body.episodes : [];
+    const derivedEpisodes =
+      body?.animeId && Array.isArray(body?.episodeNumbers)
+        ? body.episodeNumbers.map((episodeNumber: number) => ({
+            animeId: body.animeId,
+            episodeNumber,
+            provider: body.provider,
+            dubbed: body.dubbed,
+          }))
+        : [];
+    const episodes = [...episodesFromBody, ...derivedEpisodes];
 
     if (!Array.isArray(episodes) || episodes.length === 0) {
       return NextResponse.json({ warmed: 0 }, { status: 200 });
     }
 
-    // Limit to 3 max to prevent abuse
-    const toWarm = episodes.slice(0, 3);
+    // Limit to 6 max to prevent abuse while still warming a useful local window.
+    const toWarm = episodes.slice(0, 6);
 
-    // Fire all prefetches in parallel — don't await individually
     const results = await Promise.allSettled(
       toWarm.map(async (ep: { animeId: string; episodeNumber: number; provider?: string; dubbed?: boolean }) => {
-        const params = new URLSearchParams({
-          animeId: ep.animeId,
-          episodeNumber: String(ep.episodeNumber),
-        });
-        if (ep.provider) params.set("provider", ep.provider);
-        if (ep.dubbed) params.set("dub", "1");
-
-        // Internal fetch to our own watch-session route — this triggers the backend scraping + caching
-        const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-        const res = await fetch(`${baseUrl}/api/watch-session?${params}`, {
-          signal: AbortSignal.timeout(15000), // 15s timeout per prefetch
-        });
-        return res.ok;
+        const timeout = AbortSignal.timeout(15000);
+        await Promise.race([
+          getFastWatchSession({
+            animeId: ep.animeId,
+            episodeNumber: Number(ep.episodeNumber || 1),
+            provider: normalizeProviderParam(ep.provider || ""),
+            dubbed: Boolean(ep.dubbed),
+            server: null,
+          }),
+          new Promise((_, reject) => {
+            timeout.addEventListener("abort", () => reject(new Error("prefetch timeout")), { once: true });
+          }),
+        ]);
+        return true;
       })
     );
 

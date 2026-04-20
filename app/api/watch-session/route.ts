@@ -1,4 +1,4 @@
-import { getWatchSession } from "@/lib/anime/api";
+import { getFastWatchSession } from "@/lib/anime/api";
 import { normalizeProviderParam } from "@/lib/anime/fallback";
 import { NextResponse } from "next/server";
 
@@ -26,7 +26,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const session = await getWatchSession({
+    const session = await getFastWatchSession({
       animeId,
       episodeNumber: parseEpisodeNumber(searchParams.get("episodeNumber")),
       provider: normalizeProviderParam(searchParams.get("provider")),

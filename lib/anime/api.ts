@@ -220,12 +220,23 @@ async function apiJsonWithFallback<T>(
 }
 
 const ANIMEKAI_V2_BASE_PATH = "/api/v2/anime/animekai";
+const WATCH_SESSION_FRESH_MS = 2 * 60 * 1000;
+const WATCH_SESSION_STALE_MS = 10 * 60 * 1000;
+const WATCH_SESSION_EXPIRE_MS = 20 * 60 * 1000;
 
 type AnimeKaiResolvedMeta = {
   detail: JsonValue;
   resolvedId: string;
   aniId: string | null;
   flavor: "python" | "v2";
+};
+
+type AnimeKaiServerEntry = {
+  name: string;
+  serverId: string;
+  episodeId: string;
+  linkId: string;
+  category: "sub" | "dub";
 };
 
 export function normalizeHianimeCatalogItem(item: JsonValue): CatalogAnime {
@@ -1457,6 +1468,105 @@ async function fetchAnimeKaiWatchSession(
   };
 }
 
+async function fetchAnimeKaiServerEntries(
+  episodeId: string,
+  dubbed: boolean,
+): Promise<AnimeKaiServerEntry[]> {
+  return cacheFetch(
+    `animekai:servers:${episodeId}:${dubbed ? "dub" : "sub"}`,
+    async () => {
+      const response = await apiJson<JsonValue>(`/api/servers/${encodeURIComponent(episodeId)}`, {
+        noStore: true,
+      });
+      const serversByGroup = (response.servers || {}) as Record<string, JsonValue[]>;
+      const primaryGroup = dubbed ? "dub" : "sub";
+      const secondaryGroup = dubbed ? "sub" : "dub";
+      const selectedGroup =
+        ensureArray(serversByGroup[primaryGroup]).length > 0 ? primaryGroup : secondaryGroup;
+      const selectedCategory: AnimeKaiServerEntry["category"] = selectedGroup === "dub" ? "dub" : "sub";
+      return ensureArray(serversByGroup[selectedGroup]).map((entry) => ({
+        name: String(entry.name || entry.server_name || "AnimeKai"),
+        serverId: String(entry.server_id || entry.serverId || ""),
+        episodeId: String(entry.episode_id || entry.episodeId || episodeId),
+        linkId: String(entry.link_id || entry.linkId || ""),
+        category: selectedCategory,
+      })).filter((entry) => entry.linkId);
+    },
+    {
+      freshMs: WATCH_SESSION_FRESH_MS,
+      staleMs: WATCH_SESSION_STALE_MS,
+      expireMs: WATCH_SESSION_EXPIRE_MS,
+    },
+  );
+}
+
+async function fetchAnimeKaiEmbedSource(linkId: string): Promise<JsonValue> {
+  return cacheFetch(
+    `animekai:embed:${linkId}`,
+    async () => apiJson<JsonValue>(`/api/embed/${encodeURIComponent(linkId)}`, { noStore: true }),
+    {
+      freshMs: WATCH_SESSION_FRESH_MS,
+      staleMs: WATCH_SESSION_STALE_MS,
+      expireMs: WATCH_SESSION_EXPIRE_MS,
+    },
+  );
+}
+
+async function fetchAnimeKaiEmbedWatchSession(
+  episodeId: string,
+  dubbed: boolean,
+  requestedServer?: string | null,
+): Promise<ProviderWatchPayload> {
+  if (episodeId.includes("$token=")) {
+    return fetchAnimeKaiWatchSession(episodeId, dubbed, requestedServer);
+  }
+
+  const entries = await fetchAnimeKaiServerEntries(episodeId, dubbed);
+  const selected =
+    entries.find((entry) => entry.name.toLowerCase() === String(requestedServer || "").toLowerCase()) ||
+    entries[0];
+
+  if (!selected) {
+    return {
+      source: null,
+      subtitles: [],
+      serverOptions: [],
+      activeServerId: null,
+      intro: null,
+      outro: null,
+    };
+  }
+
+  const embed = await fetchAnimeKaiEmbedSource(selected.linkId);
+  const embedUrl = String(embed.embed_url || "");
+  const skip = embed.skip || {};
+  const source = normalizeStreamSourceFromUrl({
+    label: selected.name || "AnimeKai",
+    url: null,
+    iframeUrl: embedUrl || null,
+    referer: embedUrl || null,
+    preferEmbed: Boolean(embedUrl),
+  });
+
+  return {
+    source: source.iframeUrl ? source : null,
+    subtitles: [],
+    serverOptions: entries.map((entry) => ({
+      id: entry.name,
+      label: entry.name,
+      provider: "animekai",
+      category: entry.category,
+    })),
+    activeServerId: selected.name,
+    intro: skip.intro
+      ? { start: Number(skip.intro[0] ?? skip.intro.start ?? 0), end: Number(skip.intro[1] ?? skip.intro.end ?? 0) }
+      : null,
+    outro: skip.outro
+      ? { start: Number(skip.outro[0] ?? skip.outro.start ?? 0), end: Number(skip.outro[1] ?? skip.outro.end ?? 0) }
+      : null,
+  };
+}
+
 
 async function fetchDesidubWatchSession(
   episodeId: string,
@@ -1501,6 +1611,22 @@ async function fetchProviderWatch(
   switch (provider) {
     case "animekai":
       return fetchAnimeKaiWatchSession(episodeId, dubbed, requestedServer);
+    case "desidub":
+      return fetchDesidubWatchSession(episodeId, requestedServer);
+    default:
+      throw new Error(`Provider ${provider} is not supported for streaming`);
+  }
+}
+
+async function fetchProviderFastWatch(
+  provider: ProviderId,
+  episodeId: string,
+  dubbed: boolean,
+  requestedServer?: string | null,
+): Promise<ProviderWatchPayload> {
+  switch (provider) {
+    case "animekai":
+      return fetchAnimeKaiEmbedWatchSession(episodeId, dubbed, requestedServer);
     case "desidub":
       return fetchDesidubWatchSession(episodeId, requestedServer);
     default:
@@ -1616,6 +1742,124 @@ export async function getWatchSession(input: {
   };
 }
 
+export async function getFastWatchSession(input: {
+  animeId: string;
+  episodeNumber?: number;
+  provider?: ProviderId | null;
+  episodeId?: string | null;
+  dubbed?: boolean;
+  server?: string | null;
+}): Promise<WatchSessionModel> {
+  const cacheKey = `watch-session:${input.animeId}:ep${input.episodeNumber || 1}:${input.dubbed ? "dub" : "sub"}:${input.server || "auto"}:${input.provider || "auto"}`;
+
+  return cacheFetch(
+    cacheKey,
+    async () => {
+      const detail = await getAnimeDetailModel(input.animeId, input.provider || null, {
+        resolveProviderFallbacks: true,
+        mergeEpisodeProviders: true,
+      });
+      const preferredProvider = input.provider || detail.activeProvider;
+      const order = buildProviderOrder(preferredProvider, detail.activeProvider);
+      const targetEpisode =
+        detail.episodes.find((episode) => episode.number === Number(input.episodeNumber || 1)) ||
+        detail.episodes[0];
+
+      const watchAttempts: WatchAttempt[] = [];
+
+      if (!targetEpisode) {
+        return {
+          anime: detail.anime,
+          episode: {
+            number: Number(input.episodeNumber || 1),
+            title: `Episode ${input.episodeNumber || 1}`,
+            idByProvider: {},
+            availableProviders: [],
+          },
+          episodes: detail.episodes,
+          seasons: detail.seasons,
+          provider: preferredProvider,
+          availableProviders: detail.availableProviders,
+          attempts: detail.attempts,
+          watchAttempts: [{ provider: preferredProvider, ok: false, reason: "Episode not found" }],
+          source: null,
+          subtitles: [],
+          serverOptions: [],
+          activeServerId: null,
+          dubbed: Boolean(input.dubbed),
+          fallbackHistory: ["Episode not found in current provider map"],
+        };
+      }
+
+      for (const provider of order) {
+        const providerEpisodeId =
+          (provider === preferredProvider && input.episodeId) || targetEpisode.idByProvider[provider];
+        if (!providerEpisodeId) {
+          watchAttempts.push({ provider, ok: false, reason: "Episode unavailable in provider" });
+          continue;
+        }
+
+        try {
+          const session = await fetchProviderFastWatch(provider, providerEpisodeId, Boolean(input.dubbed), input.server || null);
+          if (!session.source) {
+            watchAttempts.push({ provider, server: input.server || undefined, ok: false, reason: "No fast session available" });
+            continue;
+          }
+
+          return {
+            anime: detail.anime,
+            episode: targetEpisode,
+            episodes: detail.episodes,
+            seasons: detail.seasons,
+            provider,
+            availableProviders: detail.availableProviders,
+            attempts: detail.attempts,
+            watchAttempts: [...watchAttempts, { provider, server: input.server || undefined, ok: true, reason: "Embed session ready" }],
+            source: session.source,
+            subtitles: session.subtitles,
+            serverOptions: session.serverOptions,
+            activeServerId: session.activeServerId,
+            dubbed: Boolean(input.dubbed),
+            intro: session.intro || null,
+            outro: session.outro || null,
+            fallbackHistory: watchAttempts.map((attempt) => `${attempt.provider}: ${attempt.reason}`),
+          };
+        } catch (error) {
+          watchAttempts.push({
+            provider,
+            server: input.server || undefined,
+            ok: false,
+            reason: error instanceof Error ? error.message : "Failed to build fast watch session",
+          });
+        }
+      }
+
+      cacheInvalidatePrefix(`detail-model:${input.animeId}`);
+      return {
+        anime: detail.anime,
+        episode: targetEpisode,
+        episodes: detail.episodes,
+        seasons: detail.seasons,
+        provider: preferredProvider,
+        availableProviders: detail.availableProviders,
+        attempts: detail.attempts,
+        watchAttempts,
+        source: null,
+        subtitles: [],
+        serverOptions: [],
+        activeServerId: null,
+        dubbed: Boolean(input.dubbed),
+        fallbackHistory: watchAttempts.map((attempt) => `${attempt.provider}: ${attempt.reason}`),
+      };
+    },
+    {
+      freshMs: WATCH_SESSION_FRESH_MS,
+      staleMs: WATCH_SESSION_STALE_MS,
+      expireMs: WATCH_SESSION_EXPIRE_MS,
+    },
+  );
+}
+
 /**
  * FAST path: Returns everything needed to render the watch page shell
  * (anime info, episodes, metadata) WITHOUT resolving the stream source.
@@ -1628,35 +1872,18 @@ export async function getQuickWatchSession(input: {
   episodeId?: string | null;
   dubbed?: boolean;
 }): Promise<WatchSessionModel> {
-  const detail = await getAnimeDetailModel(input.animeId, input.provider || null, {
-    resolveProviderFallbacks: true,
-    mergeEpisodeProviders: true,
+  const session = await getFastWatchSession({
+    ...input,
+    server: null,
   });
-  const preferredProvider = input.provider || detail.activeProvider;
-  const targetEpisode =
-    detail.episodes.find((ep) => ep.number === Number(input.episodeNumber || 1)) ||
-    detail.episodes[0];
+
+  if (session.source) {
+    return session;
+  }
 
   return {
-    anime: detail.anime,
-    episode: targetEpisode || {
-      number: Number(input.episodeNumber || 1),
-      title: `Episode ${input.episodeNumber || 1}`,
-      idByProvider: {},
-      availableProviders: [],
-    },
-    episodes: detail.episodes,
-    seasons: detail.seasons,
-    provider: preferredProvider,
-    availableProviders: detail.availableProviders,
-    attempts: detail.attempts,
-    watchAttempts: [],
-    source: null,
-    subtitles: [],
-    serverOptions: [],
-    activeServerId: null,
-    dubbed: Boolean(input.dubbed),
-    fallbackHistory: ["Stream pending — resolving on client"],
+    ...session,
+    fallbackHistory: session.fallbackHistory.length > 0 ? session.fallbackHistory : ["Stream pending — resolving on client"],
   };
 }
 
