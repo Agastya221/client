@@ -390,6 +390,9 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
   const canRequestEnhancedPlayback = Boolean(session.episode.idByProvider?.[session.provider]);
   const canToggleDirectStream = embedAvailable && (directAvailable || canRequestEnhancedPlayback);
   const canUseEmbedFallback = embedAvailable;
+  const mappingUnavailable =
+    session.attempts.some((attempt) => /No provider mapping available/i.test(attempt.message)) ||
+    session.fallbackHistory.some((entry) => /No provider mapping available/i.test(entry));
   const introWindow = normalizeSkipWindow(session.intro);
   const outroWindow = normalizeSkipWindow(session.outro);
 
@@ -1290,20 +1293,34 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
               <Tv2 className="h-8 w-8" />
             </div>
             <div className="space-y-2">
-              <h2 className="text-xl font-bold text-white">No stream available</h2>
+              <h2 className="text-xl font-bold text-white">
+                {mappingUnavailable ? "Not available to watch yet" : "No stream available"}
+              </h2>
               <p className="max-w-md text-sm text-white/60">
-                The active provider did not return a source. Try refreshing or switching providers.
+                {mappingUnavailable
+                  ? "This title exists on AniList, but we do not have a working provider mapping for it yet."
+                  : "The active provider did not return a source. Try refreshing or switching providers."}
               </p>
             </div>
             <div className="flex flex-wrap justify-center gap-3">
-              <button
-                type="button"
-                onClick={() => queueSession({ episodeNumber: session.episode.number, provider: session.provider, dubbed: session.dubbed, server: null })}
-                className="inline-flex items-center gap-2 rounded-full bg-[#ff5500] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#e64d00] transition-colors"
-              >
-                <RefreshCcw className="h-4 w-4" />
-                Refresh source
-              </button>
+              {mappingUnavailable ? (
+                <Link
+                  href={session.anime.href}
+                  className="inline-flex items-center gap-2 rounded-full bg-[#ff5500] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#e64d00] transition-colors"
+                >
+                  <Info className="h-4 w-4" />
+                  Back to details
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => queueSession({ episodeNumber: session.episode.number, provider: session.provider, dubbed: session.dubbed, server: null })}
+                  className="inline-flex items-center gap-2 rounded-full bg-[#ff5500] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#e64d00] transition-colors"
+                >
+                  <RefreshCcw className="h-4 w-4" />
+                  Refresh source
+                </button>
+              )}
               {canUseEmbedFallback && (
                 <button
                   type="button"

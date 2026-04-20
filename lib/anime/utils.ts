@@ -20,7 +20,7 @@ export function decodeAnimeId(value: string): { provider: ProviderId; providerId
     return { provider: "animekai", providerId: `anilist:${rest.join("~")}` };
   }
   
-  if (rest.length > 0 && PROVIDERS.includes(maybeProvider as any)) {
+  if (rest.length > 0 && (maybeProvider === "hianime" || PROVIDERS.includes(maybeProvider as any))) {
     return {
       provider: maybeProvider as ProviderId,
       providerId: decodeURIComponent(rest.join("~")),
@@ -31,7 +31,7 @@ export function decodeAnimeId(value: string): { provider: ProviderId; providerId
 }
 
 export function buildProviderOrder(preferred?: ProviderId | null, seeded?: ProviderId | null): ProviderId[] {
-  const ordered = [preferred, seeded, ...PROVIDERS].filter(Boolean) as ProviderId[];
+  const ordered = [preferred, seeded, "hianime", ...PROVIDERS].filter(Boolean) as ProviderId[];
   return Array.from(new Set(ordered));
 }
 

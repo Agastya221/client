@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getAnilistTrending } from "@/lib/anilist/api";
+import { encodeAnilistRouteId, getAnilistTrending } from "@/lib/anilist/api";
+import { warmAnimeWatchWindow } from "@/lib/anime/api";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // Allow up to 60s for warming
@@ -20,45 +21,28 @@ export async function GET(request: Request) {
   try {
     // Get top 10 trending anime from AniList
     const trending = await getAnilistTrending(10);
-
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
     const warmed: string[] = [];
 
-    // Warm episodes 1 for each trending anime (both sub and dub)
-    const warmPromises = trending.map(async (media) => {
+    // Warm episode window 1-3 for each trending anime (both sub and dub).
+    const warmTasks = trending.map(async (media) => {
       const title = media.title.english || media.title.romaji;
       try {
-        // Determine the route ID format
-        const routeId = `anilist~${media.id}`;
-
-        // Warm sub version
-        const subParams = new URLSearchParams({
-          animeId: routeId,
-          episodeNumber: "1",
+        const result = await warmAnimeWatchWindow({
+          animeId: encodeAnilistRouteId(media.id),
+          episodeNumbers: [1, 2, 3],
+          dubbedModes: [false, true],
         });
-        await fetch(`${baseUrl}/api/watch-session?${subParams}`, {
-          signal: AbortSignal.timeout(20000),
-        }).catch(() => null);
-
-        // Warm dub version
-        const dubParams = new URLSearchParams({
-          animeId: routeId,
-          episodeNumber: "1",
-          dub: "1",
-        });
-        await fetch(`${baseUrl}/api/watch-session?${dubParams}`, {
-          signal: AbortSignal.timeout(20000),
-        }).catch(() => null);
-
-        warmed.push(title);
+        if (result.available && result.warmed > 0) {
+          warmed.push(title);
+        }
       } catch {
         // Skip failures silently
       }
     });
 
     // Run 3 at a time to avoid overwhelming the backend
-    for (let i = 0; i < warmPromises.length; i += 3) {
-      await Promise.allSettled(warmPromises.slice(i, i + 3));
+    for (let i = 0; i < warmTasks.length; i += 3) {
+      await Promise.allSettled(warmTasks.slice(i, i + 3));
     }
 
     return NextResponse.json({

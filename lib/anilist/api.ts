@@ -13,6 +13,7 @@ const MEDIA_FRAGMENT = `
     id
     idMal
     title { romaji english native }
+    synonyms
     coverImage { extraLarge large medium color }
     bannerImage
     description(asHtml: false)
@@ -53,6 +54,7 @@ export interface AnilistMedia {
   id: number;
   idMal: number | null;
   title: { romaji: string; english: string | null; native: string };
+  synonyms?: string[];
   coverImage: { extraLarge: string; large: string; medium: string; color: string | null };
   bannerImage: string | null;
   description: string | null;

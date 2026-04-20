@@ -46,7 +46,7 @@ export default function AnilistHeroCarousel({ slides, watchHrefs }: HeroCarousel
   const title = anilistTitle(slide);
   const rating = anilistRating(slide);
   const href = `/anime/${encodeAnilistRouteId(slide.id)}`;
-  const watchHref = watchHrefs?.[String(slide.id)] || `${href}/watch?ep=1&provider=animekai`;
+  const watchHref = watchHrefs?.[String(slide.id)] || null;
   const banner = slide.bannerImage || slide.coverImage.extraLarge;
   const description = slide.description?.replace(/<[^>]*>/g, "").slice(0, 200) || "";
   const studios = slide.studios.nodes.map((s) => s.name).join(", ");
@@ -157,20 +157,33 @@ export default function AnilistHeroCarousel({ slides, watchHrefs }: HeroCarousel
 
           {/* CTAs */}
           <div className="flex items-center gap-3">
-            <Link
-              href={watchHref}
-              className="flex items-center gap-2.5 text-white font-black text-sm px-7 py-3.5 rounded-full transition-all duration-200 hover:scale-105 hover:shadow-lg shadow-md"
-              style={{ backgroundColor: accentColor, boxShadow: `0 8px 24px ${accentColor}50` }}
-            >
-              <Play className="w-4 h-4 fill-current" />
-              WATCH NOW
-            </Link>
-            <Link
-              href={href}
-              className="flex items-center gap-2 text-white/80 hover:text-white font-bold text-sm px-6 py-3.5 rounded-full bg-white/10 hover:bg-white/15 transition-all duration-200 backdrop-blur border border-white/10"
-            >
-              More Info
-            </Link>
+            {watchHref ? (
+              <Link
+                href={watchHref}
+                className="flex items-center gap-2.5 text-white font-black text-sm px-7 py-3.5 rounded-full transition-all duration-200 hover:scale-105 hover:shadow-lg shadow-md"
+                style={{ backgroundColor: accentColor, boxShadow: `0 8px 24px ${accentColor}50` }}
+              >
+                <Play className="w-4 h-4 fill-current" />
+                WATCH NOW
+              </Link>
+            ) : (
+              <Link
+                href={href}
+                className="flex items-center gap-2.5 text-white font-black text-sm px-7 py-3.5 rounded-full transition-all duration-200 hover:scale-105 hover:shadow-lg shadow-md"
+                style={{ backgroundColor: accentColor, boxShadow: `0 8px 24px ${accentColor}50` }}
+              >
+                <Play className="w-4 h-4" />
+                DETAILS
+              </Link>
+            )}
+            {watchHref ? (
+              <Link
+                href={href}
+                className="flex items-center gap-2 text-white/80 hover:text-white font-bold text-sm px-6 py-3.5 rounded-full bg-white/10 hover:bg-white/15 transition-all duration-200 backdrop-blur border border-white/10"
+              >
+                More Info
+              </Link>
+            ) : null}
             <button className="w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center border border-white/10 transition-all duration-200">
               <Bookmark className="w-4 h-4 text-white/70" />
             </button>

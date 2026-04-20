@@ -4,6 +4,7 @@ import {
   getAnimeDetailModel,
   getAnimeDetailOverviewModel,
   getAnimeEpisodeListModel,
+  getAnimeKaiWatchAvailability,
   resolveAnimeKaiWatchHref,
 } from "../lib/anime/api.ts";
 
@@ -172,7 +173,6 @@ test("getAnimeDetailModel resolves only the requested fallback provider for prov
     assert.equal(detail.episodes[0]?.idByProvider.animekai, "ak-1");
     assert.ok(calls.some((url) => url.endsWith("/api/v2/anime/animekai/search/Solo%20Leveling?page=1")));
     assert.ok(calls.some((url) => url.endsWith("/api/v2/anime/animekai/meta/solo-leveling-ak")));
-    assert.ok(calls.some((url) => url.endsWith("/api/v2/anime/animekai/episodes/solo-leveling-ak")));
     assert.ok(!calls.some((url) => url.includes("/api/v2/anime/desidub/")));
   } finally {
     globalThis.fetch = originalFetch;
@@ -300,6 +300,86 @@ test("resolveAnimeKaiWatchHref upgrades AniList banner links to direct animekai 
     const href = await resolveAnimeKaiWatchHref("anilist~151807", "Solo Leveling");
     assert.equal(href, "/anime/animekai~solo-leveling-93rg/watch?ep=1&provider=animekai");
     assert.ok(calls.some((url) => url.endsWith("/api/search?keyword=Solo%20Leveling")));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("AniList passthrough titles stay readable and unavailable when AnimeKai mapping misses", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: string[] = [];
+
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    calls.push(url);
+
+    if (url === "https://graphql.anilist.co") {
+      return jsonResponse({
+        data: {
+          Media: {
+            id: 195600,
+            idMal: null,
+            title: {
+              english: "Lost Future Project",
+              romaji: "Lost Future Project",
+              native: "Lost Future Project",
+            },
+            synonyms: ["LFP"],
+            coverImage: {
+              extraLarge: "https://cdn.example/poster.jpg",
+              large: "https://cdn.example/poster.jpg",
+              medium: "https://cdn.example/poster.jpg",
+              color: "#ff5500",
+            },
+            bannerImage: null,
+            description: "AniList only title",
+            genres: ["Sci-Fi"],
+            averageScore: null,
+            meanScore: null,
+            popularity: 1,
+            trending: 1,
+            episodes: null,
+            status: "NOT_YET_RELEASED",
+            format: "TV",
+            season: null,
+            seasonYear: 2026,
+            startDate: { year: 2026 },
+            studios: { nodes: [] },
+            nextAiringEpisode: null,
+            trailer: null,
+            isAdult: false,
+            characters: { nodes: [] },
+            relations: { edges: [] },
+            recommendations: { nodes: [] },
+          },
+        },
+      });
+    }
+
+    if (url.endsWith("/api/search?keyword=Lost%20Future%20Project")) {
+      return jsonResponse({ results: [] });
+    }
+
+    if (url.endsWith("/api/search?keyword=LFP")) {
+      return jsonResponse({ results: [] });
+    }
+
+    throw new Error(`Unexpected fetch: ${url}`);
+  }) as typeof fetch;
+
+  try {
+    const detail = await getAnimeDetailOverviewModel("anilist~195600", "animekai", {
+      resolveProviderFallbacks: false,
+    });
+    const availability = await getAnimeKaiWatchAvailability("anilist~195600", ["Lost Future Project", "LFP"]);
+
+    assert.equal(detail.anime.title, "Lost Future Project");
+    assert.deepEqual(detail.availableProviders, []);
+    assert.ok(detail.attempts.some((attempt) => attempt.message === "No provider mapping available"));
+    assert.equal(availability.isAvailable, false);
+    assert.equal(availability.watchHref, null);
+    assert.equal(availability.message, "This anime is not available to watch yet.");
+    assert.ok(calls.some((url) => url.endsWith("/api/search?keyword=Lost%20Future%20Project")));
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -18,6 +18,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import AddToListButton from "@/components/anime/AddToListButton";
 import StreamPrefetch from "@/components/anime/StreamPrefetch";
+import { getAnimeKaiWatchAvailability } from "@/lib/anime/api";
 
 export async function generateMetadata({
   params,
@@ -85,8 +86,15 @@ async function AnilistDetailContent({ anilistId }: { anilistId: number }) {
   const studios = media.studios.nodes.map((s) => s.name).join(", ");
   const description = media.description?.replace(/<[^>]*>/g, "") || "";
   const accentColor = media.coverImage.color || "#ff5500";
-  const selfHref = `/anime/${encodeAnilistRouteId(anilistId)}`;
-  const watchHref = `/anime/${encodeAnilistRouteId(anilistId)}/watch?ep=1&provider=animekai`;
+  const routeId = encodeAnilistRouteId(anilistId);
+  const selfHref = `/anime/${routeId}`;
+  const watchAvailability = await getAnimeKaiWatchAvailability(routeId, [
+    media.title.english,
+    media.title.romaji,
+    media.title.native,
+    ...(media.synonyms || []),
+  ]);
+  const watchHref = watchAvailability.watchHref;
 
   const relations = media.relations.edges.filter(
     (e) => e.relationType === "SEQUEL" || e.relationType === "PREQUEL" || e.relationType === "SIDE_STORY"
@@ -99,8 +107,8 @@ async function AnilistDetailContent({ anilistId }: { anilistId: number }) {
 
   return (
     <>
-      {/* Prefetch stream for ep1 while user browses detail page */}
-      <StreamPrefetch animeId={encodeAnilistRouteId(anilistId)} />
+      {/* Prefetch stream for the resolved provider route while user browses detail page */}
+      {watchAvailability.routeId ? <StreamPrefetch animeId={watchAvailability.routeId} /> : null}
       {/* Hero Section */}
       <section className="relative overflow-hidden">
         {/* Banner bg */}
@@ -196,14 +204,21 @@ async function AnilistDetailContent({ anilistId }: { anilistId: number }) {
 
               {/* CTAs */}
               <div className="flex flex-wrap items-center gap-3 pt-2">
-                <Link
-                  href={watchHref}
-                  className="flex items-center gap-2.5 text-white font-black text-sm px-8 py-4 rounded-full transition-all hover:scale-105 shadow-xl"
-                  style={{ backgroundColor: accentColor, boxShadow: `0 12px 32px ${accentColor}50` }}
-                >
-                  <Play className="w-4 h-4 fill-current" />
-                  WATCH NOW
-                </Link>
+                {watchHref ? (
+                  <Link
+                    href={watchHref}
+                    className="flex items-center gap-2.5 text-white font-black text-sm px-8 py-4 rounded-full transition-all hover:scale-105 shadow-xl"
+                    style={{ backgroundColor: accentColor, boxShadow: `0 12px 32px ${accentColor}50` }}
+                  >
+                    <Play className="w-4 h-4 fill-current" />
+                    WATCH NOW
+                  </Link>
+                ) : (
+                  <div className="flex items-center gap-2.5 text-white/65 font-black text-sm px-8 py-4 rounded-full border border-white/10 bg-white/5 cursor-not-allowed">
+                    <Play className="w-4 h-4" />
+                    NOT AVAILABLE YET
+                  </div>
+                )}
                 <AddToListButton
                   animeId={`anilist~${anilistId}`}
                   title={title}
@@ -211,6 +226,11 @@ async function AnilistDetailContent({ anilistId }: { anilistId: number }) {
                   href={selfHref}
                 />
               </div>
+              {!watchHref && (
+                <p className="text-sm text-white/45">
+                  {watchAvailability.message} We’ll enable playback automatically once a provider mapping exists.
+                </p>
+              )}
             </div>
           </div>
         </div>

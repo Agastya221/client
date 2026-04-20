@@ -1,5 +1,7 @@
 import { cache } from "react";
+import { Prisma } from "@prisma/client";
 import { cacheFetch, cacheInvalidatePrefix } from "@/lib/cache";
+import { anilistTitle, getAnilistDetail } from "@/lib/anilist/api";
 import {
   PROVIDERS,
   type AnimeDetailModel,
@@ -53,6 +55,10 @@ const API_BASE_URL = resolveAnimeApiBaseUrl();
 const HOME_REVALIDATE_SECONDS = 300;
 const SEARCH_REVALIDATE_SECONDS = 120;
 const DETAIL_REVALIDATE_SECONDS = 300;
+const PROVIDER_MAPPING_FOUND_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const PROVIDER_MAPPING_NOT_FOUND_TTL_MS = 12 * 60 * 60 * 1000;
+const PROVIDER_MAPPING_UNKNOWN_TTL_MS = 60 * 60 * 1000;
+const PROVIDER_SNAPSHOT_FRESH_MS = 6 * 60 * 60 * 1000;
 
 type JsonValue = Record<string, any>;
 export type ProviderJson = JsonValue;
@@ -83,6 +89,45 @@ type ProviderWatchPayload = {
 type AnimeDetailModelOptions = {
   resolveProviderFallbacks?: boolean;
   mergeEpisodeProviders?: boolean;
+};
+
+type ProviderMappingStatus = "FOUND" | "NOT_FOUND" | "UNKNOWN";
+
+type ProviderDetailLoadResult<TBundle> = {
+  bundle: TBundle | null;
+  error: string | null;
+};
+
+type AnimeProviderAvailabilityRecord = {
+  provider: ProviderId;
+  status: ProviderMappingStatus;
+  providerId: string | null;
+  matchedTitle: string | null;
+  checkedTitles: string[];
+  failureReason: string | null;
+  lastCheckedAt: Date | null;
+  isAvailable: boolean;
+};
+
+export type WatchAvailabilitySummary = {
+  provider: ProviderId;
+  status: ProviderMappingStatus | "DIRECT";
+  isAvailable: boolean;
+  providerId: string | null;
+  routeId: string | null;
+  watchHref: string | null;
+  message: string;
+  checkedTitles: string[];
+};
+
+type ProviderMetaSnapshotResult = {
+  bundle: ProviderDetailMetaBundle;
+  isFresh: boolean;
+};
+
+type ProviderEpisodeSnapshotResult = {
+  episodes: EpisodeModel[];
+  isFresh: boolean;
 };
 
 function providerSuccess(provider: ProviderId, message = "Using provider"): ProviderAttemptStatus {
@@ -168,6 +213,590 @@ function cloneCatalogAnime(anime: CatalogAnime, providerIds: Partial<Record<Prov
       ...anime.providerIds,
       ...providerIds,
     },
+  };
+}
+
+function parseAnilistPassthroughId(providerId: string): number | null {
+  if (!providerId.startsWith("anilist:")) return null;
+  return numberOrNull(providerId.slice("anilist:".length));
+}
+
+function isResolvedProviderId(provider: ProviderId, providerId: string | null | undefined): boolean {
+  if (!providerId) return false;
+  if (provider === "animekai" && providerId.startsWith("anilist:")) return false;
+  return true;
+}
+
+function collectResolvedProviders(providerIds: Partial<Record<ProviderId, string>>): ProviderId[] {
+  return Array.from(
+    new Set(
+      Object.entries(providerIds)
+        .filter((entry): entry is [ProviderId, string] => isResolvedProviderId(entry[0] as ProviderId, entry[1]))
+        .map(([provider]) => provider as ProviderId),
+    ),
+  );
+}
+
+function providerMappingFreshMs(status: ProviderMappingStatus): number {
+  switch (status) {
+    case "FOUND":
+      return PROVIDER_MAPPING_FOUND_TTL_MS;
+    case "NOT_FOUND":
+      return PROVIDER_MAPPING_NOT_FOUND_TTL_MS;
+    default:
+      return PROVIDER_MAPPING_UNKNOWN_TTL_MS;
+  }
+}
+
+function coerceProviderMappingStatus(value: unknown): ProviderMappingStatus {
+  const status = String(value || "").toUpperCase();
+  return status === "FOUND" || status === "NOT_FOUND" || status === "UNKNOWN" ? status : "UNKNOWN";
+}
+
+function isProviderMappingFresh(status: ProviderMappingStatus, lastCheckedAt: Date | null): boolean {
+  if (!lastCheckedAt) return false;
+  return Date.now() - lastCheckedAt.getTime() < providerMappingFreshMs(status);
+}
+
+async function getPrismaIfAvailable() {
+  if (!process.env.DATABASE_URL) return null;
+
+  try {
+    const module = await import("../db");
+    return module.prisma;
+  } catch {
+    return null;
+  }
+}
+
+function isProviderId(value: string): value is ProviderId {
+  return value === "hianime" || PROVIDERS.includes(value as any);
+}
+
+function parseProviderIdMap(value: unknown): Partial<Record<ProviderId, string>> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+
+  const record = value as Record<string, unknown>;
+  const providerIds: Partial<Record<ProviderId, string>> = {};
+  for (const [key, rawValue] of Object.entries(record)) {
+    if (!isProviderId(key) || typeof rawValue !== "string") continue;
+    const normalized = rawValue.trim();
+    if (normalized) providerIds[key] = normalized;
+  }
+  return providerIds;
+}
+
+function parseProviderIdList(value: unknown): ProviderId[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value
+        .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+        .filter((entry): entry is ProviderId => Boolean(entry) && isProviderId(entry)),
+    ),
+  );
+}
+
+function toInputJson(value: unknown): Prisma.InputJsonValue {
+  return value as Prisma.InputJsonValue;
+}
+
+function parseCatalogAnimeSnapshot(value: unknown): CatalogAnime[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((entry) => {
+    const anime = (entry || {}) as CatalogAnime & { providerIds?: unknown };
+    return {
+      ...anime,
+      providerIds: parseProviderIdMap(anime.providerIds),
+    };
+  });
+}
+
+function parseMetadataRowsSnapshot(value: unknown): AnimeMetadataRow[] {
+  return Array.isArray(value) ? (value as AnimeMetadataRow[]) : [];
+}
+
+function parseSeasonEntriesSnapshot(value: unknown): AnimeSeasonEntry[] {
+  return Array.isArray(value) ? (value as AnimeSeasonEntry[]) : [];
+}
+
+function isProviderSnapshotFresh(lastFetchedAt: Date | null | undefined): boolean {
+  if (!lastFetchedAt) return false;
+  return Date.now() - lastFetchedAt.getTime() < PROVIDER_SNAPSHOT_FRESH_MS;
+}
+
+async function resolveProviderSnapshotKeys(provider: ProviderId, providerId: string): Promise<string[]> {
+  if (provider !== "animekai" || !providerId.startsWith("anilist:")) {
+    return [providerId];
+  }
+
+  const resolvedId = await resolveAnimeKaiSlug(providerId).catch(() => null);
+  return uniqueStrings([resolvedId, providerId]);
+}
+
+async function loadStoredProviderMetaSnapshot(
+  provider: ProviderId,
+  providerId: string,
+): Promise<ProviderMetaSnapshotResult | null> {
+  const prisma = await getPrismaIfAvailable();
+  if (!prisma) return null;
+
+  const candidateIds = await resolveProviderSnapshotKeys(provider, providerId);
+
+  for (const candidateId of candidateIds) {
+    try {
+      const record = await prisma.animeProviderSnapshot.findUnique({
+        where: {
+          provider_providerId: {
+            provider,
+            providerId: candidateId,
+          },
+        },
+      });
+
+      if (!record) continue;
+
+      const bundle: ProviderDetailMetaBundle = {
+        provider,
+        providerId: record.providerId,
+        anime: normalizeBaseAnime({
+          provider,
+          providerId: record.providerId,
+          title: record.title,
+          poster: record.poster,
+          banner: record.banner,
+          description: record.description,
+          genres: record.genres,
+          type: record.type,
+          rating: record.rating,
+          year: record.year,
+          status: record.status,
+          subCount: record.subCount,
+          dubCount: record.dubCount,
+          episodeCount: record.episodeCount,
+          anilistId: record.anilistId,
+          malId: record.malId,
+          providerIds: parseProviderIdMap(record.providerIds),
+        }),
+        synopsis: record.synopsis || record.description || "",
+        metadata: parseMetadataRowsSnapshot(record.metadata),
+        seasons: parseSeasonEntriesSnapshot(record.seasons),
+        related: parseCatalogAnimeSnapshot(record.related),
+        recommended: parseCatalogAnimeSnapshot(record.recommended),
+      };
+
+      return {
+        bundle,
+        isFresh: isProviderSnapshotFresh(record.lastFetchedAt),
+      };
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+async function loadStoredProviderEpisodesSnapshot(
+  provider: ProviderId,
+  providerId: string,
+): Promise<ProviderEpisodeSnapshotResult | null> {
+  const prisma = await getPrismaIfAvailable();
+  if (!prisma) return null;
+
+  const candidateIds = await resolveProviderSnapshotKeys(provider, providerId);
+
+  for (const candidateId of candidateIds) {
+    try {
+      const rows = await prisma.animeEpisodeSnapshot.findMany({
+        where: {
+          provider,
+          providerId: candidateId,
+        },
+        orderBy: {
+          episodeNumber: "asc",
+        },
+      });
+
+      if (!rows.length) continue;
+
+      return {
+        episodes: rows.map((row) => ({
+          number: row.episodeNumber,
+          title: row.title,
+          image: row.image || null,
+          isFiller: row.isFiller,
+          isSubbed: row.isSubbed ?? undefined,
+          isDubbed: row.isDubbed ?? undefined,
+          idByProvider: parseProviderIdMap(row.idByProvider),
+          availableProviders: parseProviderIdList(row.availableProviders),
+        })),
+        isFresh: isProviderSnapshotFresh(rows[0]?.lastFetchedAt),
+      };
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+async function storeProviderMetaSnapshot(bundle: ProviderDetailMetaBundle): Promise<void> {
+  const prisma = await getPrismaIfAvailable();
+  if (!prisma) return;
+
+  try {
+    await prisma.animeProviderSnapshot.upsert({
+      where: {
+        provider_providerId: {
+          provider: bundle.provider,
+          providerId: bundle.providerId,
+        },
+      },
+      update: {
+        title: bundle.anime.title,
+        synopsis: bundle.synopsis || null,
+        poster: bundle.anime.poster,
+        banner: bundle.anime.banner,
+        description: bundle.anime.description,
+        genres: bundle.anime.genres,
+        type: bundle.anime.type,
+        rating: bundle.anime.rating,
+        year: bundle.anime.year,
+        status: bundle.anime.status,
+        subCount: bundle.anime.subCount,
+        dubCount: bundle.anime.dubCount,
+        episodeCount: bundle.anime.episodeCount,
+        anilistId: bundle.anime.anilistId,
+        malId: bundle.anime.malId,
+        providerIds: toInputJson(parseProviderIdMap(bundle.anime.providerIds)),
+        metadata: toInputJson(bundle.metadata),
+        seasons: toInputJson(bundle.seasons),
+        related: toInputJson(bundle.related),
+        recommended: toInputJson(bundle.recommended),
+        lastFetchedAt: new Date(),
+      },
+      create: {
+        provider: bundle.provider,
+        providerId: bundle.providerId,
+        title: bundle.anime.title,
+        synopsis: bundle.synopsis || null,
+        poster: bundle.anime.poster,
+        banner: bundle.anime.banner,
+        description: bundle.anime.description,
+        genres: bundle.anime.genres,
+        type: bundle.anime.type,
+        rating: bundle.anime.rating,
+        year: bundle.anime.year,
+        status: bundle.anime.status,
+        subCount: bundle.anime.subCount,
+        dubCount: bundle.anime.dubCount,
+        episodeCount: bundle.anime.episodeCount,
+        anilistId: bundle.anime.anilistId,
+        malId: bundle.anime.malId,
+        providerIds: toInputJson(parseProviderIdMap(bundle.anime.providerIds)),
+        metadata: toInputJson(bundle.metadata),
+        seasons: toInputJson(bundle.seasons),
+        related: toInputJson(bundle.related),
+        recommended: toInputJson(bundle.recommended),
+        lastFetchedAt: new Date(),
+      },
+    });
+  } catch {
+    // Snapshot persistence is best-effort and should not break the watch flow.
+  }
+}
+
+async function storeProviderEpisodesSnapshot(
+  provider: ProviderId,
+  providerId: string,
+  episodes: EpisodeModel[],
+): Promise<void> {
+  const prisma = await getPrismaIfAvailable();
+  if (!prisma) return;
+
+  const rows = episodes
+    .filter((episode) => Number.isFinite(episode.number) && episode.number > 0)
+    .map((episode) => ({
+      provider,
+      providerId,
+      episodeNumber: episode.number,
+      title: episode.title,
+      image: episode.image || null,
+      isFiller: Boolean(episode.isFiller),
+      isSubbed: episode.isSubbed ?? null,
+      isDubbed: episode.isDubbed ?? null,
+      idByProvider: toInputJson(parseProviderIdMap(episode.idByProvider)),
+      availableProviders: episode.availableProviders,
+      lastFetchedAt: new Date(),
+    }));
+
+  try {
+    const operations: Prisma.PrismaPromise<unknown>[] = [
+      prisma.animeEpisodeSnapshot.deleteMany({
+        where: {
+          provider,
+          providerId,
+        },
+      }),
+    ];
+
+    if (rows.length > 0) {
+      operations.push(
+        prisma.animeEpisodeSnapshot.createMany({
+          data: rows,
+        }),
+      );
+    }
+
+    await prisma.$transaction(operations);
+  } catch {
+    // Best-effort snapshot persistence only.
+  }
+}
+
+async function loadStoredProviderMapping(
+  anilistId: number,
+  provider: ProviderId,
+): Promise<AnimeProviderAvailabilityRecord | null> {
+  const prisma = await getPrismaIfAvailable();
+  if (!prisma) return null;
+
+  try {
+    const record = await prisma.animeProviderMapping.findUnique({
+      where: {
+        anilistId_provider: {
+          anilistId,
+          provider,
+        },
+      },
+    });
+
+    if (!record) return null;
+
+    const status = coerceProviderMappingStatus(record.status);
+    const providerId = record.providerId ? String(record.providerId) : null;
+
+    return {
+      provider,
+      status,
+      providerId,
+      matchedTitle: record.matchedTitle ? String(record.matchedTitle) : null,
+      checkedTitles: uniqueStrings(record.checkedTitles || []),
+      failureReason: record.failureReason ? String(record.failureReason) : null,
+      lastCheckedAt: record.lastCheckedAt ?? null,
+      isAvailable: Boolean(providerId && status === "FOUND"),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function storeProviderMapping(
+  anilistId: number,
+  provider: ProviderId,
+  payload: {
+    status: ProviderMappingStatus;
+    providerId?: string | null;
+    matchedTitle?: string | null;
+    checkedTitles?: string[];
+    failureReason?: string | null;
+  },
+): Promise<void> {
+  const prisma = await getPrismaIfAvailable();
+  if (!prisma) return;
+
+  try {
+    await prisma.animeProviderMapping.upsert({
+      where: {
+        anilistId_provider: {
+          anilistId,
+          provider,
+        },
+      },
+      update: {
+        providerId: payload.providerId || null,
+        status: payload.status,
+        matchedTitle: payload.matchedTitle || null,
+        checkedTitles: uniqueStrings(payload.checkedTitles || []),
+        failureReason: payload.failureReason || null,
+        lastCheckedAt: new Date(),
+      },
+      create: {
+        anilistId,
+        provider,
+        providerId: payload.providerId || null,
+        status: payload.status,
+        matchedTitle: payload.matchedTitle || null,
+        checkedTitles: uniqueStrings(payload.checkedTitles || []),
+        failureReason: payload.failureReason || null,
+        lastCheckedAt: new Date(),
+      },
+    });
+  } catch {
+    // Best-effort persistence. Failing closed here would make the watch path brittle.
+  }
+}
+
+const getAnilistSeedAnime = cache(async function getAnilistSeedAnime(anilistId: number): Promise<{
+  anime: CatalogAnime;
+  candidateTitles: string[];
+} | null> {
+  try {
+    const media = await getAnilistDetail(anilistId);
+    const title = anilistTitle(media);
+    return {
+      anime: normalizeBaseAnime({
+        provider: "animekai",
+        providerId: `anilist:${anilistId}`,
+        title,
+        poster: media.coverImage.extraLarge || media.coverImage.large,
+        banner: media.bannerImage || media.coverImage.extraLarge || media.coverImage.large,
+        description: media.description || null,
+        genres: media.genres,
+        type: media.format || null,
+        year: media.seasonYear ? String(media.seasonYear) : media.startDate?.year ? String(media.startDate.year) : null,
+        status: media.status || null,
+        episodeCount: media.episodes ?? null,
+        anilistId: media.id,
+        malId: media.idMal,
+      }),
+      candidateTitles: uniqueStrings([
+        media.title.english,
+        media.title.romaji,
+        media.title.native,
+        ...(media.synonyms || []),
+      ]),
+    };
+  } catch {
+    return null;
+  }
+});
+
+async function resolveAnimeKaiAvailability(
+  anilistId: number,
+  preferredTitles: Array<string | null | undefined> = [],
+): Promise<AnimeProviderAvailabilityRecord> {
+  const seed = await getAnilistSeedAnime(anilistId);
+  const candidateTitles = uniqueStrings([...preferredTitles, ...(seed?.candidateTitles || [])]);
+  const stored = await loadStoredProviderMapping(anilistId, "animekai");
+
+  if (stored && isProviderMappingFresh(stored.status, stored.lastCheckedAt)) {
+    return {
+      ...stored,
+      checkedTitles: uniqueStrings([...candidateTitles, ...stored.checkedTitles]),
+      isAvailable: Boolean(stored.providerId && stored.status === "FOUND"),
+    };
+  }
+
+  if (candidateTitles.length === 0) {
+    return stored || {
+      provider: "animekai",
+      status: "UNKNOWN",
+      providerId: null,
+      matchedTitle: null,
+      checkedTitles: [],
+      failureReason: "No AniList titles were available for provider mapping.",
+      lastCheckedAt: null,
+      isAvailable: false,
+    };
+  }
+
+  for (const title of candidateTitles) {
+    try {
+      const slug = await searchAnimeKaiByTitle(title);
+      if (!slug) continue;
+
+      const record: AnimeProviderAvailabilityRecord = {
+        provider: "animekai",
+        status: "FOUND",
+        providerId: slug,
+        matchedTitle: title,
+        checkedTitles: candidateTitles,
+        failureReason: null,
+        lastCheckedAt: new Date(),
+        isAvailable: true,
+      };
+      await storeProviderMapping(anilistId, "animekai", record);
+      return record;
+    } catch {
+      // Keep trying alternate titles.
+    }
+  }
+
+  const notFoundRecord: AnimeProviderAvailabilityRecord = {
+    provider: "animekai",
+    status: "NOT_FOUND",
+    providerId: null,
+    matchedTitle: null,
+    checkedTitles: candidateTitles,
+    failureReason: "No provider mapping available",
+    lastCheckedAt: new Date(),
+    isAvailable: false,
+  };
+  await storeProviderMapping(anilistId, "animekai", notFoundRecord);
+  return notFoundRecord;
+}
+
+export async function getAnimeKaiWatchAvailability(
+  routeId: string,
+  preferredTitles: Array<string | null | undefined> = [],
+): Promise<WatchAvailabilitySummary> {
+  const decoded = decodeAnimeId(routeId);
+
+  if (decoded.provider !== "animekai") {
+    return {
+      provider: decoded.provider,
+      status: "DIRECT",
+      isAvailable: true,
+      providerId: decoded.providerId,
+      routeId,
+      watchHref: `/anime/${routeId}/watch?ep=1&provider=${decoded.provider}`,
+      message: "Direct provider route available.",
+      checkedTitles: [],
+    };
+  }
+
+  const anilistId = parseAnilistPassthroughId(decoded.providerId);
+  if (!anilistId) {
+    return {
+      provider: "animekai",
+      status: "DIRECT",
+      isAvailable: true,
+      providerId: decoded.providerId,
+      routeId,
+      watchHref: `/anime/${routeId}/watch?ep=1&provider=animekai`,
+      message: "Direct AnimeKai route available.",
+      checkedTitles: [],
+    };
+  }
+
+  const availability = await resolveAnimeKaiAvailability(anilistId, preferredTitles);
+  if (availability.providerId) {
+    const resolvedRouteId = encodeAnimeId("animekai", availability.providerId);
+    return {
+      provider: "animekai",
+      status: availability.status,
+      isAvailable: true,
+      providerId: availability.providerId,
+      routeId: resolvedRouteId,
+      watchHref: `/anime/${resolvedRouteId}/watch?ep=1&provider=animekai`,
+      message: availability.matchedTitle
+        ? `Available on AnimeKai via “${availability.matchedTitle}”.`
+        : "Available on AnimeKai.",
+      checkedTitles: availability.checkedTitles,
+    };
+  }
+
+  return {
+    provider: "animekai",
+    status: availability.status,
+    isAvailable: false,
+    providerId: null,
+    routeId: null,
+    watchHref: null,
+    message: "This anime is not available to watch yet.",
+    checkedTitles: availability.checkedTitles,
   };
 }
 
@@ -503,36 +1132,40 @@ async function fetchHianimeDetail(providerId: string): Promise<ProviderDetailBun
   };
 }
 
-async function resolveAnimeKaiSlug(providerId: string): Promise<string> {
-  // Handle AniList-originated routes: "anilist:{anilistId}"
-  if (providerId.startsWith("anilist:")) {
-    const anilistId = providerId.replace("anilist:", "");
-    // Fetch title from AniList, then search AnimeKai
-    try {
-      const alRes = await fetch(`https://graphql.anilist.co`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          query: `query ($id: Int) { Media(id: $id, type: ANIME) { title { english romaji } } }`,
-          variables: { id: parseInt(anilistId, 10) },
-        }),
-        next: { revalidate: 3600 },
-      });
-      const alJson = await alRes.json();
-      const title = alJson?.data?.Media?.title?.english || alJson?.data?.Media?.title?.romaji || "";
-      if (title) {
-        const slug = await searchAnimeKaiByTitle(title);
-        if (slug) return slug;
-      }
-    } catch { /* fall through to best-effort */ }
-    // Fallback: use anilistId as slug — will 404 gracefully
-    return anilistId;
+async function resolveAnimeKaiSlug(providerId: string): Promise<string | null> {
+  const anilistId = parseAnilistPassthroughId(providerId);
+  if (!anilistId) {
+    return providerId;
   }
-  return providerId;
+
+  const availability = await resolveAnimeKaiAvailability(anilistId);
+  return availability.providerId;
 }
 
 async function fetchAnimeKaiResolvedMeta(providerId: string): Promise<AnimeKaiResolvedMeta> {
   const resolvedId = await resolveAnimeKaiSlug(providerId);
+  if (!resolvedId) {
+    throw new Error("No provider mapping available");
+  }
+
+  if (!providerId.startsWith("anilist:") && providerId === resolvedId) {
+    const detail = await apiJsonWithFallback<JsonValue>(
+      [
+        `${ANIMEKAI_V2_BASE_PATH}/meta/${encodeURIComponent(resolvedId)}`,
+        `${ANIMEKAI_V2_BASE_PATH}/info/${encodeURIComponent(resolvedId)}`,
+      ],
+      {
+        revalidate: DETAIL_REVALIDATE_SECONDS,
+      },
+    );
+
+    return {
+      detail,
+      resolvedId,
+      aniId: null,
+      flavor: "v2",
+    };
+  }
 
   try {
     const detail = await apiJson<JsonValue>(`/api/anime/${encodeURIComponent(resolvedId)}`, {
@@ -546,9 +1179,15 @@ async function fetchAnimeKaiResolvedMeta(providerId: string): Promise<AnimeKaiRe
       flavor: "python",
     };
   } catch {
-    const detail = await apiJson<JsonValue>(`${ANIMEKAI_V2_BASE_PATH}/info/${encodeURIComponent(resolvedId)}`, {
-      revalidate: DETAIL_REVALIDATE_SECONDS,
-    });
+    const detail = await apiJsonWithFallback<JsonValue>(
+      [
+        `${ANIMEKAI_V2_BASE_PATH}/info/${encodeURIComponent(resolvedId)}`,
+        `${ANIMEKAI_V2_BASE_PATH}/meta/${encodeURIComponent(resolvedId)}`,
+      ],
+      {
+        revalidate: DETAIL_REVALIDATE_SECONDS,
+      },
+    );
 
     return {
       detail,
@@ -560,13 +1199,13 @@ async function fetchAnimeKaiResolvedMeta(providerId: string): Promise<AnimeKaiRe
 }
 
 async function fetchAnimeKaiDetailMeta(providerId: string): Promise<ProviderDetailMetaBundle> {
-  const { detail } = await fetchAnimeKaiResolvedMeta(providerId);
+  const { detail, resolvedId } = await fetchAnimeKaiResolvedMeta(providerId);
   const subCount = numberOrNull(detail.subCount ?? detail.sub_episodes);
   const dubCount = numberOrNull(detail.dubCount ?? detail.dub_episodes);
   const anime = normalizeBaseAnime({
     provider: "animekai",
-    providerId,
-    title: pickFirstNonEmpty(detail.title, humanizeProviderId(providerId)),
+    providerId: resolvedId,
+    title: pickFirstNonEmpty(detail.title, humanizeProviderId(resolvedId)),
     poster: pickFirstNonEmpty(detail.image, detail.poster),
     description: detail.description || null,
     genres: mapGenres(detail.genres),
@@ -582,7 +1221,7 @@ async function fetchAnimeKaiDetailMeta(providerId: string): Promise<ProviderDeta
 
   return {
     provider: "animekai",
-    providerId,
+    providerId: resolvedId,
     anime,
     synopsis: pickFirstNonEmpty(detail.description),
     metadata: toAnimeKaiMetadata(detail),
@@ -685,7 +1324,7 @@ async function fetchDesidubDetail(providerId: string): Promise<ProviderDetailBun
   };
 }
 
-async function fetchProviderDetailMeta(provider: ProviderId, providerId: string): Promise<ProviderDetailMetaBundle> {
+async function fetchProviderDetailMetaRemote(provider: ProviderId, providerId: string): Promise<ProviderDetailMetaBundle> {
   switch (provider) {
     case "hianime":
       return fetchHianimeDetailMeta(providerId);
@@ -698,7 +1337,7 @@ async function fetchProviderDetailMeta(provider: ProviderId, providerId: string)
   }
 }
 
-async function fetchProviderEpisodes(provider: ProviderId, providerId: string): Promise<EpisodeModel[]> {
+async function fetchProviderEpisodesRemote(provider: ProviderId, providerId: string): Promise<EpisodeModel[]> {
   switch (provider) {
     case "hianime":
       return fetchHianimeEpisodes(providerId);
@@ -711,17 +1350,61 @@ async function fetchProviderEpisodes(provider: ProviderId, providerId: string): 
   }
 }
 
-async function fetchProviderDetail(provider: ProviderId, providerId: string): Promise<ProviderDetailBundle> {
-  switch (provider) {
-    case "hianime":
-      return fetchHianimeDetail(providerId);
-    case "animekai":
-      return fetchAnimeKaiDetail(providerId);
-    case "desidub":
-      return fetchDesidubDetail(providerId);
-    default:
-      throw new Error(`Provider ${provider} is not supported`);
+async function fetchProviderDetailMeta(provider: ProviderId, providerId: string): Promise<ProviderDetailMetaBundle> {
+  const stored = await loadStoredProviderMetaSnapshot(provider, providerId);
+  if (stored?.isFresh) {
+    return stored.bundle;
   }
+
+  try {
+    const bundle = await fetchProviderDetailMetaRemote(provider, providerId);
+    await storeProviderMetaSnapshot(bundle);
+    return bundle;
+  } catch (error) {
+    if (stored?.bundle) {
+      return stored.bundle;
+    }
+    throw error;
+  }
+}
+
+async function fetchProviderEpisodes(provider: ProviderId, providerId: string): Promise<EpisodeModel[]> {
+  const stored = await loadStoredProviderEpisodesSnapshot(provider, providerId);
+  if (stored?.isFresh) {
+    return stored.episodes;
+  }
+
+  const snapshotKeys = await resolveProviderSnapshotKeys(provider, providerId);
+  const snapshotProviderId = snapshotKeys[0] || providerId;
+
+  try {
+    const episodes = await fetchProviderEpisodesRemote(provider, providerId);
+    await storeProviderEpisodesSnapshot(provider, snapshotProviderId, episodes);
+    return episodes;
+  } catch (error) {
+    if (stored?.episodes) {
+      return stored.episodes;
+    }
+    throw error;
+  }
+}
+
+async function fetchProviderDetail(provider: ProviderId, providerId: string): Promise<ProviderDetailBundle> {
+  const [meta, episodes] = await Promise.all([
+    fetchProviderDetailMeta(provider, providerId),
+    fetchProviderEpisodes(provider, providerId),
+  ]);
+
+  return {
+    ...meta,
+    episodes,
+    anime: {
+      ...meta.anime,
+      episodeCount: meta.anime.episodeCount ?? episodes.length,
+      subCount: meta.anime.subCount ?? episodes.filter((episode) => episode.isSubbed).length,
+      dubCount: meta.anime.dubCount ?? episodes.filter((episode) => episode.isDubbed).length,
+    },
+  };
 }
 
 async function searchHianimeByTitle(title: string): Promise<string | null> {
@@ -734,7 +1417,7 @@ async function searchAnimeKaiByTitle(title: string): Promise<string | null> {
   const response = await apiJsonWithFallback<JsonValue>(
     [
       `/api/search?keyword=${encodeURIComponent(title)}`,
-      `${ANIMEKAI_V2_BASE_PATH}/search/${encodeURIComponent(title)}`,
+      `${ANIMEKAI_V2_BASE_PATH}/search/${encodeURIComponent(title)}?page=1`,
     ],
     { revalidate: SEARCH_REVALIDATE_SECONDS },
   );
@@ -744,6 +1427,7 @@ async function searchAnimeKaiByTitle(title: string): Promise<string | null> {
   // Fall back to extracting from `url` if slug is missing
   const slug =
     match.slug ||
+    match.id ||
     (match.url ? String(match.url).split("/").filter(Boolean).pop() : null);
   return slug ? String(slug) : null;
 }
@@ -752,27 +1436,95 @@ export const resolveAnimeKaiWatchHref = cache(async function resolveAnimeKaiWatc
   routeId: string,
   title?: string | null,
 ): Promise<string> {
-  const defaultHref = `/anime/${routeId}/watch?ep=1&provider=animekai`;
+  const defaultHref = `/anime/${routeId}`;
   const decoded = decodeAnimeId(routeId);
 
   if (decoded.provider !== "animekai" || !decoded.providerId.startsWith("anilist:")) {
-    return defaultHref;
-  }
-
-  const candidateTitle = String(title || "").trim();
-  if (!candidateTitle) {
-    return defaultHref;
+    return `/anime/${routeId}/watch?ep=1&provider=animekai`;
   }
 
   try {
-    const slug = await searchAnimeKaiByTitle(candidateTitle);
-    return slug
-      ? `/anime/${encodeAnimeId("animekai", slug)}/watch?ep=1&provider=animekai`
-      : defaultHref;
+    const availability = await getAnimeKaiWatchAvailability(routeId, [title]);
+    return availability.watchHref || defaultHref;
   } catch {
     return defaultHref;
   }
 });
+
+export async function warmAnimeWatchWindow(input: {
+  animeId: string;
+  provider?: ProviderId | null;
+  episodeNumbers?: number[];
+  dubbedModes?: boolean[];
+}): Promise<{
+  available: boolean;
+  animeId: string;
+  resolvedAnimeId: string | null;
+  activeProvider: ProviderId | null;
+  warmed: number;
+  attempted: number;
+}> {
+  let resolvedAnimeId = input.animeId;
+  const decoded = decodeAnimeId(input.animeId);
+
+  if (decoded.provider === "animekai" && decoded.providerId.startsWith("anilist:")) {
+    const availability = await getAnimeKaiWatchAvailability(input.animeId);
+    if (!availability.routeId) {
+      return {
+        available: false,
+        animeId: input.animeId,
+        resolvedAnimeId: null,
+        activeProvider: null,
+        warmed: 0,
+        attempted: 0,
+      };
+    }
+    resolvedAnimeId = availability.routeId;
+  }
+
+  const detail = await getAnimeDetailModel(resolvedAnimeId, input.provider || null, {
+    resolveProviderFallbacks: true,
+    mergeEpisodeProviders: true,
+  });
+
+  const episodeNumbers = uniqueStrings(
+    (input.episodeNumbers?.length
+      ? input.episodeNumbers.map((episodeNumber) => String(Number(episodeNumber || 0)))
+      : detail.episodes.slice(0, 3).map((episode) => String(episode.number))),
+  )
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .slice(0, 6);
+
+  const dubbedModes =
+    input.dubbedModes && input.dubbedModes.length > 0
+      ? Array.from(new Set(input.dubbedModes.map(Boolean)))
+      : [false];
+
+  const tasks = episodeNumbers.flatMap((episodeNumber) =>
+    dubbedModes.map((dubbed) =>
+      getFastWatchSession({
+        animeId: resolvedAnimeId,
+        episodeNumber,
+        provider: input.provider || detail.activeProvider,
+        dubbed,
+        server: null,
+      }),
+    ),
+  );
+
+  const results = await Promise.allSettled(tasks);
+  const warmed = results.filter((result) => result.status === "fulfilled").length;
+
+  return {
+    available: true,
+    animeId: input.animeId,
+    resolvedAnimeId,
+    activeProvider: input.provider || detail.activeProvider,
+    warmed,
+    attempted: tasks.length,
+  };
+}
 
 async function searchDesidubByTitle(title: string): Promise<string | null> {
   const response = await apiJson<JsonValue>(`/api/desidub/search?keyword=${encodeURIComponent(title)}`, {
@@ -830,6 +1582,17 @@ async function resolveFallbackProviderIds(
   }
 
   await Promise.all(tasks);
+
+  if (seedAnime.anilistId && providerIds.animekai) {
+    await storeProviderMapping(seedAnime.anilistId, "animekai", {
+      status: "FOUND",
+      providerId: providerIds.animekai,
+      matchedTitle: title,
+      checkedTitles: [title],
+      failureReason: null,
+    });
+  }
+
   return providerIds;
 }
 
@@ -1092,12 +1855,18 @@ async function tryBaseProviderDetail(routeId: string): Promise<ProviderDetailBun
   }
 }
 
-const tryBaseProviderDetailMeta = cache(async function tryBaseProviderDetailMeta(routeId: string): Promise<ProviderDetailMetaBundle | null> {
+const tryBaseProviderDetailMeta = cache(async function tryBaseProviderDetailMeta(routeId: string): Promise<ProviderDetailLoadResult<ProviderDetailMetaBundle>> {
   const decoded = decodeAnimeId(routeId);
   try {
-    return await fetchProviderDetailMeta(decoded.provider, decoded.providerId);
-  } catch {
-    return null;
+    return {
+      bundle: await fetchProviderDetailMeta(decoded.provider, decoded.providerId),
+      error: null,
+    };
+  } catch (error) {
+    return {
+      bundle: null,
+      error: error instanceof Error ? error.message : "Base provider detail lookup failed",
+    };
   }
 });
 
@@ -1108,15 +1877,20 @@ export async function getAnimeDetailOverviewModel(
 ): Promise<AnimeDetailOverviewModel> {
   const decoded = decodeAnimeId(routeId);
   const attempts: ProviderAttemptStatus[] = [];
-  const baseBundle = await tryBaseProviderDetailMeta(routeId);
+  const baseDetail = await tryBaseProviderDetailMeta(routeId);
+  const baseBundle = baseDetail.bundle;
+  const anilistSeed =
+    !baseBundle && decoded.provider === "animekai" && parseAnilistPassthroughId(decoded.providerId)
+      ? await getAnilistSeedAnime(parseAnilistPassthroughId(decoded.providerId)!)
+      : null;
 
   if (baseBundle) {
     attempts.push(providerSuccess(baseBundle.provider, "Resolved base provider metadata"));
   } else {
-    attempts.push(providerFailure(decoded.provider, "Base provider detail lookup failed"));
+    attempts.push(providerFailure(decoded.provider, baseDetail.error || "Base provider detail lookup failed"));
   }
 
-  const seedAnime = baseBundle?.anime || normalizeBaseAnime({
+  const seedAnime = baseBundle?.anime || anilistSeed?.anime || normalizeBaseAnime({
     provider: decoded.provider,
     providerId: decoded.providerId,
     title: humanizeProviderId(decoded.providerId),
@@ -1135,7 +1909,7 @@ export async function getAnimeDetailOverviewModel(
     providerTargets.length > 0
       ? await resolveFallbackProviderIds(
           seedAnime,
-          baseBundle?.anime.title || humanizeProviderId(decoded.providerId),
+          baseBundle?.anime.title || anilistSeed?.anime.title || humanizeProviderId(decoded.providerId),
           providerTargets,
         )
       : { ...seedAnime.providerIds };
@@ -1158,6 +1932,7 @@ export async function getAnimeDetailOverviewModel(
     try {
       const bundle = bundleCache.get(provider) || (await fetchProviderDetailMeta(provider, providerId));
       bundleCache.set(provider, bundle);
+      providerIds[provider] = bundle.providerId;
       attempts.push(providerSuccess(provider, provider === decoded.provider ? "Primary detail loaded" : "Fallback detail loaded"));
       activeBundle = bundle;
       break;
@@ -1176,13 +1951,13 @@ export async function getAnimeDetailOverviewModel(
       related: [],
       recommended: [],
       activeProvider: decoded.provider,
-      availableProviders: Object.keys(providerIds) as ProviderId[],
+      availableProviders: collectResolvedProviders(providerIds),
       attempts,
     };
   }
 
   const mergedAnime = withProviderIds(activeBundle.anime, providerIds, routeId);
-  const availableProviders = PROVIDERS.filter((provider) => Boolean(providerIds[provider]));
+  const availableProviders = collectResolvedProviders(providerIds);
 
   return {
     anime: mergedAnime,

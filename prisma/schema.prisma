@@ -104,6 +104,76 @@ model WatchHistory {
   @@index([userId, animeId])
 }
 
+model AnimeProviderMapping {
+  id            String   @id @default(cuid())
+  anilistId     Int
+  provider      String
+  providerId    String?
+  status        String   @default("UNKNOWN")
+  matchedTitle  String?
+  checkedTitles String[] @default([])
+  failureReason String?
+  lastCheckedAt DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([anilistId, provider])
+  @@index([provider, status])
+  @@index([lastCheckedAt])
+}
+
+model AnimeProviderSnapshot {
+  id           String   @id @default(cuid())
+  provider     String
+  providerId   String
+  title        String
+  synopsis     String?
+  poster       String?
+  banner       String?
+  description  String?
+  genres       String[] @default([])
+  type         String?
+  rating       String?
+  year         String?
+  status       String?
+  subCount     Int?
+  dubCount     Int?
+  episodeCount Int?
+  anilistId    Int?
+  malId        Int?
+  providerIds  Json?
+  metadata     Json
+  seasons      Json
+  related      Json
+  recommended  Json
+  lastFetchedAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([provider, providerId])
+  @@index([provider, lastFetchedAt])
+}
+
+model AnimeEpisodeSnapshot {
+  id                String   @id @default(cuid())
+  provider          String
+  providerId        String
+  episodeNumber     Int
+  title             String
+  image             String?
+  isFiller          Boolean  @default(false)
+  isSubbed          Boolean?
+  isDubbed          Boolean?
+  idByProvider      Json
+  availableProviders String[] @default([])
+  lastFetchedAt     DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([provider, providerId, episodeNumber])
+  @@index([provider, providerId, lastFetchedAt])
+}
+
 model Comment {
   id            String   @id @default(cuid())
   userId        String
