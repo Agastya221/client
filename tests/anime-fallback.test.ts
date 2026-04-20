@@ -29,6 +29,7 @@ function createSession(overrides: Partial<WatchSessionModel> = {}): WatchSession
       availableProviders: ["hianime", "animekai", "desidub"],
     },
     episodes: [],
+    seasons: [],
     provider: "hianime",
     availableProviders: ["hianime", "animekai", "desidub"],
     attempts: [],

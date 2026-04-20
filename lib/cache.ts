@@ -28,12 +28,13 @@ const DEFAULT_EXPIRE_MS = 60 * 60 * 1000;
 
 // Cleanup every 10 minutes
 if (typeof setInterval !== "undefined") {
-  setInterval(() => {
+  const cleanupTimer = setInterval(() => {
     const now = Date.now();
     for (const [key, entry] of store) {
       if (entry.expiresAt < now) store.delete(key);
     }
   }, 10 * 60 * 1000);
+  cleanupTimer.unref?.();
 }
 
 export interface CacheOptions {
