@@ -143,6 +143,17 @@ function subtitleValue(track: SubtitleTrack): string {
   return `${track.url}::${track.label}`;
 }
 
+function sessionViewKey(session: WatchSessionModel): string {
+  return [
+    session.anime.id,
+    session.episode.number,
+    session.provider,
+    session.dubbed ? "dub" : "sub",
+    session.activeServerId || "",
+    session.source?.iframeUrl || session.source?.proxiedUrl || session.source?.url || "none",
+  ].join("|");
+}
+
 function sameStringArray<T extends string>(left: readonly T[], right: readonly T[]): boolean {
   if (left === right) return true;
   if (left.length !== right.length) return false;
@@ -552,6 +563,8 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
   const skipRef = useRef({ intro: false, outro: false });
   const progressSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoNextTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSessionKeyRef = useRef<string | null>(null);
 
   const embedAvailable = Boolean(session.source?.iframeUrl);
   const directSourceUrl = session.source?.proxiedUrl || session.source?.url || null;
@@ -569,6 +582,10 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
       session.fallbackHistory.some((entry) => /animekai:\s*No provider mapping available/i.test(entry)));
   const introWindow = normalizeSkipWindow(session.intro);
   const outroWindow = normalizeSkipWindow(session.outro);
+  const [pendingSession, setPendingSession] = useState<WatchSessionModel | null>(null);
+  const pendingEmbedUrl = pendingSession?.source?.iframeUrl || null;
+  const pendingDirectSourceUrl = pendingSession?.source?.proxiedUrl || pendingSession?.source?.url || null;
+  const pendingDirectPreloadable = Boolean(pendingDirectSourceUrl && !pendingSession?.source?.isM3U8);
 
   /* ── localStorage sync ───────────────────────── */
   useEffect(() => {
@@ -601,9 +618,16 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
   /* ── Session changes ─────────────────────────── */
   useEffect(() => {
     setSession(initialSession);
+    setPendingSession(null);
+    pendingSessionKeyRef.current = null;
+    if (pendingCommitTimerRef.current) {
+      clearTimeout(pendingCommitTimerRef.current);
+      pendingCommitTimerRef.current = null;
+    }
     setPlaybackMessage(null);
     setShowEmbed(Boolean(initialSession.source?.iframeUrl) && preferEmbeddedPlayback);
     setIsRecovering(false);
+    setIsSessionLoading(false);
     setSelectedSubtitle(initialSession.subtitles[0] ? subtitleValue(initialSession.subtitles[0]) : "off");
     skipRef.current = { intro: false, outro: false };
     triedTargetsRef.current.clear();
@@ -927,10 +951,20 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
     return result;
   });
 
-  const applySession = useEffectEvent(async (request: SessionRequest): Promise<WatchSessionModel> => {
-    const nextSession = await fetchSession(request);
+  const clearPendingCommit = useEffectEvent(() => {
+    if (pendingCommitTimerRef.current) {
+      clearTimeout(pendingCommitTimerRef.current);
+      pendingCommitTimerRef.current = null;
+    }
+  });
+
+  const commitSession = useEffectEvent((nextSession: WatchSessionModel) => {
     const hasDirectUrl = Boolean(nextSession.source?.proxiedUrl || nextSession.source?.url);
     const defaultSubtitle = nextSession.subtitles[0] ? subtitleValue(nextSession.subtitles[0]) : "off";
+    clearPendingCommit();
+    pendingSessionKeyRef.current = null;
+    setPendingSession(null);
+    setIsSessionLoading(false);
 
     startTransition(() => {
       setSession((previous) => mergeWatchSessions(previous, nextSession));
@@ -944,7 +978,43 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
     });
 
     skipRef.current = { intro: false, outro: false };
+  });
+
+  const stageOrCommitSession = useEffectEvent((nextSession: WatchSessionModel) => {
+    const nextKey = sessionViewKey(nextSession);
+    const canStagePlayer = Boolean(nextSession.source?.iframeUrl) || Boolean(nextSession.source?.proxiedUrl || nextSession.source?.url) && !nextSession.source?.isM3U8;
+
+    if (!canStagePlayer) {
+      commitSession(nextSession);
+      return;
+    }
+
+    clearPendingCommit();
+    pendingSessionKeyRef.current = nextKey;
+    setPendingSession(nextSession);
+    pendingCommitTimerRef.current = setTimeout(() => {
+      if (pendingSessionKeyRef.current === nextKey) {
+        commitSession(nextSession);
+      }
+    }, 4000);
+  });
+
+  const applySession = useEffectEvent(async (request: SessionRequest): Promise<WatchSessionModel> => {
+    const nextSession = await fetchSession(request);
+    stageOrCommitSession(nextSession);
     return nextSession;
+  });
+
+  const handlePendingPlayerReady = useEffectEvent((readyKey: string) => {
+    if (pendingSessionKeyRef.current !== readyKey || !pendingSession) {
+      return;
+    }
+
+    if (sessionViewKey(pendingSession) !== readyKey) {
+      return;
+    }
+
+    commitSession(pendingSession);
   });
 
   const activateEmbedFallback = useEffectEvent((message?: string): boolean => {
@@ -986,10 +1056,9 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
     void applySession(normalizedRequest)
       .catch((error) => {
         setPlaybackMessage(error instanceof Error ? error.message : "Unable to refresh watch session.");
-      })
-      .finally(() => {
         setIsSessionLoading(false);
-      });
+      })
+      .finally(() => undefined);
   };
 
   const prefetchEpisode = useEffectEvent((episodeNumber: number) => {
@@ -1525,6 +1594,35 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
                 </button>
               )}
             </div>
+          </div>
+        )}
+
+        {pendingSession && pendingEmbedUrl && (
+          <div className="pointer-events-none absolute inset-0 opacity-0">
+            <iframe
+              key={sessionViewKey(pendingSession)}
+              src={pendingEmbedUrl}
+              className="h-full w-full"
+              allowFullScreen
+              aria-hidden="true"
+              tabIndex={-1}
+              title="Preloading embedded player"
+              onLoad={() => handlePendingPlayerReady(sessionViewKey(pendingSession))}
+            />
+          </div>
+        )}
+        {pendingSession && pendingDirectSourceUrl && pendingDirectPreloadable && (
+          <div className="pointer-events-none absolute inset-0 opacity-0">
+            <video
+              key={sessionViewKey(pendingSession)}
+              preload="auto"
+              playsInline
+              muted
+              crossOrigin="anonymous"
+              src={pendingDirectSourceUrl}
+              className="h-full w-full"
+              onCanPlay={() => handlePendingPlayerReady(sessionViewKey(pendingSession))}
+            />
           </div>
         )}
       </div>
