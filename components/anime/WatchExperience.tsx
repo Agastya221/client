@@ -303,7 +303,7 @@ function ControlBtn({
       disabled={disabled}
       onClick={onClick}
       className={`
-        flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold tracking-wide transition-all
+        flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold tracking-wide transition-colors
         rounded-md select-none whitespace-nowrap
         ${disabled ? "opacity-30 cursor-not-allowed" : "cursor-pointer hover:bg-white/8"}
         ${active && accent ? "text-[#ff5500]" : active ? "text-white" : "text-white/60"}
@@ -311,6 +311,30 @@ function ControlBtn({
     >
       <Icon className="w-3.5 h-3.5" />
       <span className="hidden sm:inline">{label}</span>
+    </button>
+  );
+}
+
+function ServerButton({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-3 py-1.5 rounded-md text-[11px] font-bold transition-colors border ${
+        active
+          ? "bg-[#4ade80] text-black border-[#4ade80]/60 shadow-[0_0_10px_rgba(74,222,128,0.2)]"
+          : "bg-white/[0.04] text-white/60 border-white/8 hover:bg-white/8 hover:text-white hover:border-white/15"
+      }`}
+    >
+      {label}
     </button>
   );
 }
@@ -455,7 +479,7 @@ function EpisodeNumberGrid({
               onFocus={() => onHover?.(ep.number)}
               title={`${ep.title}${isWatched ? " ✓ Watched" : ""}`}
               className={`
-                relative w-10 h-9 rounded-md text-xs font-bold transition-all
+                relative w-10 h-9 rounded-md text-xs font-bold transition-colors
                 ${isActive
                   ? "bg-[#ff5500] text-white shadow-[0_0_12px_rgba(255,85,0,0.4)]"
                   : isWatched
@@ -1199,20 +1223,11 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
   const hindiServers = isDesidub ? session.serverOptions : [];
   const mainFallback = session.availableProviders.find((p) => p !== "desidub") || "animekai";
   const showHindi = session.availableProviders.includes("desidub") || isDesidub;
-
-  const ServerBtn = ({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) => (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`px-3 py-1.5 rounded-md text-[11px] font-bold transition-all border ${
-        active
-          ? "bg-[#4ade80] text-black border-[#4ade80]/60 shadow-[0_0_10px_rgba(74,222,128,0.2)]"
-          : "bg-white/[0.04] text-white/60 border-white/8 hover:bg-white/8 hover:text-white hover:border-white/15"
-      }`}
-    >
-      {label}
-    </button>
-  );
+  const floatingStatus = isRecovering
+    ? "Trying fallbacks..."
+    : isSessionTransitioning
+      ? "Refreshing session..."
+      : null;
 
   /* ════════════════════════════════════════════════
      RENDER
@@ -1605,7 +1620,13 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
       </div>
 
       {/* ── EPISODE INFO + SERVER STRIP ─────────── */}
-      <div className="bg-[#131315] border-x border-white/8 px-4 md:px-5 py-3 space-y-3">
+      <div className="relative bg-[#131315] border-x border-white/8 px-4 md:px-5 py-3 space-y-3">
+        {floatingStatus && (
+          <div className="pointer-events-none absolute right-4 top-3 z-10 hidden items-center gap-2 rounded-full border border-white/10 bg-black/45 px-2.5 py-1 text-[10px] font-medium text-white/60 backdrop-blur md:inline-flex">
+            <LoaderCircle className="h-3 w-3 animate-spin text-[#ff5500]" />
+            <span>{floatingStatus}</span>
+          </div>
+        )}
         {/* Top row: episode info + sub/dub/server */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div className="flex items-center gap-3 flex-wrap">
@@ -1626,7 +1647,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
                   queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: null, dubbed: false });
                 }
               }}
-              className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 transition-all cursor-pointer ${
+              className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 transition-colors cursor-pointer ${
                 !session.dubbed
                   ? "bg-[#ff5500]/15 text-[#ff5500] border border-[#ff5500]/25 shadow-[0_0_8px_rgba(255,85,0,0.15)]"
                   : "bg-white/5 text-white/50 border border-white/8 hover:bg-white/10 hover:text-white/70"
@@ -1642,7 +1663,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
                   queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: null, dubbed: true });
                 }
               }}
-              className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 transition-all cursor-pointer ${
+              className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 transition-colors cursor-pointer ${
                 session.dubbed
                   ? "bg-[#4ade80]/15 text-[#4ade80] border border-[#4ade80]/25 shadow-[0_0_8px_rgba(74,222,128,0.15)]"
                   : "bg-white/5 text-white/50 border border-white/8 hover:bg-white/10 hover:text-white/70"
@@ -1662,7 +1683,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
             <div className="flex flex-wrap gap-1.5">
               {subServers.length > 0 ? (
                 subServers.map((entry) => (
-                  <ServerBtn
+                  <ServerButton
                     key={entry.id}
                     label={entry.label}
                     active={!session.dubbed && session.activeServerId === entry.id}
@@ -1670,7 +1691,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
                   />
                 ))
               ) : (
-                <ServerBtn
+                <ServerButton
                   label={`Try ${humanizeProviderId(mainFallback)} sub`}
                   active={false}
                   onClick={() => queueSession({ episodeNumber: session.episode.number, provider: mainFallback, server: null, dubbed: false })}
@@ -1685,7 +1706,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
             <div className="flex flex-wrap gap-1.5">
               {dubServers.length > 0 ? (
                 dubServers.map((entry) => (
-                  <ServerBtn
+                  <ServerButton
                     key={entry.id}
                     label={entry.label}
                     active={session.dubbed && session.activeServerId === entry.id && !isDesidub}
@@ -1693,7 +1714,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
                   />
                 ))
               ) : (
-                <ServerBtn
+                <ServerButton
                   label={`Try ${humanizeProviderId(mainFallback)} dub`}
                   active={false}
                   onClick={() => queueSession({ episodeNumber: session.episode.number, provider: mainFallback, server: null, dubbed: true })}
@@ -1709,7 +1730,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
               <div className="flex flex-wrap gap-1.5">
                 {hindiServers.length > 0 ? (
                   hindiServers.map((entry) => (
-                    <ServerBtn
+                    <ServerButton
                       key={entry.id}
                       label={entry.label}
                       active={isDesidub && session.activeServerId === entry.id}
@@ -1717,7 +1738,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
                     />
                   ))
                 ) : (
-                  <ServerBtn
+                  <ServerButton
                     label="DesiDub"
                     active={false}
                     onClick={() => queueSession({ episodeNumber: session.episode.number, provider: "desidub", server: null, dubbed: true })}
@@ -1729,20 +1750,12 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
         </div>
 
         {/* Playback message */}
-        {(playbackMessage || isSessionTransitioning || isRecovering) && (
+        {playbackMessage && (
           <div className="space-y-2 pt-1">
-            {playbackMessage && (
-              <div className="flex items-start gap-2 rounded-lg bg-amber-500/[0.08] border border-amber-500/20 p-3 text-xs text-amber-300">
-                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                <p>{playbackMessage}</p>
-              </div>
-            )}
-            {(isSessionTransitioning || isRecovering) && (
-              <div className="flex items-center gap-2 text-xs text-white/50">
-                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                <span>{isRecovering ? "Trying fallbacks..." : "Refreshing session..."}</span>
-              </div>
-            )}
+            <div className="flex items-start gap-2 rounded-lg bg-amber-500/[0.08] border border-amber-500/20 p-3 text-xs text-amber-300">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <p>{playbackMessage}</p>
+            </div>
           </div>
         )}
 
