@@ -4,7 +4,15 @@ import AttemptTrail from "@/components/anime/AttemptTrail";
 import CommentSection from "@/components/anime/CommentSection";
 import ProviderBadge from "@/components/anime/ProviderBadge";
 import { getFallbackWatchTargets } from "@/lib/anime/fallback";
-import type { AnimeSeasonEntry, ProviderId, SubtitleTrack, WatchSessionModel } from "@/lib/anime/types";
+import type {
+  AnimeSeasonEntry,
+  CatalogAnime,
+  EpisodeModel,
+  ProviderId,
+  ServerOption,
+  SubtitleTrack,
+  WatchSessionModel,
+} from "@/lib/anime/types";
 import { anilistTitle, anilistRating, anilistFormat, encodeAnilistRouteId, type AnilistMedia } from "@/lib/anilist/api";
 import { humanizeProviderId } from "@/lib/anime/utils";
 import {
@@ -133,6 +141,142 @@ function normalizeSkipWindow(value?: { start: number; end: number } | null): Ski
 
 function subtitleValue(track: SubtitleTrack): string {
   return `${track.url}::${track.label}`;
+}
+
+function sameStringArray<T extends string>(left: readonly T[], right: readonly T[]): boolean {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+}
+
+function sameKeyedStrings(
+  left: Record<string, string | undefined>,
+  right: Record<string, string | undefined>,
+): boolean {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  for (const key of keys) {
+    if ((left[key] ?? null) !== (right[key] ?? null)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function sameCatalogAnime(left: CatalogAnime, right: CatalogAnime): boolean {
+  return (
+    left.id === right.id &&
+    left.provider === right.provider &&
+    left.providerId === right.providerId &&
+    left.href === right.href &&
+    left.title === right.title &&
+    left.subtitle === right.subtitle &&
+    left.description === right.description &&
+    left.poster === right.poster &&
+    left.banner === right.banner &&
+    sameStringArray(left.genres, right.genres) &&
+    left.type === right.type &&
+    left.rating === right.rating &&
+    left.year === right.year &&
+    left.status === right.status &&
+    left.subCount === right.subCount &&
+    left.dubCount === right.dubCount &&
+    left.episodeCount === right.episodeCount &&
+    left.anilistId === right.anilistId &&
+    left.malId === right.malId &&
+    sameKeyedStrings(left.providerIds, right.providerIds)
+  );
+}
+
+function sameSeasonEntry(left: AnimeSeasonEntry, right: AnimeSeasonEntry): boolean {
+  return (
+    left.title === right.title &&
+    left.href === right.href &&
+    left.poster === right.poster &&
+    left.episodeLabel === right.episodeLabel &&
+    left.episodeCount === right.episodeCount &&
+    left.isActive === right.isActive
+  );
+}
+
+function sameSeasonList(left: AnimeSeasonEntry[], right: AnimeSeasonEntry[]): boolean {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (!sameSeasonEntry(left[index], right[index])) return false;
+  }
+  return true;
+}
+
+function sameEpisode(left: EpisodeModel, right: EpisodeModel): boolean {
+  return (
+    left.number === right.number &&
+    left.title === right.title &&
+    left.image === right.image &&
+    left.isFiller === right.isFiller &&
+    left.isSubbed === right.isSubbed &&
+    left.isDubbed === right.isDubbed &&
+    sameKeyedStrings(left.idByProvider, right.idByProvider) &&
+    sameStringArray(left.availableProviders, right.availableProviders)
+  );
+}
+
+function sameEpisodeList(left: EpisodeModel[], right: EpisodeModel[]): boolean {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (!sameEpisode(left[index], right[index])) return false;
+  }
+  return true;
+}
+
+function sameServerOption(left: ServerOption, right: ServerOption): boolean {
+  return (
+    left.id === right.id &&
+    left.label === right.label &&
+    left.provider === right.provider &&
+    left.category === right.category
+  );
+}
+
+function sameServerOptionList(left: ServerOption[], right: ServerOption[]): boolean {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (!sameServerOption(left[index], right[index])) return false;
+  }
+  return true;
+}
+
+function mergeWatchSessions(previous: WatchSessionModel, next: WatchSessionModel): WatchSessionModel {
+  if (previous.anime.id !== next.anime.id) {
+    return next;
+  }
+
+  const anime = sameCatalogAnime(previous.anime, next.anime) ? previous.anime : next.anime;
+  const seasons = sameSeasonList(previous.seasons, next.seasons) ? previous.seasons : next.seasons;
+  const episodes = sameEpisodeList(previous.episodes, next.episodes) ? previous.episodes : next.episodes;
+  const availableProviders = sameStringArray(previous.availableProviders, next.availableProviders)
+    ? previous.availableProviders
+    : next.availableProviders;
+  const serverOptions = sameServerOptionList(previous.serverOptions, next.serverOptions)
+    ? previous.serverOptions
+    : next.serverOptions;
+  const mergedEpisode =
+    episodes.find((episode) => episode.number === next.episode.number && sameEpisode(episode, next.episode)) ||
+    next.episode;
+
+  return {
+    ...next,
+    anime,
+    seasons,
+    episodes,
+    availableProviders,
+    serverOptions,
+    episode: mergedEpisode,
+  };
 }
 
 /* ────────────────────────────────────────────────
@@ -362,6 +506,7 @@ function BufferingText() {
 export default function WatchExperience({ initialSession, resolveParams, recommendations = [], currentUserId }: WatchExperienceProps) {
   const [session, setSession] = useState(initialSession);
   const [isPending, startTransition] = useTransition();
+  const [isSessionLoading, setIsSessionLoading] = useState(false);
   const [playbackMessage, setPlaybackMessage] = useState<string | null>(null);
   const [preferEmbeddedPlayback, setPreferEmbeddedPlayback] = useState(true);
   const [showEmbed, setShowEmbed] = useState(Boolean(initialSession.source?.iframeUrl));
@@ -760,12 +905,20 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
 
   const applySession = useEffectEvent(async (request: SessionRequest): Promise<WatchSessionModel> => {
     const nextSession = await fetchSession(request);
-    setSession(nextSession);
-    setPlaybackMessage(null);
-    // Prefer direct stream over iframe
     const hasDirectUrl = Boolean(nextSession.source?.proxiedUrl || nextSession.source?.url);
-    setShowEmbed(!hasDirectUrl && Boolean(nextSession.source?.iframeUrl) && preferEmbeddedPlayback);
-    setSelectedSubtitle(nextSession.subtitles[0] ? subtitleValue(nextSession.subtitles[0]) : "off");
+    const defaultSubtitle = nextSession.subtitles[0] ? subtitleValue(nextSession.subtitles[0]) : "off";
+
+    startTransition(() => {
+      setSession((previous) => mergeWatchSessions(previous, nextSession));
+      setPlaybackMessage(null);
+      setShowEmbed(!hasDirectUrl && Boolean(nextSession.source?.iframeUrl) && preferEmbeddedPlayback);
+      setSelectedSubtitle((current) =>
+        current !== "off" && nextSession.subtitles.some((subtitle) => subtitleValue(subtitle) === current)
+          ? current
+          : defaultSubtitle,
+      );
+    });
+
     skipRef.current = { intro: false, outro: false };
     return nextSession;
   });
@@ -788,12 +941,31 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
   });
 
   const queueSession = (request: SessionRequest) => {
+    const normalizedRequest: SessionRequest = {
+      episodeNumber: request.episodeNumber,
+      provider: request.provider ?? session.provider,
+      dubbed: request.dubbed ?? session.dubbed,
+      server: request.server ?? null,
+    };
+
+    if (
+      normalizedRequest.episodeNumber === session.episode.number &&
+      normalizedRequest.provider === session.provider &&
+      normalizedRequest.dubbed === session.dubbed &&
+      (normalizedRequest.server ?? null) === (session.activeServerId ?? null)
+    ) {
+      return;
+    }
+
     triedTargetsRef.current.clear();
-    startTransition(() => {
-      void applySession(request).catch((error) => {
+    setIsSessionLoading(true);
+    void applySession(normalizedRequest)
+      .catch((error) => {
         setPlaybackMessage(error instanceof Error ? error.message : "Unable to refresh watch session.");
+      })
+      .finally(() => {
+        setIsSessionLoading(false);
       });
-    });
   };
 
   const prefetchEpisode = useEffectEvent((episodeNumber: number) => {
@@ -1000,6 +1172,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
     session.anime.banner ||
     session.anime.poster ||
     "https://placehold.co/1600x900/09090b/f5f5f5?text=AnimeKAI";
+  const isSessionTransitioning = isSessionLoading || isPending;
 
   const filteredEpisodes = session.episodes.filter((episode) => {
     const query = episodeQuery.trim().toLowerCase();
@@ -1121,7 +1294,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
             </div>
 
             {/* Loading overlay (only during isPending episode switch) */}
-            {isPending && (
+            {isSessionTransitioning && (
               <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center gap-3">
                 <LoaderCircle className="w-10 h-10 text-[#ff5500] animate-spin" />
               </div>
@@ -1556,7 +1729,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
         </div>
 
         {/* Playback message */}
-        {(playbackMessage || isPending || isRecovering) && (
+        {(playbackMessage || isSessionTransitioning || isRecovering) && (
           <div className="space-y-2 pt-1">
             {playbackMessage && (
               <div className="flex items-start gap-2 rounded-lg bg-amber-500/[0.08] border border-amber-500/20 p-3 text-xs text-amber-300">
@@ -1564,7 +1737,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
                 <p>{playbackMessage}</p>
               </div>
             )}
-            {(isPending || isRecovering) && (
+            {(isSessionTransitioning || isRecovering) && (
               <div className="flex items-center gap-2 text-xs text-white/50">
                 <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
                 <span>{isRecovering ? "Trying fallbacks..." : "Refreshing session..."}</span>
