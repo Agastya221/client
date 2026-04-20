@@ -988,10 +988,21 @@ function toDesidubMetadata(data: JsonValue): AnimeMetadataRow[] {
   ].filter((row) => row.value);
 }
 
-function mergeEpisodeMaps(target: Map<number, EpisodeModel>, episodes: EpisodeModel[], provider: ProviderId): void {
+function mergeEpisodeMaps(
+  target: Map<number, EpisodeModel>,
+  episodes: EpisodeModel[],
+  provider: ProviderId,
+  options: { allowNewEntries?: boolean } = {},
+): void {
+  const allowNewEntries = options.allowNewEntries ?? true;
+
   for (const episode of episodes) {
     const existing = target.get(episode.number);
     if (!existing) {
+      if (!allowNewEntries) {
+        continue;
+      }
+
       target.set(episode.number, {
         ...episode,
         availableProviders: episode.availableProviders.length > 0 ? episode.availableProviders : [provider],
@@ -1106,6 +1117,24 @@ async function fetchHianimeDetailMeta(providerId: string): Promise<ProviderDetai
     related: ensureArray(detail.relatedAnimes).map(normalizeHianimeCatalogItem),
     recommended: ensureArray(detail.recommendedAnimes).map(normalizeHianimeCatalogItem),
   };
+}
+
+function resolveEpisodeAvailableProviders(
+  episode: EpisodeModel | null | undefined,
+  fallback: ProviderId[],
+): ProviderId[] {
+  if (!episode) return fallback;
+
+  const providers = Array.from(
+    new Set([
+      ...episode.availableProviders,
+      ...Object.entries(episode.idByProvider)
+        .filter(([, providerEpisodeId]) => Boolean(providerEpisodeId))
+        .map(([provider]) => provider as ProviderId),
+    ]),
+  );
+
+  return providers.length > 0 ? providers : fallback;
 }
 
 async function fetchHianimeEpisodes(providerId: string): Promise<EpisodeModel[]> {
@@ -2035,12 +2064,14 @@ async function _getAnimeDetailModelRaw(
   }
 
   const episodeMap = new Map<number, EpisodeModel>();
-  for (const provider of PROVIDERS) {
+  const providerOrder = [detail.activeProvider, ...PROVIDERS.filter((provider) => provider !== detail.activeProvider)];
+
+  for (const provider of providerOrder) {
     const providerId = detail.anime.providerIds[provider];
     if (!providerId) continue;
     try {
       const episodes = await fetchProviderEpisodes(provider, providerId);
-      mergeEpisodeMaps(episodeMap, episodes, provider);
+      mergeEpisodeMaps(episodeMap, episodes, provider, { allowNewEntries: episodeMap.size === 0 });
     } catch {
       // Keep detail page resilient; overview already captured primary selection attempts.
     }
@@ -2411,6 +2442,7 @@ export async function getWatchSession(input: {
   const targetEpisode =
     detail.episodes.find((episode) => episode.number === Number(input.episodeNumber || 1)) ||
     detail.episodes[0];
+  const episodeAvailableProviders = resolveEpisodeAvailableProviders(targetEpisode, detail.availableProviders);
 
   const watchAttempts: WatchAttempt[] = [];
 
@@ -2425,7 +2457,7 @@ export async function getWatchSession(input: {
       },
       episodes: detail.episodes,
       provider: preferredProvider,
-      availableProviders: detail.availableProviders,
+      availableProviders: episodeAvailableProviders,
       attempts: detail.attempts,
       watchAttempts: [{ provider: preferredProvider, ok: false, reason: "Episode not found" }],
       source: null,
@@ -2459,7 +2491,7 @@ export async function getWatchSession(input: {
         episodes: detail.episodes,
         seasons: detail.seasons,
         provider,
-        availableProviders: detail.availableProviders,
+        availableProviders: episodeAvailableProviders,
         attempts: detail.attempts,
         watchAttempts: [...watchAttempts, { provider, server: input.server || undefined, ok: true, reason: "Playback ready" }],
         source: session.source,
@@ -2490,7 +2522,7 @@ export async function getWatchSession(input: {
     episodes: detail.episodes,
     seasons: detail.seasons,
     provider: preferredProvider,
-    availableProviders: detail.availableProviders,
+    availableProviders: episodeAvailableProviders,
     attempts: detail.attempts,
     watchAttempts,
     source: null,
@@ -2524,6 +2556,7 @@ export async function getFastWatchSession(input: {
       const targetEpisode =
         detail.episodes.find((episode) => episode.number === Number(input.episodeNumber || 1)) ||
         detail.episodes[0];
+      const episodeAvailableProviders = resolveEpisodeAvailableProviders(targetEpisode, detail.availableProviders);
 
       const watchAttempts: WatchAttempt[] = [];
 
@@ -2539,7 +2572,7 @@ export async function getFastWatchSession(input: {
           episodes: detail.episodes,
           seasons: detail.seasons,
           provider: preferredProvider,
-          availableProviders: detail.availableProviders,
+          availableProviders: episodeAvailableProviders,
           attempts: detail.attempts,
           watchAttempts: [{ provider: preferredProvider, ok: false, reason: "Episode not found" }],
           source: null,
@@ -2572,7 +2605,7 @@ export async function getFastWatchSession(input: {
             episodes: detail.episodes,
             seasons: detail.seasons,
             provider,
-            availableProviders: detail.availableProviders,
+            availableProviders: episodeAvailableProviders,
             attempts: detail.attempts,
             watchAttempts: [...watchAttempts, { provider, server: input.server || undefined, ok: true, reason: "Embed session ready" }],
             source: session.source,
@@ -2601,7 +2634,7 @@ export async function getFastWatchSession(input: {
         episodes: detail.episodes,
         seasons: detail.seasons,
         provider: preferredProvider,
-        availableProviders: detail.availableProviders,
+        availableProviders: episodeAvailableProviders,
         attempts: detail.attempts,
         watchAttempts,
         source: null,

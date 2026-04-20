@@ -315,6 +315,72 @@ test("getAnimeEpisodeListModel loads animekai episodes separately from meta", as
   }
 });
 
+test("getAnimeDetailModel keeps AnimeKai episode numbering canonical when a fallback provider returns mismatched episodes", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: string[] = [];
+
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    calls.push(url);
+
+    if (url.endsWith("/api/anime/liar-game-yer79")) {
+      return jsonResponse({
+        title: "Liar Game",
+        image: "https://cdn.example/liar-game.jpg",
+        description: "AnimeKai detail",
+        genres: ["Mystery"],
+        type: "TV",
+        status: "Finished",
+        season: "Summer 2025",
+        ani_id: "ani-liar-game",
+        subCount: 3,
+        dubCount: 0,
+        relations: [],
+        recommendations: [],
+      });
+    }
+
+    if (url.endsWith("/api/episodes/ani-liar-game")) {
+      return jsonResponse([
+        { id: "ak-1", number: 1, title: "The Legendary Con Artist", isSubbed: true, isDubbed: false },
+        { id: "ak-2", number: 2, title: "Episode 2", isSubbed: true, isDubbed: false },
+        { id: "ak-3", number: 3, title: "Episode 3", isSubbed: true, isDubbed: false },
+      ]);
+    }
+
+    if (url.endsWith("/api/desidub/search?keyword=Liar%20Game")) {
+      return jsonResponse({
+        results: [{ slug: "liar-game-hindi", title: "Liar Game" }],
+      });
+    }
+
+    if (url.endsWith("/api/desidub/anime/liar-game-hindi")) {
+      return jsonResponse({
+        title: "Liar Game",
+        description: "DesiDub detail",
+        episodes: [{ id: "dd-13", number: "13.0", title: "Episode 13.0" }],
+      });
+    }
+
+    throw new Error(`Unexpected fetch: ${url}`);
+  }) as typeof fetch;
+
+  try {
+    const detail = await getAnimeDetailModel("animekai~liar-game-yer79", "animekai");
+
+    assert.equal(detail.episodeCoverageMode, "merged-providers");
+    assert.deepEqual(detail.episodes.map((episode) => episode.number), [1, 2, 3]);
+    assert.deepEqual(detail.episodes.map((episode) => episode.availableProviders), [
+      ["animekai"],
+      ["animekai"],
+      ["animekai"],
+    ]);
+    assert.ok(calls.some((url) => url.endsWith("/api/desidub/anime/liar-game-hindi")));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("resolveAnimeKaiWatchHref upgrades AniList banner links to direct animekai watch routes", async () => {
   const originalFetch = globalThis.fetch;
   const calls: string[] = [];
