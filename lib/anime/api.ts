@@ -1345,7 +1345,8 @@ async function fetchHianimeWatchSession(
     url: current.link || null,
     iframeUrl: current.iframe || null,
     referer: current.iframe || null,
-    preferEmbed: Boolean(current.iframe),
+    // Only prefer iframe if no direct stream URL
+    preferEmbed: !current.link && Boolean(current.iframe),
   });
 
   return {
@@ -1421,7 +1422,10 @@ async function fetchAnimeKaiWatchSession(
     url: streamUrl,
     iframeUrl: embedUrl || null,
     referer: embedUrl || null,
-    preferEmbed: Boolean(embedUrl),
+    // Prefer direct M3U8 stream over iframe — embed sites use Cloudflare bot
+    // protection which blocks streams in cross-origin iframes. Only use iframe
+    // when there is no direct stream URL available.
+    preferEmbed: !streamUrl && Boolean(embedUrl),
   });
 
   // Normalize subtitles — Python returns tracks with .file field
@@ -1610,4 +1614,133 @@ export async function getWatchSession(input: {
     dubbed: Boolean(input.dubbed),
     fallbackHistory: watchAttempts.map((attempt) => `${attempt.provider}: ${attempt.reason}`),
   };
+}
+
+/**
+ * FAST path: Returns everything needed to render the watch page shell
+ * (anime info, episodes, metadata) WITHOUT resolving the stream source.
+ * Uses the cached getAnimeDetailModel, so repeat visits are instant.
+ */
+export async function getQuickWatchSession(input: {
+  animeId: string;
+  episodeNumber?: number;
+  provider?: ProviderId | null;
+  episodeId?: string | null;
+  dubbed?: boolean;
+}): Promise<WatchSessionModel> {
+  const detail = await getAnimeDetailModel(input.animeId, input.provider || null, {
+    resolveProviderFallbacks: true,
+    mergeEpisodeProviders: true,
+  });
+  const preferredProvider = input.provider || detail.activeProvider;
+  const targetEpisode =
+    detail.episodes.find((ep) => ep.number === Number(input.episodeNumber || 1)) ||
+    detail.episodes[0];
+
+  return {
+    anime: detail.anime,
+    episode: targetEpisode || {
+      number: Number(input.episodeNumber || 1),
+      title: `Episode ${input.episodeNumber || 1}`,
+      idByProvider: {},
+      availableProviders: [],
+    },
+    episodes: detail.episodes,
+    seasons: detail.seasons,
+    provider: preferredProvider,
+    availableProviders: detail.availableProviders,
+    attempts: detail.attempts,
+    watchAttempts: [],
+    source: null,
+    subtitles: [],
+    serverOptions: [],
+    activeServerId: null,
+    dubbed: Boolean(input.dubbed),
+    fallbackHistory: ["Stream pending — resolving on client"],
+  };
+}
+
+/**
+ * SLOW path: Resolves the actual stream source + subtitles + server options.
+ * Called from the client via /api/resolve-source after the page renders.
+ * Results are cached for 5 minutes.
+ */
+export async function resolveStreamSource(input: {
+  animeId: string;
+  episodeNumber?: number;
+  provider?: ProviderId | null;
+  episodeId?: string | null;
+  dubbed?: boolean;
+  server?: string | null;
+}): Promise<{
+  source: StreamSource | null;
+  subtitles: SubtitleTrack[];
+  serverOptions: ServerOption[];
+  activeServerId: string | null;
+  provider: ProviderId;
+  intro?: { start: number; end: number } | null;
+  outro?: { start: number; end: number } | null;
+  watchAttempts: WatchAttempt[];
+}> {
+  const cacheKey = `stream:${input.animeId}:ep${input.episodeNumber || 1}:${input.dubbed ? "dub" : "sub"}:${input.server || "auto"}:${input.provider || "auto"}`;
+
+  return cacheFetch(cacheKey, async () => {
+    const detail = await getAnimeDetailModel(input.animeId, input.provider || null, {
+      resolveProviderFallbacks: true,
+      mergeEpisodeProviders: true,
+    });
+    const preferredProvider = input.provider || detail.activeProvider;
+    const order = buildProviderOrder(preferredProvider, detail.activeProvider);
+    const targetEpisode =
+      detail.episodes.find((ep) => ep.number === Number(input.episodeNumber || 1)) ||
+      detail.episodes[0];
+
+    if (!targetEpisode) {
+      return {
+        source: null, subtitles: [], serverOptions: [], activeServerId: null,
+        provider: preferredProvider,
+        watchAttempts: [{ provider: preferredProvider, ok: false, reason: "Episode not found" }],
+      };
+    }
+
+    const watchAttempts: WatchAttempt[] = [];
+    for (const provider of order) {
+      const providerEpisodeId =
+        (provider === preferredProvider && input.episodeId) || targetEpisode.idByProvider[provider];
+      if (!providerEpisodeId) {
+        watchAttempts.push({ provider, ok: false, reason: "Episode unavailable in provider" });
+        continue;
+      }
+      try {
+        const session = await fetchProviderWatch(provider, providerEpisodeId, Boolean(input.dubbed), input.server || null);
+        if (!session.source) {
+          watchAttempts.push({ provider, server: input.server || undefined, ok: false, reason: "No playable source" });
+          continue;
+        }
+        return {
+          source: session.source,
+          subtitles: session.subtitles,
+          serverOptions: session.serverOptions,
+          activeServerId: session.activeServerId,
+          provider,
+          intro: session.intro || null,
+          outro: session.outro || null,
+          watchAttempts: [...watchAttempts, { provider, ok: true, reason: "Playback ready" }],
+        };
+      } catch (error) {
+        watchAttempts.push({ provider, ok: false, reason: error instanceof Error ? error.message : "Failed" });
+      }
+    }
+
+    // All failed — invalidate detail cache
+    cacheInvalidatePrefix(`detail-model:${input.animeId}`);
+    return {
+      source: null, subtitles: [], serverOptions: [], activeServerId: null,
+      provider: preferredProvider, watchAttempts,
+    };
+  }, {
+    freshMs: 5 * 60 * 1000,      // 5 min fresh
+    staleMs: 15 * 60 * 1000,     // 15 min stale-while-revalidate
+    expireMs: 30 * 60 * 1000,    // 30 min hard expire
+  });
 }

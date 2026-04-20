@@ -12,30 +12,35 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Missing animeId" }, { status: 400 });
   }
 
-  const where: Record<string, unknown> = {
-    animeId,
-    parentId: null, // top-level only
-  };
-  if (episode) where.episodeNumber = parseInt(episode, 10);
+  try {
+    const where: Record<string, unknown> = {
+      animeId,
+      parentId: null, // top-level only
+    };
+    if (episode) where.episodeNumber = parseInt(episode, 10);
 
-  const comments = await prisma.comment.findMany({
-    where,
-    include: {
-      user: { select: { id: true, name: true, image: true } },
-      likes: { select: { userId: true } },
-      replies: {
-        include: {
-          user: { select: { id: true, name: true, image: true } },
-          likes: { select: { userId: true } },
+    const comments = await prisma.comment.findMany({
+      where,
+      include: {
+        user: { select: { id: true, name: true, image: true } },
+        likes: { select: { userId: true } },
+        replies: {
+          include: {
+            user: { select: { id: true, name: true, image: true } },
+            likes: { select: { userId: true } },
+          },
+          orderBy: { createdAt: "asc" },
         },
-        orderBy: { createdAt: "asc" },
       },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 50,
-  });
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
 
-  return NextResponse.json(comments);
+    return NextResponse.json(comments);
+  } catch {
+    // DB not configured or unavailable — return empty list gracefully
+    return NextResponse.json([]);
+  }
 }
 
 // POST /api/comments — create a comment

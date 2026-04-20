@@ -77,3 +77,10 @@ body {
     }
   }
 }
+
+/* Buffer bar animation for the streaming player loading screen */
+@keyframes bufferBar {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(0%); }
+  100% { transform: translateX(100%); }
+}

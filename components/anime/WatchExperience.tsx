@@ -44,8 +44,18 @@ import {
 import Link from "next/link";
 import { useEffect, useEffectEvent, useRef, useState, useTransition } from "react";
 
+interface ResolveParams {
+  animeId: string;
+  episodeNumber: number;
+  provider: string;
+  episodeId: string;
+  dubbed: boolean;
+  server: string;
+}
+
 interface WatchExperienceProps {
   initialSession: WatchSessionModel;
+  resolveParams?: ResolveParams;
   recommendations?: AnilistMedia[];
   currentUserId?: string | null;
 }
@@ -318,10 +328,34 @@ function EpisodeNumberGrid({
   );
 }
 
+/* ────────────────────────────────────────────────
+   Buffering Status Text — cycles through phases
+   like a real streaming player
+   ──────────────────────────────────────────────── */
+const BUFFERING_MESSAGES = [
+  "Connecting to servers",
+  "Finding best quality",
+  "Buffering",
+  "Almost ready",
+];
+
+function BufferingText() {
+  const [idx, setIdx] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setIdx((p) => (p + 1) % BUFFERING_MESSAGES.length);
+    }, 2500);
+    return () => clearInterval(timer);
+  }, []);
+
+  return <>{BUFFERING_MESSAGES[idx]}</>;
+}
+
 /* ════════════════════════════════════════════════
    MAIN: WatchExperience
    ════════════════════════════════════════════════ */
-export default function WatchExperience({ initialSession, recommendations = [], currentUserId }: WatchExperienceProps) {
+export default function WatchExperience({ initialSession, resolveParams, recommendations = [], currentUserId }: WatchExperienceProps) {
   const [session, setSession] = useState(initialSession);
   const [isPending, startTransition] = useTransition();
   const [playbackMessage, setPlaybackMessage] = useState<string | null>(null);
@@ -332,6 +366,7 @@ export default function WatchExperience({ initialSession, recommendations = [], 
   const [autoPlayEnabled, setAutoPlayEnabled] = useState(false);
   const [playerActivated, setPlayerActivated] = useState(false);
   const [isRecovering, setIsRecovering] = useState(false);
+  const [isResolvingStream, setIsResolvingStream] = useState(!initialSession.source && !!resolveParams);
   const [episodeQuery, setEpisodeQuery] = useState("");
   const [selectedSubtitle, setSelectedSubtitle] = useState("off");
   const [showEpisodeList, setShowEpisodeList] = useState(false);
@@ -391,6 +426,70 @@ export default function WatchExperience({ initialSession, recommendations = [], 
     skipRef.current = { intro: false, outro: false };
     triedTargetsRef.current.clear();
   }, [initialSession, preferEmbeddedPlayback]);
+
+  /* ── Auto-resolve stream source on mount (two-phase rendering) ── */
+  useEffect(() => {
+    if (!resolveParams || initialSession.source) return;
+
+    let cancelled = false;
+    setIsResolvingStream(true);
+
+    (async () => {
+      try {
+        const res = await fetch("/api/resolve-source", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(resolveParams),
+        });
+        if (cancelled) return;
+        if (!res.ok) {
+          setPlaybackMessage("Failed to connect to stream servers");
+          setIsResolvingStream(false);
+          return;
+        }
+        const data = await res.json();
+        if (cancelled) return;
+
+        // Merge resolved stream data into the session
+        setSession((prev) => ({
+          ...prev,
+          source: data.source,
+          subtitles: data.subtitles || prev.subtitles,
+          serverOptions: data.serverOptions || prev.serverOptions,
+          activeServerId: data.activeServerId || prev.activeServerId,
+          provider: data.provider || prev.provider,
+          intro: data.intro ?? prev.intro,
+          outro: data.outro ?? prev.outro,
+          watchAttempts: data.watchAttempts || prev.watchAttempts,
+        }));
+        setIsResolvingStream(false);
+
+        // Prefer direct HLS stream — only show iframe if no direct URL available
+        // (iframe sites like megaup.nl block streams behind Cloudflare bot protection)
+        const hasDirectUrl = Boolean(data.source?.proxiedUrl || data.source?.url);
+        if (hasDirectUrl) {
+          setShowEmbed(false);
+        } else if (data.source?.iframeUrl && preferEmbeddedPlayback) {
+          setShowEmbed(true);
+        }
+        // Update subtitle selection
+        if (data.subtitles?.[0]) {
+          setSelectedSubtitle(subtitleValue(data.subtitles[0]));
+        }
+
+        if (!data.source) {
+          setPlaybackMessage("No stream source available. Try a different server.");
+        }
+      } catch {
+        if (!cancelled) {
+          setPlaybackMessage("Connection error — try refreshing the page");
+          setIsResolvingStream(false);
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [resolveParams, initialSession.source, preferEmbeddedPlayback]);
 
   useEffect(() => {
     if (autoPlayEnabled && directAvailable && !embedAvailable) {
@@ -611,7 +710,9 @@ export default function WatchExperience({ initialSession, recommendations = [], 
     const nextSession = await fetchSession(request);
     setSession(nextSession);
     setPlaybackMessage(null);
-    setShowEmbed(Boolean(nextSession.source?.iframeUrl) && preferEmbeddedPlayback);
+    // Prefer direct stream over iframe
+    const hasDirectUrl = Boolean(nextSession.source?.proxiedUrl || nextSession.source?.url);
+    setShowEmbed(!hasDirectUrl && Boolean(nextSession.source?.iframeUrl) && preferEmbeddedPlayback);
     setSelectedSubtitle(nextSession.subtitles[0] ? subtitleValue(nextSession.subtitles[0]) : "off");
     skipRef.current = { intro: false, outro: false };
     return nextSession;
@@ -901,21 +1002,27 @@ export default function WatchExperience({ initialSession, recommendations = [], 
             aria-label="Play video"
             className="relative aspect-video bg-black group cursor-pointer"
             onClick={() => {
-              if (embedAvailable) {
+              // Always activate immediately — if source resolved, use best mode
+              if (directAvailable) {
+                activateDirectMode();
+              } else if (embedAvailable) {
                 setPlayerActivated(true);
                 setShowEmbed(true);
-              } else if (directAvailable) {
-                activateDirectMode();
+              } else {
+                // Still resolving — show loading animation, player will activate when ready
+                setPlayerActivated(true);
               }
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
-                if (embedAvailable) {
+                if (directAvailable) {
+                  activateDirectMode();
+                } else if (embedAvailable) {
                   setPlayerActivated(true);
                   setShowEmbed(true);
-                } else if (directAvailable) {
-                  activateDirectMode();
+                } else {
+                  setPlayerActivated(true);
                 }
               }
             }}
@@ -930,7 +1037,7 @@ export default function WatchExperience({ initialSession, recommendations = [], 
             {/* Vignette */}
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_30%,rgba(0,0,0,0.6)_100%)]" />
 
-            {/* Play button */}
+            {/* Play button — always clickable */}
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="relative">
                 {/* Pulse ring */}
@@ -951,9 +1058,9 @@ export default function WatchExperience({ initialSession, recommendations = [], 
               </p>
             </div>
 
-            {/* Loading overlay */}
+            {/* Loading overlay (only during isPending episode switch) */}
             {isPending && (
-              <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
+              <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center gap-3">
                 <LoaderCircle className="w-10 h-10 text-[#ff5500] animate-spin" />
               </div>
             )}
@@ -1040,6 +1147,87 @@ export default function WatchExperience({ initialSession, recommendations = [], 
                 </div>
               </div>
             )}
+          </div>
+        ) : isResolvingStream ? (
+          /* ── BUFFERING SCREEN (Netflix/Crunchyroll style) ── */
+          <div className="relative aspect-video bg-black overflow-hidden">
+            {/* Blurred poster background */}
+            <img
+              src={heroImage}
+              alt=""
+              className="absolute inset-0 w-full h-full object-cover blur-2xl scale-110 opacity-20"
+            />
+            {/* Dark overlay */}
+            <div className="absolute inset-0 bg-black/75" />
+
+            {/* Center: Spinning ring + logo */}
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 z-10">
+              <div className="relative w-16 h-16 md:w-20 md:h-20">
+                {/* Outer spinner ring */}
+                <svg className="absolute inset-0 w-full h-full animate-spin" viewBox="0 0 80 80" style={{ animationDuration: "1.5s" }}>
+                  <defs>
+                    <linearGradient id="spinnerGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stopColor="#ff5500" stopOpacity="1" />
+                      <stop offset="100%" stopColor="#ff5500" stopOpacity="0" />
+                    </linearGradient>
+                  </defs>
+                  <circle cx="40" cy="40" r="36" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="3" />
+                  <circle
+                    cx="40" cy="40" r="36" fill="none"
+                    stroke="url(#spinnerGrad)"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    strokeDasharray={`${Math.PI * 72 * 0.75} ${Math.PI * 72 * 0.25}`}
+                  />
+                </svg>
+                {/* Inner pulse dot */}
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="w-2.5 h-2.5 rounded-full bg-[#ff5500] animate-pulse" />
+                </div>
+              </div>
+
+              {/* Status text with animated dots */}
+              <div className="text-center space-y-1.5">
+                <p className="text-white/90 text-sm font-semibold tracking-wide">
+                  <BufferingText />
+                </p>
+                <div className="flex items-center justify-center gap-1">
+                  <span className="w-1 h-1 rounded-full bg-[#ff5500] animate-bounce" style={{ animationDelay: "0ms" }} />
+                  <span className="w-1 h-1 rounded-full bg-[#ff5500] animate-bounce" style={{ animationDelay: "150ms" }} />
+                  <span className="w-1 h-1 rounded-full bg-[#ff5500] animate-bounce" style={{ animationDelay: "300ms" }} />
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom episode info (like Crunchyroll) */}
+            <div className="absolute bottom-0 left-0 right-0 p-4 md:p-6 z-10">
+              <div className="flex items-end justify-between">
+                <div>
+                  <p className="text-white/40 text-[10px] uppercase tracking-[0.2em] font-semibold mb-1">
+                    Now Loading
+                  </p>
+                  <p className="text-white/80 text-xs md:text-sm font-medium">
+                    {session.anime.title}
+                  </p>
+                  <p className="text-white text-sm md:text-base font-bold">
+                    E{session.episode.number} · {session.episode.title}
+                  </p>
+                </div>
+                <div className="text-[#ff5500] text-[10px] font-bold tracking-widest uppercase opacity-60">
+                  AnimeKAI
+                </div>
+              </div>
+              {/* Fake progress bar */}
+              <div className="mt-3 h-[3px] bg-white/[0.06] rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-[#ff5500] to-[#ff7733] rounded-full"
+                  style={{
+                    width: "100%",
+                    animation: "bufferBar 3s ease-in-out infinite",
+                  }}
+                />
+              </div>
+            </div>
           </div>
         ) : (
           /* ── NO SOURCE ── */

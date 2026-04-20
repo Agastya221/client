@@ -17,6 +17,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import AddToListButton from "@/components/anime/AddToListButton";
+import StreamPrefetch from "@/components/anime/StreamPrefetch";
 
 export async function generateMetadata({
   params,
@@ -98,6 +99,8 @@ async function AnilistDetailContent({ anilistId }: { anilistId: number }) {
 
   return (
     <>
+      {/* Prefetch stream for ep1 while user browses detail page */}
+      <StreamPrefetch animeId={encodeAnilistRouteId(anilistId)} />
       {/* Hero Section */}
       <section className="relative overflow-hidden">
         {/* Banner bg */}

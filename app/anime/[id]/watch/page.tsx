@@ -1,7 +1,7 @@
 import WatchExperience from "@/components/anime/WatchExperience";
 import Navbar from "@/components/ui/Navbar";
 import SiteFooter from "@/components/ui/SiteFooter";
-import { getWatchSession } from "@/lib/anime/api";
+import { getQuickWatchSession } from "@/lib/anime/api";
 import { normalizeProviderParam } from "@/lib/anime/fallback";
 import { auth } from "@/lib/auth";
 import {
@@ -165,18 +165,30 @@ async function WatchContent({
 }) {
   const [{ id }, query] = await Promise.all([idPromise, searchParamsPromise]);
 
-  // Fire session + auth in parallel (auth is cheap, session is heavy)
+  const dubbed = firstParam(query.dub) === "1" || firstParam(query.dub) === "true";
+
+  // FAST: Get page shell data (cached, instant on repeat visits)
+  // PARALLEL: Auth is cheap, quick session skips stream resolution
   const [session, authSession] = await Promise.all([
-    getWatchSession({
+    getQuickWatchSession({
       animeId: id,
       episodeNumber: parseEpisodeNumber(firstParam(query.ep)),
       provider: normalizeProviderParam(firstParam(query.provider)),
       episodeId: firstParam(query.episodeId) || null,
-      dubbed: firstParam(query.dub) === "1" || firstParam(query.dub) === "true",
-      server: firstParam(query.server) || null,
+      dubbed,
     }),
     auth(),
   ]);
+
+  // Build the resolve-source params for the client to fetch stream
+  const resolveParams = {
+    animeId: id,
+    episodeNumber: parseEpisodeNumber(firstParam(query.ep)) || 1,
+    provider: firstParam(query.provider) || "",
+    episodeId: firstParam(query.episodeId) || "",
+    dubbed,
+    server: firstParam(query.server) || "",
+  };
 
   // Fetch recommendations — fire and don't block render for too long
   const recommendationsPromise = fetchRecommendations(
@@ -206,7 +218,7 @@ async function WatchContent({
         </Link>
       </nav>
 
-      <WatchExperience initialSession={session} recommendations={recommendations} currentUserId={authSession?.user?.id ?? null} />
+      <WatchExperience initialSession={session} resolveParams={resolveParams} recommendations={recommendations} currentUserId={authSession?.user?.id ?? null} />
     </>
   );
 }
