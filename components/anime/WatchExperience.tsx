@@ -93,6 +93,10 @@ const STORAGE_KEYS = {
   autoPlay: "animekai-watch:auto-play",
 } as const;
 
+const PLAYER_FEEDBACK_MS = 320;
+const RESOLVE_SOURCE_TIMEOUT_MS = 5500;
+const DIRECT_UPGRADE_TIMEOUT_MS = 6000;
+
 function buildWatchSessionUrl(session: WatchSessionModel, request: SessionRequest): string {
   const params = new URLSearchParams();
   params.set("animeId", session.anime.id);
@@ -401,7 +405,11 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
   const [autoPlayEnabled, setAutoPlayEnabled] = useState(false);
   const [playerActivated, setPlayerActivated] = useState(true);
   const [isRecovering, setIsRecovering] = useState(false);
-  const [isResolvingStream, setIsResolvingStream] = useState(Boolean(resolveParams) && !initialDirectAvailable);
+  const [isResolvingStream, setIsResolvingStream] = useState(
+    Boolean(resolveParams) &&
+      !initialDirectAvailable &&
+      Boolean(initialSession.episode.idByProvider?.[initialSession.provider]),
+  );
   const [episodeQuery, setEpisodeQuery] = useState("");
   const [selectedSubtitle, setSelectedSubtitle] = useState("off");
   const [qualityOptions, setQualityOptions] = useState<QualityOption[]>([]);
@@ -424,10 +432,12 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
   const progressSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoNextTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const directUpgradeTimeoutRef = useRef<number | null>(null);
   const pendingSessionKeyRef = useRef<string | null>(null);
   const pendingSessionModeRef = useRef<SessionPlaybackMode>("preserve");
   const autoResolveKeyRef = useRef<string | null>(null);
   const resolveRequestIdRef = useRef(0);
+  const resolveAbortControllerRef = useRef<AbortController | null>(null);
   const resumePlaybackOnDirectRef = useRef(initialDirectAvailable);
   const playerFeedbackStartRef = useRef(Date.now());
   const manualEmbedModeRef = useRef(false);
@@ -464,16 +474,27 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
     directSourceUrl || "",
     showEmbed ? "embed" : "direct",
   ].join("|");
-  const activeSurfaceReady =
-    showEmbed
-      ? embedAvailable
-        ? activeEmbedLoaded
-        : !isResolvingStream
-      : directAvailable
-        ? activeDirectReady
-        : !isResolvingStream;
   const embedLayerVisible = Boolean(session.source?.iframeUrl) && (showEmbed || !activeDirectReady);
   const directLayerVisible = directAvailable && !showEmbed;
+  const clearDirectUpgradeTimeout = useEffectEvent(() => {
+    if (directUpgradeTimeoutRef.current) {
+      window.clearTimeout(directUpgradeTimeoutRef.current);
+      directUpgradeTimeoutRef.current = null;
+    }
+  });
+  const cancelResolveRequest = useEffectEvent(() => {
+    if (resolveAbortControllerRef.current) {
+      resolveAbortControllerRef.current.abort();
+      resolveAbortControllerRef.current = null;
+    }
+  });
+
+  useEffect(() => {
+    return () => {
+      cancelResolveRequest();
+      clearDirectUpgradeTimeout();
+    };
+  }, [cancelResolveRequest, clearDirectUpgradeTimeout]);
 
   /* ── localStorage sync ───────────────────────── */
   useEffect(() => {
@@ -505,6 +526,8 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
 
   /* ── Session changes ─────────────────────────── */
   useEffect(() => {
+    cancelResolveRequest();
+    clearDirectUpgradeTimeout();
     setSession(initialSession);
     setPendingSession(null);
     pendingSessionKeyRef.current = null;
@@ -522,7 +545,11 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
     setPlayerActivated(true);
     setIsRecovering(false);
     setIsSessionLoading(false);
-    setIsResolvingStream(Boolean(resolveParams) && !hasDirectPlaybackSource(initialSession));
+    setIsResolvingStream(
+      Boolean(resolveParams) &&
+        !hasDirectPlaybackSource(initialSession) &&
+        Boolean(initialSession.episode.idByProvider?.[initialSession.provider]),
+    );
     setActiveEmbedLoaded(false);
     setActiveDirectReady(hasDirectPlaybackSource(initialSession) && !initialSession.source?.iframeUrl);
     setPlayerFeedbackVisible(true);
@@ -534,7 +561,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
     setSelectedAudioTrack("audio:auto");
     skipRef.current = { intro: false, outro: false };
     triedTargetsRef.current.clear();
-  }, [initialSession, resolveParams]);
+  }, [cancelResolveRequest, clearDirectUpgradeTimeout, initialSession, resolveParams]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -580,15 +607,15 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
   }, [activePlayerSurfaceKey, directAvailable, showEmbed]);
 
   useEffect(() => {
-    if (!playerFeedbackVisible || !activeSurfaceReady) return;
+    if (!playerFeedbackVisible) return;
 
-    const remaining = Math.max(0, 240 - (Date.now() - playerFeedbackStartRef.current));
+    const remaining = Math.max(0, PLAYER_FEEDBACK_MS - (Date.now() - playerFeedbackStartRef.current));
     const timer = window.setTimeout(() => {
       setPlayerFeedbackVisible(false);
     }, remaining);
 
     return () => window.clearTimeout(timer);
-  }, [activeSurfaceReady, playerFeedbackVisible]);
+  }, [activePlayerSurfaceKey, playerFeedbackVisible]);
 
   const resolveEnhancedPlayback = useEffectEvent(async (options?: {
     activate?: boolean;
@@ -607,9 +634,32 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
       dubbed: options?.dubbed ?? session.dubbed,
       server: options?.server ?? session.activeServerId ?? "",
     };
+    const resolveAttemptKey = [
+      body.animeId,
+      body.episodeNumber,
+      body.provider,
+      body.episodeId || "no-episode-id",
+      body.dubbed ? "dub" : "sub",
+      body.server || "default-server",
+    ].join("|");
+
+    if (autoResolveKeyRef.current === resolveAttemptKey) {
+      if (!options?.silent) {
+        setPlaybackMessage("Enhanced playback already timed out for this session, so we kept the embedded player.");
+      }
+      return false;
+    }
+
+    autoResolveKeyRef.current = resolveAttemptKey;
     const requestId = resolveRequestIdRef.current + 1;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      controller.abort();
+    }, RESOLVE_SOURCE_TIMEOUT_MS);
 
     resolveRequestIdRef.current = requestId;
+    cancelResolveRequest();
+    resolveAbortControllerRef.current = controller;
 
     setIsResolvingStream(true);
 
@@ -618,6 +668,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -686,12 +737,21 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
         setPlaybackMessage("Enhanced player is not available for this episode yet.");
       }
       return false;
-    } catch {
+    } catch (error) {
+      const isAbort = error instanceof DOMException && error.name === "AbortError";
       if (!options?.silent) {
-        setPlaybackMessage("Connection error while loading the enhanced player");
+        setPlaybackMessage(
+          isAbort
+            ? "Enhanced playback took too long, so we kept the faster embedded player."
+            : "Connection error while loading the enhanced player",
+        );
       }
       return false;
     } finally {
+      window.clearTimeout(timeoutId);
+      if (resolveAbortControllerRef.current === controller) {
+        resolveAbortControllerRef.current = null;
+      }
       if (requestId === resolveRequestIdRef.current) {
         setIsResolvingStream(false);
       }
@@ -700,18 +760,12 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
 
   /* ── Auto-resolve after first paint until direct playback is ready ── */
   useEffect(() => {
-    if (!resolveParams || directAvailable) return;
-
-    const requestKey = [
-      session.anime.id,
-      resolveParams.episodeNumber,
-      resolveParams.provider || session.provider,
-      resolveParams.dubbed ? "dub" : "sub",
-      resolveParams.server || session.activeServerId || "",
-    ].join("|");
-
-    if (autoResolveKeyRef.current === requestKey) return;
-    autoResolveKeyRef.current = requestKey;
+    if (!resolveParams || directAvailable || !canRequestEnhancedPlayback) {
+      if (!directAvailable && !canRequestEnhancedPlayback) {
+        setIsResolvingStream(false);
+      }
+      return;
+    }
 
     let cancelled = false;
     const timer = window.setTimeout(() => {
@@ -722,7 +776,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
         dubbed: resolveParams.dubbed,
         server: resolveParams.server,
       }).then((ok) => {
-        if (cancelled || ok) return;
+        if (cancelled || ok || embedAvailable) return;
         setPlaybackMessage("No stream source available. Try a different server.");
       });
     }, 0);
@@ -732,7 +786,9 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
       window.clearTimeout(timer);
     };
   }, [
+    canRequestEnhancedPlayback,
     directAvailable,
+    embedAvailable,
     resolveEnhancedPlayback,
     resolveParams,
     session.activeServerId,
@@ -1006,10 +1062,11 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
   ) => {
     const defaultSubtitle = nextSession.subtitles[0] ? subtitleValue(nextSession.subtitles[0]) : "off";
     clearPendingCommit();
+    cancelResolveRequest();
+    clearDirectUpgradeTimeout();
     destroyPendingPlayer();
     pendingSessionKeyRef.current = null;
     pendingSessionModeRef.current = "preserve";
-    autoResolveKeyRef.current = null;
     resolveRequestIdRef.current += 1;
     setPendingSession(null);
     setIsSessionLoading(false);
@@ -1156,11 +1213,19 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
   const activateEmbedFallback = useEffectEvent((message?: string): boolean => {
     if (!session.source?.iframeUrl) return false;
     manualEmbedModeRef.current = true;
+    cancelResolveRequest();
+    clearDirectUpgradeTimeout();
+    clearPendingCommit();
+    destroyPendingPlayer();
+    pendingSessionKeyRef.current = null;
+    pendingSessionModeRef.current = "preserve";
+    setPendingSession(null);
     setPreferEmbeddedPlayback(true);
     destroyPlayer();
     setPlayerActivated(true);
     setShowEmbed(true);
     setIsRecovering(false);
+    setIsResolvingStream(false);
     setPlaybackMessage(message || `Switched to the embedded ${humanizeProviderId(session.provider)} player.`);
     return true;
   });
@@ -1168,12 +1233,39 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
   const activateDirectMode = useEffectEvent((message?: string) => {
     if (!directAvailable) return;
     manualEmbedModeRef.current = false;
+    clearDirectUpgradeTimeout();
     setPreferEmbeddedPlayback(false);
     resumePlaybackOnDirectRef.current = true;
     setPlayerActivated(true);
     setShowEmbed(false);
     setPlaybackMessage(message || "Enhanced player enabled. Auto-skip, subtitle selection, and auto-next are available here.");
   });
+
+  useEffect(() => {
+    clearDirectUpgradeTimeout();
+    if (showEmbed || !directAvailable || activeDirectReady) return;
+
+    directUpgradeTimeoutRef.current = window.setTimeout(() => {
+      if (session.source?.iframeUrl) {
+        activateEmbedFallback("Enhanced playback took too long, so we kept the embedded player.");
+        return;
+      }
+
+      setIsResolvingStream(false);
+      setPlaybackMessage("Enhanced playback is taking longer than expected.");
+    }, DIRECT_UPGRADE_TIMEOUT_MS);
+
+    return () => {
+      clearDirectUpgradeTimeout();
+    };
+  }, [
+    activateEmbedFallback,
+    activeDirectReady,
+    clearDirectUpgradeTimeout,
+    directAvailable,
+    session.source?.iframeUrl,
+    showEmbed,
+  ]);
 
   const queueSession = (request: SessionRequest) => {
     const normalizedRequest: SessionRequest = {
@@ -1193,6 +1285,8 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
     }
 
     triedTargetsRef.current.clear();
+    cancelResolveRequest();
+    clearDirectUpgradeTimeout();
     autoResolveKeyRef.current = null;
     resolveRequestIdRef.current += 1;
     setIsResolvingStream(false);
