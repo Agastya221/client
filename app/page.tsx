@@ -3,6 +3,7 @@ import AnilistCard from "@/components/anilist/AnilistCard";
 import ContinueWatchingRail from "@/components/anime/ContinueWatchingRail";
 import Navbar from "@/components/ui/Navbar";
 import SiteFooter from "@/components/ui/SiteFooter";
+import { getCatalogAvailabilityForMedia, getWatchHrefsFromAvailability } from "@/lib/anilist/availability";
 import {
   getAnilistTrending,
   getAnilistSeasonal,
@@ -117,13 +118,20 @@ export default async function Home() {
     .slice(0, 8)
     .concat(trending.filter((m) => !m.bannerImage).slice(0, 3));
   const heroSlidesForCarousel = heroSlides.slice(0, 10);
+  const availabilityHints = await getCatalogAvailabilityForMedia([
+    ...heroSlidesForCarousel,
+    ...seasonal.slice(0, 12),
+    ...trending.slice(0, 8),
+    ...popular,
+  ]);
+  const watchHrefs = getWatchHrefsFromAvailability(availabilityHints);
 
   return (
     <main className="min-h-screen bg-[#0a0b0c] text-[#eaeaea]">
       <Navbar />
 
       {/* Hero Carousel */}
-      <AnilistHeroCarousel slides={heroSlidesForCarousel} />
+      <AnilistHeroCarousel slides={heroSlidesForCarousel} watchHrefs={watchHrefs} availabilityHints={availabilityHints} />
 
       {/* Main Content */}
       <div className="w-full px-4 lg:px-12 xl:px-16 py-12">
@@ -148,7 +156,7 @@ export default async function Home() {
               />
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 gap-y-8">
                 {seasonal.slice(0, 12).map((media) => (
-                  <AnilistCard key={media.id} media={media} />
+                  <AnilistCard key={media.id} media={media} availability={availabilityHints[media.id]} />
                 ))}
               </div>
             </section>
@@ -163,7 +171,7 @@ export default async function Home() {
               />
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 gap-y-8">
                 {trending.slice(0, 8).map((media, i) => (
-                  <AnilistCard key={media.id} media={media} rank={i + 1} />
+                  <AnilistCard key={media.id} media={media} rank={i + 1} availability={availabilityHints[media.id]} />
                 ))}
               </div>
             </section>

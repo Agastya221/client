@@ -1,6 +1,7 @@
 import Navbar from "@/components/ui/Navbar";
 import SiteFooter from "@/components/ui/SiteFooter";
 import AnilistCard from "@/components/anilist/AnilistCard";
+import { getCatalogAvailabilityForMedia } from "@/lib/anilist/availability";
 import { searchAnilist } from "@/lib/anilist/api";
 import { Clock, ChevronRight } from "lucide-react";
 import Link from "next/link";
@@ -15,6 +16,7 @@ export default async function RecentPage() {
     sort: ["UPDATED_AT_DESC"],
     perPage: 24,
   });
+  const availabilityHints = await getCatalogAvailabilityForMedia(media);
 
   return (
     <main className="min-h-screen bg-[#0a0b0c] text-white">
@@ -43,7 +45,7 @@ export default async function RecentPage() {
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-4 gap-y-8">
             {media.map((item, i) => (
-              <AnilistCard key={item.id} media={item} rank={i + 1} />
+              <AnilistCard key={item.id} media={item} rank={i + 1} availability={availabilityHints[item.id]} />
             ))}
           </div>
         )}

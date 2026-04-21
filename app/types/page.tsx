@@ -1,6 +1,7 @@
 import Navbar from "@/components/ui/Navbar";
 import SiteFooter from "@/components/ui/SiteFooter";
 import AnilistCard from "@/components/anilist/AnilistCard";
+import { getCatalogAvailabilityForMedia } from "@/lib/anilist/availability";
 import { searchAnilist } from "@/lib/anilist/api";
 import { Film, Tv, MonitorPlay, Clapperboard, ChevronRight } from "lucide-react";
 import Link from "next/link";
@@ -36,6 +37,7 @@ export default async function TypesPage({
   const results = selectedFormat
     ? await searchAnilist({ sort: ["POPULARITY_DESC"], format: selectedFormat.key, perPage: 24 })
     : null;
+  const availabilityHints = results ? await getCatalogAvailabilityForMedia(results.media) : {};
 
   return (
     <main className="min-h-screen bg-[#0a0b0c] text-white">
@@ -95,7 +97,7 @@ export default async function TypesPage({
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-4 gap-y-8">
               {results.media.map((item, i) => (
-                <AnilistCard key={item.id} media={item} rank={i + 1} />
+                <AnilistCard key={item.id} media={item} rank={i + 1} availability={availabilityHints[item.id]} />
               ))}
             </div>
           )

@@ -559,6 +559,8 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
   const [autoNextCountdown, setAutoNextCountdown] = useState<number | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
+  const pendingVideoRef = useRef<HTMLVideoElement | null>(null);
+  const pendingHlsRef = useRef<Hls | null>(null);
   const triedTargetsRef = useRef<Set<string>>(new Set());
   const skipRef = useRef({ intro: false, outro: false });
   const progressSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -585,7 +587,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
   const [pendingSession, setPendingSession] = useState<WatchSessionModel | null>(null);
   const pendingEmbedUrl = pendingSession?.source?.iframeUrl || null;
   const pendingDirectSourceUrl = pendingSession?.source?.proxiedUrl || pendingSession?.source?.url || null;
-  const pendingDirectPreloadable = Boolean(pendingDirectSourceUrl && !pendingSession?.source?.isM3U8);
+  const pendingDirectIsHls = Boolean(pendingSession?.source?.isM3U8);
 
   /* ── localStorage sync ───────────────────────── */
   useEffect(() => {
@@ -929,6 +931,18 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
     video.load();
   });
 
+  const destroyPendingPlayer = useEffectEvent(() => {
+    if (pendingHlsRef.current) {
+      pendingHlsRef.current.destroy();
+      pendingHlsRef.current = null;
+    }
+    const video = pendingVideoRef.current;
+    if (!video) return;
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+  });
+
   const fetchSession = useEffectEvent(async (request: SessionRequest): Promise<WatchSessionModel> => {
     const url = buildWatchSessionUrl(session, request);
 
@@ -962,6 +976,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
     const hasDirectUrl = Boolean(nextSession.source?.proxiedUrl || nextSession.source?.url);
     const defaultSubtitle = nextSession.subtitles[0] ? subtitleValue(nextSession.subtitles[0]) : "off";
     clearPendingCommit();
+    destroyPendingPlayer();
     pendingSessionKeyRef.current = null;
     setPendingSession(null);
     setIsSessionLoading(false);
@@ -982,7 +997,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
 
   const stageOrCommitSession = useEffectEvent((nextSession: WatchSessionModel) => {
     const nextKey = sessionViewKey(nextSession);
-    const canStagePlayer = Boolean(nextSession.source?.iframeUrl) || Boolean(nextSession.source?.proxiedUrl || nextSession.source?.url) && !nextSession.source?.isM3U8;
+    const canStagePlayer = Boolean(nextSession.source?.iframeUrl || nextSession.source?.proxiedUrl || nextSession.source?.url);
 
     if (!canStagePlayer) {
       commitSession(nextSession);
@@ -1016,6 +1031,87 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
 
     commitSession(pendingSession);
   });
+
+  useEffect(() => {
+    const pending = pendingSession;
+    const pendingVideo = pendingVideoRef.current;
+
+    if (!pending || !pendingDirectSourceUrl || !pendingVideo) {
+      destroyPendingPlayer();
+      return;
+    }
+
+    let cancelled = false;
+    const readyKey = sessionViewKey(pending);
+    const markReady = () => {
+      if (cancelled) return;
+      handlePendingPlayerReady(readyKey);
+    };
+
+    const resetPendingVideo = () => {
+      pendingVideo.pause();
+      pendingVideo.removeAttribute("src");
+      pendingVideo.load();
+    };
+
+    if (pendingDirectIsHls) {
+      if (pendingVideo.canPlayType("application/vnd.apple.mpegurl")) {
+        const onCanPlay = () => {
+          pendingVideo.removeEventListener("canplay", onCanPlay);
+          markReady();
+        };
+
+        pendingVideo.addEventListener("canplay", onCanPlay);
+        pendingVideo.src = pendingDirectSourceUrl;
+        pendingVideo.load();
+
+        return () => {
+          cancelled = true;
+          pendingVideo.removeEventListener("canplay", onCanPlay);
+          resetPendingVideo();
+        };
+      }
+
+      if (Hls.isSupported()) {
+        const hls = new Hls({ enableWorker: true });
+        pendingHlsRef.current = hls;
+        hls.attachMedia(pendingVideo);
+        hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+          if (!cancelled) {
+            hls.loadSource(pendingDirectSourceUrl);
+          }
+        });
+        hls.on(Hls.Events.MANIFEST_PARSED, markReady);
+        hls.on(Hls.Events.ERROR, (_, data) => {
+          if (!data.fatal || cancelled) return;
+        });
+
+        return () => {
+          cancelled = true;
+          if (pendingHlsRef.current === hls) {
+            pendingHlsRef.current = null;
+          }
+          hls.destroy();
+          resetPendingVideo();
+        };
+      }
+    }
+
+    const onCanPlay = () => {
+      pendingVideo.removeEventListener("canplay", onCanPlay);
+      markReady();
+    };
+
+    pendingVideo.addEventListener("canplay", onCanPlay);
+    pendingVideo.src = pendingDirectSourceUrl;
+    pendingVideo.load();
+
+    return () => {
+      cancelled = true;
+      pendingVideo.removeEventListener("canplay", onCanPlay);
+      resetPendingVideo();
+    };
+  }, [destroyPendingPlayer, handlePendingPlayerReady, pendingDirectIsHls, pendingDirectSourceUrl, pendingSession]);
 
   const activateEmbedFallback = useEffectEvent((message?: string): boolean => {
     if (!session.source?.iframeUrl) return false;
@@ -1611,17 +1707,16 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
             />
           </div>
         )}
-        {pendingSession && pendingDirectSourceUrl && pendingDirectPreloadable && (
+        {pendingSession && pendingDirectSourceUrl && (
           <div className="pointer-events-none absolute inset-0 opacity-0">
             <video
               key={sessionViewKey(pendingSession)}
+              ref={pendingVideoRef}
               preload="auto"
               playsInline
               muted
               crossOrigin="anonymous"
-              src={pendingDirectSourceUrl}
               className="h-full w-full"
-              onCanPlay={() => handlePendingPlayerReady(sessionViewKey(pendingSession))}
             />
           </div>
         )}

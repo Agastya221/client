@@ -4,26 +4,22 @@ import { warmAnimeKaiCatalog } from "@/lib/anime/api";
 import { recordLog } from "@/lib/observability";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60; // Allow up to 60s for warming
+export const maxDuration = 60;
 
-// GET /api/cron/warm — Warm cache for trending anime.
-// Deploy as a Railway cron job or Vercel cron (every 30 min).
-// Protects against abuse with a shared CRON_SECRET env var.
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const key = searchParams.get("key");
   const cronSecret = process.env.CRON_SECRET;
 
-  // Protect endpoint — skip check if no CRON_SECRET is set (dev mode)
   if (cronSecret && key !== cronSecret) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
     const [trending, seasonal, popular] = await Promise.all([
-      getAnilistTrending(12),
-      getAnilistSeasonal(12),
-      getAnilistPopular(12),
+      getAnilistTrending(18),
+      getAnilistSeasonal(18),
+      getAnilistPopular(18),
     ]);
 
     const catalog = Array.from(
@@ -44,9 +40,8 @@ export async function GET(request: Request) {
     );
 
     const result = await warmAnimeKaiCatalog(catalog, {
-      episodeNumbers: [1, 2, 3],
-      dubbedModes: [false, true],
-      concurrency: 3,
+      concurrency: 4,
+      skipWarm: true,
     });
 
     return NextResponse.json({
@@ -55,19 +50,18 @@ export async function GET(request: Request) {
       available: result.available,
       mapped: result.mapped,
       unavailable: result.unavailable,
-      warmed: result.warmed,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
     recordLog(
       "error",
-      "anime.catalog_worker.cron_warm_failed",
-      { route: "/api/cron/warm" },
-      error instanceof Error ? error.message : "Warm failed",
+      "anime.catalog_worker.cron_map_failed",
+      { route: "/api/cron/map" },
+      error instanceof Error ? error.message : "Catalog mapping failed",
     );
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Warm failed" },
-      { status: 500 }
+      { error: error instanceof Error ? error.message : "Catalog mapping failed" },
+      { status: 500 },
     );
   }
 }

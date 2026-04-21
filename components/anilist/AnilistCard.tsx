@@ -1,14 +1,16 @@
 import Link from "next/link";
 import { Play, Star } from "lucide-react";
 import { type AnilistMedia, anilistTitle, anilistRating, anilistFormat, encodeAnilistRouteId } from "@/lib/anilist/api";
+import type { CatalogAvailabilityHint } from "@/lib/anime/api";
 
 interface AnilistCardProps {
   media: AnilistMedia;
   rank?: number;
   size?: "sm" | "md" | "lg";
+  availability?: CatalogAvailabilityHint | null;
 }
 
-export default function AnilistCard({ media, rank, size = "md" }: AnilistCardProps) {
+export default function AnilistCard({ media, rank, size = "md", availability = null }: AnilistCardProps) {
   const title = anilistTitle(media);
   const rating = anilistRating(media);
   const format = anilistFormat(media);
@@ -16,6 +18,12 @@ export default function AnilistCard({ media, rank, size = "md" }: AnilistCardPro
   const image = media.coverImage.extraLarge || media.coverImage.large;
   const accentColor = media.coverImage.color || "#ff5500";
   const isAiring = media.status === "RELEASING";
+  const availabilityTone =
+    availability?.isAvailable
+      ? "bg-emerald-500/85 text-black"
+      : availability?.status === "NOT_FOUND"
+        ? "bg-[#ff5500]/85 text-white"
+        : null;
 
   return (
     <Link
@@ -77,6 +85,12 @@ export default function AnilistCard({ media, rank, size = "md" }: AnilistCardPro
             {media.nextAiringEpisode
               ? `EP ${media.nextAiringEpisode.episode - 1}/${media.episodes}`
               : `${media.episodes} EPS`}
+          </div>
+        )}
+
+        {availability && availabilityTone && (
+          <div className={`absolute bottom-2 left-2 rounded-md px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider ${availabilityTone}`}>
+            {availability.message}
           </div>
         )}
       </div>

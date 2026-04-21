@@ -1,6 +1,7 @@
 "use client";
 
 import { type AnilistMedia, anilistTitle, anilistRating, encodeAnilistRouteId } from "@/lib/anilist/api";
+import type { CatalogAvailabilityHint } from "@/lib/anime/api";
 import { Play, Bookmark, ChevronLeft, ChevronRight, Star, Calendar, Tv } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState, useCallback } from "react";
@@ -8,9 +9,10 @@ import { useEffect, useState, useCallback } from "react";
 interface HeroCarouselProps {
   slides: AnilistMedia[];
   watchHrefs?: Record<string, string>;
+  availabilityHints?: Record<string, CatalogAvailabilityHint>;
 }
 
-export default function AnilistHeroCarousel({ slides, watchHrefs }: HeroCarouselProps) {
+export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHints }: HeroCarouselProps) {
   const deck = slides.slice(0, 10);
   const [activeIndex, setActiveIndex] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
@@ -47,6 +49,7 @@ export default function AnilistHeroCarousel({ slides, watchHrefs }: HeroCarousel
   const rating = anilistRating(slide);
   const href = `/anime/${encodeAnilistRouteId(slide.id)}`;
   const watchHref = watchHrefs?.[String(slide.id)] || null;
+  const availability = availabilityHints?.[String(slide.id)] || null;
   const banner = slide.bannerImage || slide.coverImage.extraLarge;
   const description = slide.description?.replace(/<[^>]*>/g, "").slice(0, 200) || "";
   const studios = slide.studios.nodes.map((s) => s.name).join(", ");
@@ -188,6 +191,12 @@ export default function AnilistHeroCarousel({ slides, watchHrefs }: HeroCarousel
               <Bookmark className="w-4 h-4 text-white/70" />
             </button>
           </div>
+
+          {availability ? (
+            <p className="mt-4 text-[11px] font-bold uppercase tracking-[0.18em] text-white/45">
+              {watchHref ? "Mapped on AnimeKai" : availability.message}
+            </p>
+          ) : null}
         </div>
       </div>
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getFastWatchSession, warmAnimeWatchWindow } from "@/lib/anime/api";
 import { normalizeProviderParam } from "@/lib/anime/fallback";
+import { measureAsync, recordLog } from "@/lib/observability";
 
 export const dynamic = "force-dynamic";
 
@@ -29,12 +30,20 @@ export async function POST(request: Request) {
     }
 
     if (episodesFromBody.length === 0 && body?.animeId && Array.isArray(body?.episodeNumbers)) {
-      const result = await warmAnimeWatchWindow({
-        animeId: body.animeId,
-        provider: normalizeProviderParam(body.provider || ""),
-        episodeNumbers: body.episodeNumbers.slice(0, 6),
-        dubbedModes: [Boolean(body.dubbed)],
-      });
+      const result = await measureAsync(
+        "route.prefetch.window",
+        {
+          route: "/api/prefetch",
+          provider: normalizeProviderParam(body.provider || "") || "auto",
+        },
+        async () =>
+          warmAnimeWatchWindow({
+            animeId: body.animeId,
+            provider: normalizeProviderParam(body.provider || ""),
+            episodeNumbers: body.episodeNumbers.slice(0, 6),
+            dubbedModes: [Boolean(body.dubbed)],
+          }),
+      );
       return NextResponse.json({ warmed: result.warmed, total: result.attempted, available: result.available });
     }
 
@@ -63,6 +72,7 @@ export async function POST(request: Request) {
     const warmed = results.filter((r) => r.status === "fulfilled" && r.value).length;
     return NextResponse.json({ warmed, total: toWarm.length });
   } catch {
+    recordLog("warn", "route.prefetch.failed", { route: "/api/prefetch" }, "Best-effort prefetch failed");
     return NextResponse.json({ warmed: 0 }, { status: 200 });
   }
 }

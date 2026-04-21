@@ -12,6 +12,8 @@
  *   The interface stays the same.
  */
 
+import { recordCounter } from "@/lib/observability";
+
 type CacheEntry<T> = {
   data: T;
   createdAt: number;
@@ -25,6 +27,10 @@ const store = new Map<string, CacheEntry<unknown>>();
 const DEFAULT_FRESH_MS = 5 * 60 * 1000;
 const DEFAULT_STALE_MS = 30 * 60 * 1000;
 const DEFAULT_EXPIRE_MS = 60 * 60 * 1000;
+
+function cacheNamespace(key: string): string {
+  return key.split(":")[0] || "unknown";
+}
 
 // Cleanup every 10 minutes
 if (typeof setInterval !== "undefined") {
@@ -65,18 +71,22 @@ export async function cacheFetch<T>(
   const now = Date.now();
 
   const existing = store.get(key) as CacheEntry<T> | undefined;
+  const namespace = cacheNamespace(key);
 
   if (existing) {
     // Hard expired — delete it
     if (existing.expiresAt < now) {
       store.delete(key);
+      recordCounter("cache.expired", 1, { namespace });
     }
     // Still fresh — return immediately
     else if (existing.staleAt > now) {
+      recordCounter("cache.hit", 1, { namespace, state: "fresh" });
       return existing.data;
     }
     // Stale but not expired — return stale data, refresh in background
     else {
+      recordCounter("cache.hit", 1, { namespace, state: "stale" });
       // Fire-and-forget refresh
       fetcher()
         .then((freshData) => {
@@ -86,15 +96,18 @@ export async function cacheFetch<T>(
             staleAt: now + freshMs,
             expiresAt: now + expireMs,
           });
+          recordCounter("cache.refresh", 1, { namespace, outcome: "success" });
         })
         .catch(() => {
           // Keep stale data if refresh fails
+          recordCounter("cache.refresh", 1, { namespace, outcome: "error" });
         });
       return existing.data;
     }
   }
 
   // No cache — fetch fresh
+  recordCounter("cache.miss", 1, { namespace });
   const data = await fetcher();
   store.set(key, {
     data,
@@ -102,6 +115,7 @@ export async function cacheFetch<T>(
     staleAt: now + freshMs,
     expiresAt: now + expireMs,
   });
+  recordCounter("cache.store", 1, { namespace });
   return data;
 }
 
@@ -111,6 +125,7 @@ export async function cacheFetch<T>(
  */
 export function cacheInvalidate(key: string): void {
   store.delete(key);
+  recordCounter("cache.invalidate", 1, { namespace: cacheNamespace(key), scope: "single" });
 }
 
 /**
@@ -121,6 +136,7 @@ export function cacheInvalidatePrefix(prefix: string): void {
   for (const key of store.keys()) {
     if (key.startsWith(prefix)) store.delete(key);
   }
+  recordCounter("cache.invalidate", 1, { namespace: cacheNamespace(prefix), scope: "prefix" });
 }
 
 /** Get cache stats for debugging */

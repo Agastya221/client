@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { Prisma } from "@prisma/client";
 import { cacheFetch, cacheInvalidatePrefix } from "@/lib/cache";
+import { measureAsync, recordCounter, recordLog } from "@/lib/observability";
 import { anilistTitle, getAnilistDetail } from "@/lib/anilist/api";
 import {
   PROVIDERS,
@@ -118,6 +119,15 @@ export type WatchAvailabilitySummary = {
   watchHref: string | null;
   message: string;
   checkedTitles: string[];
+};
+
+export type CatalogAvailabilityHint = {
+  anilistId: number;
+  status: ProviderMappingStatus | "DIRECT";
+  isAvailable: boolean;
+  routeId: string | null;
+  watchHref: string | null;
+  message: string;
 };
 
 type ProviderMetaSnapshotResult = {
@@ -592,6 +602,49 @@ async function loadStoredProviderMapping(
   }
 }
 
+async function loadStoredProviderMappingsBatch(
+  anilistIds: number[],
+  provider: ProviderId,
+): Promise<Map<number, AnimeProviderAvailabilityRecord>> {
+  const prisma = await getPrismaIfAvailable();
+  const ids = Array.from(new Set(anilistIds.filter((value) => Number.isInteger(value) && value > 0)));
+  if (!prisma || ids.length === 0) return new Map();
+
+  try {
+    const rows = await prisma.animeProviderMapping.findMany({
+      where: {
+        provider,
+        anilistId: {
+          in: ids,
+        },
+      },
+    });
+
+    return new Map(
+      rows.map((row) => {
+        const status = coerceProviderMappingStatus(row.status);
+        const providerId = row.providerId ? String(row.providerId) : null;
+
+        return [
+          row.anilistId,
+          {
+            provider,
+            status,
+            providerId,
+            matchedTitle: row.matchedTitle ? String(row.matchedTitle) : null,
+            checkedTitles: uniqueStrings(row.checkedTitles || []),
+            failureReason: row.failureReason ? String(row.failureReason) : null,
+            lastCheckedAt: row.lastCheckedAt ?? null,
+            isAvailable: Boolean(providerId && status === "FOUND"),
+          } satisfies AnimeProviderAvailabilityRecord,
+        ];
+      }),
+    );
+  } catch {
+    return new Map();
+  }
+}
+
 async function storeProviderMapping(
   anilistId: number,
   provider: ProviderId,
@@ -677,65 +730,89 @@ async function resolveAnimeKaiAvailability(
   anilistId: number,
   preferredTitles: Array<string | null | undefined> = [],
 ): Promise<AnimeProviderAvailabilityRecord> {
-  const seed = await getAnilistSeedAnime(anilistId);
-  const candidateTitles = uniqueStrings([...preferredTitles, ...(seed?.candidateTitles || [])]);
-  const stored = await loadStoredProviderMapping(anilistId, "animekai");
-
-  if (stored && isProviderMappingFresh(stored.status, stored.lastCheckedAt)) {
-    return {
-      ...stored,
-      checkedTitles: uniqueStrings([...candidateTitles, ...stored.checkedTitles]),
-      isAvailable: Boolean(stored.providerId && stored.status === "FOUND"),
-    };
-  }
-
-  if (candidateTitles.length === 0) {
-    return stored || {
+  return measureAsync(
+    "anime.mapping.resolve",
+    {
       provider: "animekai",
-      status: "UNKNOWN",
-      providerId: null,
-      matchedTitle: null,
-      checkedTitles: [],
-      failureReason: "No AniList titles were available for provider mapping.",
-      lastCheckedAt: null,
-      isAvailable: false,
-    };
-  }
+    },
+    async () => {
+      const seed = await getAnilistSeedAnime(anilistId);
+      const candidateTitles = uniqueStrings([...preferredTitles, ...(seed?.candidateTitles || [])]);
+      const stored = await loadStoredProviderMapping(anilistId, "animekai");
 
-  for (const title of candidateTitles) {
-    try {
-      const slug = await searchAnimeKaiByTitle(title);
-      if (!slug) continue;
+      if (stored && isProviderMappingFresh(stored.status, stored.lastCheckedAt)) {
+        recordCounter("anime.mapping.cache_hit", 1, {
+          provider: "animekai",
+          status: stored.status,
+        });
+        return {
+          ...stored,
+          checkedTitles: uniqueStrings([...candidateTitles, ...stored.checkedTitles]),
+          isAvailable: Boolean(stored.providerId && stored.status === "FOUND"),
+        };
+      }
 
-      const record: AnimeProviderAvailabilityRecord = {
+      if (candidateTitles.length === 0) {
+        recordCounter("anime.mapping.unresolved", 1, {
+          provider: "animekai",
+          reason: "missing_titles",
+        });
+        return stored || {
+          provider: "animekai",
+          status: "UNKNOWN",
+          providerId: null,
+          matchedTitle: null,
+          checkedTitles: [],
+          failureReason: "No AniList titles were available for provider mapping.",
+          lastCheckedAt: null,
+          isAvailable: false,
+        };
+      }
+
+      for (const title of candidateTitles) {
+        try {
+          const slug = await searchAnimeKaiByTitle(title);
+          if (!slug) continue;
+
+          const record: AnimeProviderAvailabilityRecord = {
+            provider: "animekai",
+            status: "FOUND",
+            providerId: slug,
+            matchedTitle: title,
+            checkedTitles: candidateTitles,
+            failureReason: null,
+            lastCheckedAt: new Date(),
+            isAvailable: true,
+          };
+          await storeProviderMapping(anilistId, "animekai", record);
+          recordCounter("anime.mapping.resolved", 1, {
+            provider: "animekai",
+            status: "FOUND",
+          });
+          return record;
+        } catch {
+          // Keep trying alternate titles.
+        }
+      }
+
+      const notFoundRecord: AnimeProviderAvailabilityRecord = {
         provider: "animekai",
-        status: "FOUND",
-        providerId: slug,
-        matchedTitle: title,
+        status: "NOT_FOUND",
+        providerId: null,
+        matchedTitle: null,
         checkedTitles: candidateTitles,
-        failureReason: null,
+        failureReason: "No provider mapping available",
         lastCheckedAt: new Date(),
-        isAvailable: true,
+        isAvailable: false,
       };
-      await storeProviderMapping(anilistId, "animekai", record);
-      return record;
-    } catch {
-      // Keep trying alternate titles.
-    }
-  }
-
-  const notFoundRecord: AnimeProviderAvailabilityRecord = {
-    provider: "animekai",
-    status: "NOT_FOUND",
-    providerId: null,
-    matchedTitle: null,
-    checkedTitles: candidateTitles,
-    failureReason: "No provider mapping available",
-    lastCheckedAt: new Date(),
-    isAvailable: false,
-  };
-  await storeProviderMapping(anilistId, "animekai", notFoundRecord);
-  return notFoundRecord;
+      await storeProviderMapping(anilistId, "animekai", notFoundRecord);
+      recordCounter("anime.mapping.resolved", 1, {
+        provider: "animekai",
+        status: "NOT_FOUND",
+      });
+      return notFoundRecord;
+    },
+  );
 }
 
 export async function getAnimeKaiWatchAvailability(
@@ -797,6 +874,174 @@ export async function getAnimeKaiWatchAvailability(
     watchHref: null,
     message: "This anime is not available to watch yet.",
     checkedTitles: availability.checkedTitles,
+  };
+}
+
+export async function getAnimeKaiCatalogAvailabilityHints(
+  entries: Array<{
+    anilistId: number;
+    titles?: Array<string | null | undefined>;
+  }>,
+): Promise<Record<number, CatalogAvailabilityHint>> {
+  const uniqueEntries = Array.from(
+    new Map(
+      entries
+        .filter((entry) => Number.isInteger(entry.anilistId) && entry.anilistId > 0)
+        .map((entry) => [
+          entry.anilistId,
+          {
+            anilistId: entry.anilistId,
+            titles: uniqueStrings(entry.titles || []),
+          },
+        ]),
+    ).values(),
+  );
+
+  const stored = await loadStoredProviderMappingsBatch(
+    uniqueEntries.map((entry) => entry.anilistId),
+    "animekai",
+  );
+
+  return Object.fromEntries(
+    uniqueEntries.map((entry) => {
+      const record = stored.get(entry.anilistId) || null;
+      const hasFreshNotFound = Boolean(record && record.status === "NOT_FOUND" && isProviderMappingFresh(record.status, record.lastCheckedAt));
+      const hasProviderId = Boolean(record?.providerId);
+      const routeId = hasProviderId ? encodeAnimeId("animekai", record!.providerId!) : null;
+
+      const hint: CatalogAvailabilityHint = hasProviderId
+        ? {
+            anilistId: entry.anilistId,
+            status: record?.status || "FOUND",
+            isAvailable: true,
+            routeId,
+            watchHref: routeId ? `/anime/${routeId}/watch?ep=1&provider=animekai` : null,
+            message: "Watch ready",
+          }
+        : hasFreshNotFound
+          ? {
+              anilistId: entry.anilistId,
+              status: "NOT_FOUND",
+              isAvailable: false,
+              routeId: null,
+              watchHref: null,
+              message: "Not available yet",
+            }
+          : {
+              anilistId: entry.anilistId,
+              status: "UNKNOWN",
+              isAvailable: false,
+              routeId: null,
+              watchHref: null,
+              message: "Catalog check pending",
+            };
+
+      return [entry.anilistId, hint];
+    }),
+  );
+}
+
+export async function warmAnimeKaiCatalog(
+  entries: Array<{
+    anilistId: number;
+    titles?: Array<string | null | undefined>;
+  }>,
+  options?: {
+    episodeNumbers?: number[];
+    dubbedModes?: boolean[];
+    concurrency?: number;
+    skipWarm?: boolean;
+  },
+): Promise<{
+  processed: number;
+  available: number;
+  mapped: number;
+  unavailable: number;
+  warmed: number;
+}> {
+  const uniqueEntries = Array.from(
+    new Map(
+      entries
+        .filter((entry) => Number.isInteger(entry.anilistId) && entry.anilistId > 0)
+        .map((entry) => [
+          entry.anilistId,
+          {
+            anilistId: entry.anilistId,
+            titles: uniqueStrings(entry.titles || []),
+          },
+        ]),
+    ).values(),
+  );
+
+  const concurrency = Math.min(6, Math.max(1, Number(options?.concurrency || 3)));
+  let processed = 0;
+  let available = 0;
+  let mapped = 0;
+  let unavailable = 0;
+  let warmed = 0;
+
+  await measureAsync(
+    "anime.catalog_worker.run",
+    {
+      provider: "animekai",
+      entries: uniqueEntries.length,
+    },
+    async () => {
+      for (let index = 0; index < uniqueEntries.length; index += concurrency) {
+        const chunk = uniqueEntries.slice(index, index + concurrency);
+        const results = await Promise.allSettled(
+          chunk.map(async (entry) => {
+            const availability = await resolveAnimeKaiAvailability(entry.anilistId, entry.titles);
+            processed += 1;
+
+            if (!availability.providerId) {
+              unavailable += 1;
+              return;
+            }
+
+            mapped += 1;
+            available += 1;
+
+            if (!options?.skipWarm) {
+              const warmResult = await warmAnimeWatchWindow({
+                animeId: encodeAnimeId("animekai", availability.providerId),
+                provider: "animekai",
+                episodeNumbers: options?.episodeNumbers,
+                dubbedModes: options?.dubbedModes,
+              });
+
+              warmed += warmResult.warmed;
+            }
+          }),
+        );
+
+        for (const result of results) {
+          if (result.status === "rejected") {
+            recordLog(
+              "warn",
+              "anime.catalog_worker.entry_failed",
+              { provider: "animekai" },
+              result.reason instanceof Error ? result.reason.message : "Unknown warm failure",
+            );
+          }
+        }
+      }
+    },
+  );
+
+  recordCounter("anime.catalog_worker.processed", processed, { provider: "animekai" });
+  recordCounter("anime.catalog_worker.available", available, { provider: "animekai" });
+  recordCounter("anime.catalog_worker.unavailable", unavailable, { provider: "animekai" });
+  if (warmed > 0) {
+    recordCounter("anime.catalog_worker.warmed", warmed, { provider: "animekai" });
+  }
+
+  return {
+    processed,
+    available,
+    mapped,
+    unavailable,
+    warmed,
   };
 }
 
@@ -1478,66 +1723,86 @@ export async function warmAnimeWatchWindow(input: {
   warmed: number;
   attempted: number;
 }> {
-  let resolvedAnimeId = input.animeId;
-  const decoded = decodeAnimeId(input.animeId);
+  return measureAsync(
+    "anime.warm.window",
+    {
+      requestedProvider: input.provider || "auto",
+    },
+    async () => {
+      let resolvedAnimeId = input.animeId;
+      const decoded = decodeAnimeId(input.animeId);
 
-  if (decoded.provider === "animekai" && decoded.providerId.startsWith("anilist:")) {
-    const availability = await getAnimeKaiWatchAvailability(input.animeId);
-    if (!availability.routeId) {
-      return {
-        available: false,
-        animeId: input.animeId,
-        resolvedAnimeId: null,
-        activeProvider: null,
-        warmed: 0,
-        attempted: 0,
-      };
-    }
-    resolvedAnimeId = availability.routeId;
-  }
+      if (decoded.provider === "animekai" && decoded.providerId.startsWith("anilist:")) {
+        const availability = await getAnimeKaiWatchAvailability(input.animeId);
+        if (!availability.routeId) {
+          recordCounter("anime.warm.unavailable", 1, {
+            requestedProvider: input.provider || "animekai",
+          });
+          return {
+            available: false,
+            animeId: input.animeId,
+            resolvedAnimeId: null,
+            activeProvider: null,
+            warmed: 0,
+            attempted: 0,
+          };
+        }
+        resolvedAnimeId = availability.routeId;
+      }
 
-  const detail = await getAnimeDetailModel(resolvedAnimeId, input.provider || null, {
-    resolveProviderFallbacks: true,
-    mergeEpisodeProviders: true,
-  });
+      const detail = await getAnimeDetailModel(resolvedAnimeId, input.provider || null, {
+        resolveProviderFallbacks: true,
+        mergeEpisodeProviders: true,
+      });
 
-  const episodeNumbers = uniqueStrings(
-    (input.episodeNumbers?.length
-      ? input.episodeNumbers.map((episodeNumber) => String(Number(episodeNumber || 0)))
-      : detail.episodes.slice(0, 3).map((episode) => String(episode.number))),
-  )
-    .map((value) => Number(value))
-    .filter((value) => Number.isFinite(value) && value > 0)
-    .slice(0, 6);
+      const episodeNumbers = uniqueStrings(
+        (input.episodeNumbers?.length
+          ? input.episodeNumbers.map((episodeNumber) => String(Number(episodeNumber || 0)))
+          : detail.episodes.slice(0, 3).map((episode) => String(episode.number))),
+      )
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value > 0)
+        .slice(0, 6);
 
-  const dubbedModes =
-    input.dubbedModes && input.dubbedModes.length > 0
-      ? Array.from(new Set(input.dubbedModes.map(Boolean)))
-      : [false];
+      const dubbedModes =
+        input.dubbedModes && input.dubbedModes.length > 0
+          ? Array.from(new Set(input.dubbedModes.map(Boolean)))
+          : [false];
 
-  const tasks = episodeNumbers.flatMap((episodeNumber) =>
-    dubbedModes.map((dubbed) =>
-      getFastWatchSession({
-        animeId: resolvedAnimeId,
-        episodeNumber,
+      const tasks = episodeNumbers.flatMap((episodeNumber) =>
+        dubbedModes.map((dubbed) =>
+          getFastWatchSession({
+            animeId: resolvedAnimeId,
+            episodeNumber,
+            provider: input.provider || detail.activeProvider,
+            dubbed,
+            server: null,
+          }),
+        ),
+      );
+
+      const results = await Promise.allSettled(tasks);
+      const warmed = results.filter((result) => result.status === "fulfilled").length;
+
+      recordCounter("anime.warm.attempted", tasks.length, {
         provider: input.provider || detail.activeProvider,
-        dubbed,
-        server: null,
-      }),
-    ),
+      });
+      if (warmed > 0) {
+        recordCounter("anime.warm.completed", warmed, {
+          provider: input.provider || detail.activeProvider,
+        });
+      }
+
+      return {
+        available: true,
+        animeId: input.animeId,
+        resolvedAnimeId,
+        activeProvider: input.provider || detail.activeProvider,
+        warmed,
+        attempted: tasks.length,
+      };
+    },
   );
-
-  const results = await Promise.allSettled(tasks);
-  const warmed = results.filter((result) => result.status === "fulfilled").length;
-
-  return {
-    available: true,
-    animeId: input.animeId,
-    resolvedAnimeId,
-    activeProvider: input.provider || detail.activeProvider,
-    warmed,
-    attempted: tasks.length,
-  };
 }
 
 async function searchDesidubByTitle(title: string): Promise<string | null> {
@@ -2399,14 +2664,24 @@ async function fetchProviderWatch(
   dubbed: boolean,
   requestedServer?: string | null,
 ): Promise<ProviderWatchPayload> {
-  switch (provider) {
-    case "animekai":
-      return fetchAnimeKaiWatchSession(episodeId, dubbed, requestedServer);
-    case "desidub":
-      return fetchDesidubWatchSession(episodeId, requestedServer);
-    default:
-      throw new Error(`Provider ${provider} is not supported for streaming`);
-  }
+  return measureAsync(
+    "anime.provider.watch",
+    {
+      provider,
+      dubbed: dubbed ? "dub" : "sub",
+      server: requestedServer || "auto",
+    },
+    async () => {
+      switch (provider) {
+        case "animekai":
+          return fetchAnimeKaiWatchSession(episodeId, dubbed, requestedServer);
+        case "desidub":
+          return fetchDesidubWatchSession(episodeId, requestedServer);
+        default:
+          throw new Error(`Provider ${provider} is not supported for streaming`);
+      }
+    },
+  );
 }
 
 async function fetchProviderFastWatch(
@@ -2415,14 +2690,24 @@ async function fetchProviderFastWatch(
   dubbed: boolean,
   requestedServer?: string | null,
 ): Promise<ProviderWatchPayload> {
-  switch (provider) {
-    case "animekai":
-      return fetchAnimeKaiEmbedWatchSession(episodeId, dubbed, requestedServer);
-    case "desidub":
-      return fetchDesidubWatchSession(episodeId, requestedServer);
-    default:
-      throw new Error(`Provider ${provider} is not supported for streaming`);
-  }
+  return measureAsync(
+    "anime.provider.fast_watch",
+    {
+      provider,
+      dubbed: dubbed ? "dub" : "sub",
+      server: requestedServer || "auto",
+    },
+    async () => {
+      switch (provider) {
+        case "animekai":
+          return fetchAnimeKaiEmbedWatchSession(episodeId, dubbed, requestedServer);
+        case "desidub":
+          return fetchDesidubWatchSession(episodeId, requestedServer);
+        default:
+          throw new Error(`Provider ${provider} is not supported for streaming`);
+      }
+    },
+  );
 }
 
 export async function getWatchSession(input: {
@@ -2433,119 +2718,13 @@ export async function getWatchSession(input: {
   dubbed?: boolean;
   server?: string | null;
 }): Promise<WatchSessionModel> {
-  const detail = await getAnimeDetailModel(input.animeId, input.provider || null, {
-    resolveProviderFallbacks: true,
-    mergeEpisodeProviders: true,
-  });
-  const preferredProvider = input.provider || detail.activeProvider;
-  const order = buildProviderOrder(preferredProvider, detail.activeProvider);
-  const targetEpisode =
-    detail.episodes.find((episode) => episode.number === Number(input.episodeNumber || 1)) ||
-    detail.episodes[0];
-  const episodeAvailableProviders = resolveEpisodeAvailableProviders(targetEpisode, detail.availableProviders);
-
-  const watchAttempts: WatchAttempt[] = [];
-
-  if (!targetEpisode) {
-    return {
-      anime: detail.anime,
-      episode: {
-        number: Number(input.episodeNumber || 1),
-        title: `Episode ${input.episodeNumber || 1}`,
-        idByProvider: {},
-        availableProviders: [],
-      },
-      episodes: detail.episodes,
-      provider: preferredProvider,
-      availableProviders: episodeAvailableProviders,
-      attempts: detail.attempts,
-      watchAttempts: [{ provider: preferredProvider, ok: false, reason: "Episode not found" }],
-      source: null,
-      subtitles: [],
-      serverOptions: [],
-      activeServerId: null,
-      seasons: detail.seasons,
-      dubbed: Boolean(input.dubbed),
-      fallbackHistory: ["Episode not found in current provider map"],
-    };
-  }
-
-  for (const provider of order) {
-    const providerEpisodeId =
-      (provider === preferredProvider && input.episodeId) || targetEpisode.idByProvider[provider];
-    if (!providerEpisodeId) {
-      watchAttempts.push({ provider, ok: false, reason: "Episode unavailable in provider" });
-      continue;
-    }
-
-    try {
-      const session = await fetchProviderWatch(provider, providerEpisodeId, Boolean(input.dubbed), input.server || null);
-      if (!session.source) {
-        watchAttempts.push({ provider, server: input.server || undefined, ok: false, reason: "No playable source returned" });
-        continue;
-      }
-
-      return {
-        anime: detail.anime,
-        episode: targetEpisode,
-        episodes: detail.episodes,
-        seasons: detail.seasons,
-        provider,
-        availableProviders: episodeAvailableProviders,
-        attempts: detail.attempts,
-        watchAttempts: [...watchAttempts, { provider, server: input.server || undefined, ok: true, reason: "Playback ready" }],
-        source: session.source,
-        subtitles: session.subtitles,
-        serverOptions: session.serverOptions,
-        activeServerId: session.activeServerId,
-        dubbed: Boolean(input.dubbed),
-        intro: session.intro || null,
-        outro: session.outro || null,
-        fallbackHistory: watchAttempts.map((attempt) => `${attempt.provider}: ${attempt.reason}`),
-      };
-    } catch (error) {
-      watchAttempts.push({
-        provider,
-        server: input.server || undefined,
-        ok: false,
-        reason: error instanceof Error ? error.message : "Failed to resolve watch session",
-      });
-    }
-  }
-
-  // All providers failed — invalidate cached detail so next request re-resolves
-  cacheInvalidatePrefix(`detail-model:${input.animeId}`);
-
-  return {
-    anime: detail.anime,
-    episode: targetEpisode,
-    episodes: detail.episodes,
-    seasons: detail.seasons,
-    provider: preferredProvider,
-    availableProviders: episodeAvailableProviders,
-    attempts: detail.attempts,
-    watchAttempts,
-    source: null,
-    subtitles: [],
-    serverOptions: [],
-    activeServerId: null,
-    dubbed: Boolean(input.dubbed),
-    fallbackHistory: watchAttempts.map((attempt) => `${attempt.provider}: ${attempt.reason}`),
-  };
-}
-
-export async function getFastWatchSession(input: {
-  animeId: string;
-  episodeNumber?: number;
-  provider?: ProviderId | null;
-  episodeId?: string | null;
-  dubbed?: boolean;
-  server?: string | null;
-}): Promise<WatchSessionModel> {
-  const cacheKey = `watch-session:${input.animeId}:ep${input.episodeNumber || 1}:${input.dubbed ? "dub" : "sub"}:${input.server || "auto"}:${input.provider || "auto"}`;
-
-  return cacheFetch(
-    cacheKey,
+  return measureAsync(
+    "anime.watch_session.full",
+    {
+      requestedProvider: input.provider || "auto",
+      dubbed: input.dubbed ? "dub" : "sub",
+      server: input.server || "auto",
+    },
     async () => {
       const detail = await getAnimeDetailModel(input.animeId, input.provider || null, {
         resolveProviderFallbacks: true,
@@ -2561,6 +2740,7 @@ export async function getFastWatchSession(input: {
       const watchAttempts: WatchAttempt[] = [];
 
       if (!targetEpisode) {
+        recordCounter("anime.watch_session.failure", 1, { mode: "full", reason: "episode_missing" });
         return {
           anime: detail.anime,
           episode: {
@@ -2570,7 +2750,6 @@ export async function getFastWatchSession(input: {
             availableProviders: [],
           },
           episodes: detail.episodes,
-          seasons: detail.seasons,
           provider: preferredProvider,
           availableProviders: episodeAvailableProviders,
           attempts: detail.attempts,
@@ -2579,6 +2758,7 @@ export async function getFastWatchSession(input: {
           subtitles: [],
           serverOptions: [],
           activeServerId: null,
+          seasons: detail.seasons,
           dubbed: Boolean(input.dubbed),
           fallbackHistory: ["Episode not found in current provider map"],
         };
@@ -2589,15 +2769,30 @@ export async function getFastWatchSession(input: {
           (provider === preferredProvider && input.episodeId) || targetEpisode.idByProvider[provider];
         if (!providerEpisodeId) {
           watchAttempts.push({ provider, ok: false, reason: "Episode unavailable in provider" });
+          recordCounter("anime.provider.failure", 1, { mode: "full", provider, reason: "episode_unavailable" });
           continue;
         }
 
         try {
-          const session = await fetchProviderFastWatch(provider, providerEpisodeId, Boolean(input.dubbed), input.server || null);
+          const session = await fetchProviderWatch(provider, providerEpisodeId, Boolean(input.dubbed), input.server || null);
           if (!session.source) {
-            watchAttempts.push({ provider, server: input.server || undefined, ok: false, reason: "No fast session available" });
+            watchAttempts.push({ provider, server: input.server || undefined, ok: false, reason: "No playable source returned" });
+            recordCounter("anime.provider.failure", 1, { mode: "full", provider, reason: "no_source" });
             continue;
           }
+
+          if (provider !== preferredProvider) {
+            recordCounter("anime.fallback.used", 1, {
+              mode: "full",
+              preferredProvider,
+              provider,
+            });
+          }
+
+          recordCounter("anime.watch_session.success", 1, {
+            mode: "full",
+            provider,
+          });
 
           return {
             anime: detail.anime,
@@ -2607,7 +2802,7 @@ export async function getFastWatchSession(input: {
             provider,
             availableProviders: episodeAvailableProviders,
             attempts: detail.attempts,
-            watchAttempts: [...watchAttempts, { provider, server: input.server || undefined, ok: true, reason: "Embed session ready" }],
+            watchAttempts: [...watchAttempts, { provider, server: input.server || undefined, ok: true, reason: "Playback ready" }],
             source: session.source,
             subtitles: session.subtitles,
             serverOptions: session.serverOptions,
@@ -2618,16 +2813,29 @@ export async function getFastWatchSession(input: {
             fallbackHistory: watchAttempts.map((attempt) => `${attempt.provider}: ${attempt.reason}`),
           };
         } catch (error) {
+          recordCounter("anime.provider.failure", 1, { mode: "full", provider, reason: "exception" });
           watchAttempts.push({
             provider,
             server: input.server || undefined,
             ok: false,
-            reason: error instanceof Error ? error.message : "Failed to build fast watch session",
+            reason: error instanceof Error ? error.message : "Failed to resolve watch session",
           });
         }
       }
 
       cacheInvalidatePrefix(`detail-model:${input.animeId}`);
+      recordCounter("anime.watch_session.failure", 1, { mode: "full", reason: "all_providers_failed" });
+      recordLog(
+        "warn",
+        "anime.watch_session.exhausted",
+        {
+          mode: "full",
+          requestedProvider: preferredProvider,
+          episodeNumber: input.episodeNumber || 1,
+        },
+        watchAttempts.map((attempt) => `${attempt.provider}:${attempt.reason}`).join(" | "),
+      );
+
       return {
         anime: detail.anime,
         episode: targetEpisode,
@@ -2645,6 +2853,147 @@ export async function getFastWatchSession(input: {
         fallbackHistory: watchAttempts.map((attempt) => `${attempt.provider}: ${attempt.reason}`),
       };
     },
+  );
+}
+
+export async function getFastWatchSession(input: {
+  animeId: string;
+  episodeNumber?: number;
+  provider?: ProviderId | null;
+  episodeId?: string | null;
+  dubbed?: boolean;
+  server?: string | null;
+}): Promise<WatchSessionModel> {
+  const cacheKey = `watch-session:${input.animeId}:ep${input.episodeNumber || 1}:${input.dubbed ? "dub" : "sub"}:${input.server || "auto"}:${input.provider || "auto"}`;
+
+  return cacheFetch(
+    cacheKey,
+    async () =>
+      measureAsync(
+        "anime.watch_session.fast",
+        {
+          requestedProvider: input.provider || "auto",
+          dubbed: input.dubbed ? "dub" : "sub",
+          server: input.server || "auto",
+        },
+        async () => {
+          const detail = await getAnimeDetailModel(input.animeId, input.provider || null, {
+            resolveProviderFallbacks: true,
+            mergeEpisodeProviders: true,
+          });
+          const preferredProvider = input.provider || detail.activeProvider;
+          const order = buildProviderOrder(preferredProvider, detail.activeProvider);
+          const targetEpisode =
+            detail.episodes.find((episode) => episode.number === Number(input.episodeNumber || 1)) ||
+            detail.episodes[0];
+          const episodeAvailableProviders = resolveEpisodeAvailableProviders(targetEpisode, detail.availableProviders);
+
+          const watchAttempts: WatchAttempt[] = [];
+
+          if (!targetEpisode) {
+            recordCounter("anime.watch_session.failure", 1, { mode: "fast", reason: "episode_missing" });
+            return {
+              anime: detail.anime,
+              episode: {
+                number: Number(input.episodeNumber || 1),
+                title: `Episode ${input.episodeNumber || 1}`,
+                idByProvider: {},
+                availableProviders: [],
+              },
+              episodes: detail.episodes,
+              seasons: detail.seasons,
+              provider: preferredProvider,
+              availableProviders: episodeAvailableProviders,
+              attempts: detail.attempts,
+              watchAttempts: [{ provider: preferredProvider, ok: false, reason: "Episode not found" }],
+              source: null,
+              subtitles: [],
+              serverOptions: [],
+              activeServerId: null,
+              dubbed: Boolean(input.dubbed),
+              fallbackHistory: ["Episode not found in current provider map"],
+            };
+          }
+
+          for (const provider of order) {
+            const providerEpisodeId =
+              (provider === preferredProvider && input.episodeId) || targetEpisode.idByProvider[provider];
+            if (!providerEpisodeId) {
+              watchAttempts.push({ provider, ok: false, reason: "Episode unavailable in provider" });
+              recordCounter("anime.provider.failure", 1, { mode: "fast", provider, reason: "episode_unavailable" });
+              continue;
+            }
+
+            try {
+              const session = await fetchProviderFastWatch(provider, providerEpisodeId, Boolean(input.dubbed), input.server || null);
+              if (!session.source) {
+                watchAttempts.push({ provider, server: input.server || undefined, ok: false, reason: "No fast session available" });
+                recordCounter("anime.provider.failure", 1, { mode: "fast", provider, reason: "no_source" });
+                continue;
+              }
+
+              if (provider !== preferredProvider) {
+                recordCounter("anime.fallback.used", 1, {
+                  mode: "fast",
+                  preferredProvider,
+                  provider,
+                });
+              }
+
+              recordCounter("anime.watch_session.success", 1, {
+                mode: "fast",
+                provider,
+              });
+
+              return {
+                anime: detail.anime,
+                episode: targetEpisode,
+                episodes: detail.episodes,
+                seasons: detail.seasons,
+                provider,
+                availableProviders: episodeAvailableProviders,
+                attempts: detail.attempts,
+                watchAttempts: [...watchAttempts, { provider, server: input.server || undefined, ok: true, reason: "Embed session ready" }],
+                source: session.source,
+                subtitles: session.subtitles,
+                serverOptions: session.serverOptions,
+                activeServerId: session.activeServerId,
+                dubbed: Boolean(input.dubbed),
+                intro: session.intro || null,
+                outro: session.outro || null,
+                fallbackHistory: watchAttempts.map((attempt) => `${attempt.provider}: ${attempt.reason}`),
+              };
+            } catch (error) {
+              recordCounter("anime.provider.failure", 1, { mode: "fast", provider, reason: "exception" });
+              watchAttempts.push({
+                provider,
+                server: input.server || undefined,
+                ok: false,
+                reason: error instanceof Error ? error.message : "Failed to build fast watch session",
+              });
+            }
+          }
+
+          cacheInvalidatePrefix(`detail-model:${input.animeId}`);
+          recordCounter("anime.watch_session.failure", 1, { mode: "fast", reason: "all_providers_failed" });
+          return {
+            anime: detail.anime,
+            episode: targetEpisode,
+            episodes: detail.episodes,
+            seasons: detail.seasons,
+            provider: preferredProvider,
+            availableProviders: episodeAvailableProviders,
+            attempts: detail.attempts,
+            watchAttempts,
+            source: null,
+            subtitles: [],
+            serverOptions: [],
+            activeServerId: null,
+            dubbed: Boolean(input.dubbed),
+            fallbackHistory: watchAttempts.map((attempt) => `${attempt.provider}: ${attempt.reason}`),
+          };
+        },
+      ),
     {
       freshMs: WATCH_SESSION_FRESH_MS,
       staleMs: WATCH_SESSION_STALE_MS,
@@ -2704,61 +3053,92 @@ export async function resolveStreamSource(input: {
 }> {
   const cacheKey = `stream:${input.animeId}:ep${input.episodeNumber || 1}:${input.dubbed ? "dub" : "sub"}:${input.server || "auto"}:${input.provider || "auto"}`;
 
-  return cacheFetch(cacheKey, async () => {
-    const detail = await getAnimeDetailModel(input.animeId, input.provider || null, {
-      resolveProviderFallbacks: true,
-      mergeEpisodeProviders: true,
-    });
-    const preferredProvider = input.provider || detail.activeProvider;
-    const order = buildProviderOrder(preferredProvider, detail.activeProvider);
-    const targetEpisode =
-      detail.episodes.find((ep) => ep.number === Number(input.episodeNumber || 1)) ||
-      detail.episodes[0];
+  return cacheFetch(cacheKey, async () => measureAsync(
+    "anime.stream.resolve",
+    {
+      requestedProvider: input.provider || "auto",
+      dubbed: input.dubbed ? "dub" : "sub",
+      server: input.server || "auto",
+    },
+    async () => {
+      const detail = await getAnimeDetailModel(input.animeId, input.provider || null, {
+        resolveProviderFallbacks: true,
+        mergeEpisodeProviders: true,
+      });
+      const preferredProvider = input.provider || detail.activeProvider;
+      const order = buildProviderOrder(preferredProvider, detail.activeProvider);
+      const targetEpisode =
+        detail.episodes.find((ep) => ep.number === Number(input.episodeNumber || 1)) ||
+        detail.episodes[0];
 
-    if (!targetEpisode) {
-      return {
-        source: null, subtitles: [], serverOptions: [], activeServerId: null,
-        provider: preferredProvider,
-        watchAttempts: [{ provider: preferredProvider, ok: false, reason: "Episode not found" }],
-      };
-    }
-
-    const watchAttempts: WatchAttempt[] = [];
-    for (const provider of order) {
-      const providerEpisodeId =
-        (provider === preferredProvider && input.episodeId) || targetEpisode.idByProvider[provider];
-      if (!providerEpisodeId) {
-        watchAttempts.push({ provider, ok: false, reason: "Episode unavailable in provider" });
-        continue;
+      if (!targetEpisode) {
+        recordCounter("anime.stream.failure", 1, { reason: "episode_missing" });
+        return {
+          source: null, subtitles: [], serverOptions: [], activeServerId: null,
+          provider: preferredProvider,
+          watchAttempts: [{ provider: preferredProvider, ok: false, reason: "Episode not found" }],
+        };
       }
-      try {
-        const session = await fetchProviderWatch(provider, providerEpisodeId, Boolean(input.dubbed), input.server || null);
-        if (!session.source) {
-          watchAttempts.push({ provider, server: input.server || undefined, ok: false, reason: "No playable source" });
+
+      const watchAttempts: WatchAttempt[] = [];
+      for (const provider of order) {
+        const providerEpisodeId =
+          (provider === preferredProvider && input.episodeId) || targetEpisode.idByProvider[provider];
+        if (!providerEpisodeId) {
+          watchAttempts.push({ provider, ok: false, reason: "Episode unavailable in provider" });
+          recordCounter("anime.provider.failure", 1, { mode: "resolve", provider, reason: "episode_unavailable" });
           continue;
         }
-        return {
-          source: session.source,
-          subtitles: session.subtitles,
-          serverOptions: session.serverOptions,
-          activeServerId: session.activeServerId,
-          provider,
-          intro: session.intro || null,
-          outro: session.outro || null,
-          watchAttempts: [...watchAttempts, { provider, ok: true, reason: "Playback ready" }],
-        };
-      } catch (error) {
-        watchAttempts.push({ provider, ok: false, reason: error instanceof Error ? error.message : "Failed" });
-      }
-    }
+        try {
+          const session = await fetchProviderWatch(provider, providerEpisodeId, Boolean(input.dubbed), input.server || null);
+          if (!session.source) {
+            watchAttempts.push({ provider, server: input.server || undefined, ok: false, reason: "No playable source" });
+            recordCounter("anime.provider.failure", 1, { mode: "resolve", provider, reason: "no_source" });
+            continue;
+          }
 
-    // All failed — invalidate detail cache
-    cacheInvalidatePrefix(`detail-model:${input.animeId}`);
-    return {
-      source: null, subtitles: [], serverOptions: [], activeServerId: null,
-      provider: preferredProvider, watchAttempts,
-    };
-  }, {
+          if (provider !== preferredProvider) {
+            recordCounter("anime.fallback.used", 1, {
+              mode: "resolve",
+              preferredProvider,
+              provider,
+            });
+          }
+
+          recordCounter("anime.stream.success", 1, { provider });
+          return {
+            source: session.source,
+            subtitles: session.subtitles,
+            serverOptions: session.serverOptions,
+            activeServerId: session.activeServerId,
+            provider,
+            intro: session.intro || null,
+            outro: session.outro || null,
+            watchAttempts: [...watchAttempts, { provider, ok: true, reason: "Playback ready" }],
+          };
+        } catch (error) {
+          recordCounter("anime.provider.failure", 1, { mode: "resolve", provider, reason: "exception" });
+          watchAttempts.push({ provider, ok: false, reason: error instanceof Error ? error.message : "Failed" });
+        }
+      }
+
+      cacheInvalidatePrefix(`detail-model:${input.animeId}`);
+      recordCounter("anime.stream.failure", 1, { reason: "all_providers_failed" });
+      recordLog(
+        "warn",
+        "anime.stream.exhausted",
+        {
+          requestedProvider: preferredProvider,
+          episodeNumber: input.episodeNumber || 1,
+        },
+        watchAttempts.map((attempt) => `${attempt.provider}:${attempt.reason}`).join(" | "),
+      );
+      return {
+        source: null, subtitles: [], serverOptions: [], activeServerId: null,
+        provider: preferredProvider, watchAttempts,
+      };
+    },
+  ), {
     freshMs: 5 * 60 * 1000,      // 5 min fresh
     staleMs: 15 * 60 * 1000,     // 15 min stale-while-revalidate
     expireMs: 30 * 60 * 1000,    // 30 min hard expire

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveStreamSource } from "@/lib/anime/api";
 import { normalizeProviderParam } from "@/lib/anime/fallback";
+import { measureAsync, recordLog } from "@/lib/observability";
 
 /**
  * POST /api/resolve-source
@@ -34,18 +35,31 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "animeId is required" }, { status: 400 });
     }
 
-    const result = await resolveStreamSource({
-      animeId,
-      episodeNumber: episodeNumber ? Number(episodeNumber) : undefined,
-      provider: normalizeProviderParam(provider || ""),
-      episodeId: episodeId || null,
-      dubbed: Boolean(dubbed),
-      server: server || null,
-    });
+    const result = await measureAsync(
+      "route.resolve_source",
+      {
+        route: "/api/resolve-source",
+        provider: normalizeProviderParam(provider || "") || "auto",
+      },
+      async () =>
+        resolveStreamSource({
+          animeId,
+          episodeNumber: episodeNumber ? Number(episodeNumber) : undefined,
+          provider: normalizeProviderParam(provider || ""),
+          episodeId: episodeId || null,
+          dubbed: Boolean(dubbed),
+          server: server || null,
+        }),
+    );
 
     return NextResponse.json(result);
   } catch (error) {
-    console.error("[resolve-source] Error:", error);
+    recordLog(
+      "error",
+      "route.resolve_source.failed",
+      { route: "/api/resolve-source" },
+      error instanceof Error ? error.message : "Failed to resolve stream source",
+    );
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to resolve stream source" },
       { status: 500 },

@@ -1,7 +1,8 @@
 import Navbar from "@/components/ui/Navbar";
 import SiteFooter from "@/components/ui/SiteFooter";
 import AnilistCard from "@/components/anilist/AnilistCard";
-import { searchAnilist, getAnilistGenres, anilistTitle } from "@/lib/anilist/api";
+import { getCatalogAvailabilityForMedia } from "@/lib/anilist/availability";
+import { searchAnilist, getAnilistGenres } from "@/lib/anilist/api";
 import { Search, SlidersHorizontal, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import type { Metadata } from "next";
@@ -58,6 +59,7 @@ export default async function SearchPage({
     searchAnilist({ search: search || undefined, genre: genre || undefined, page, perPage: 24, sort }),
     getAnilistGenres(),
   ]);
+  const availabilityHints = await getCatalogAvailabilityForMedia(media);
 
   const heading = genre
     ? `${genre} Anime`
@@ -186,7 +188,7 @@ export default async function SearchPage({
               <>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4 gap-y-8">
                   {media.map((item, i) => (
-                    <AnilistCard key={item.id} media={item} rank={i + 1} />
+                    <AnilistCard key={item.id} media={item} rank={i + 1} availability={availabilityHints[item.id]} />
                   ))}
                 </div>
 

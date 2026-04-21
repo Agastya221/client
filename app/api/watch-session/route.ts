@@ -1,5 +1,6 @@
 import { getFastWatchSession } from "@/lib/anime/api";
 import { normalizeProviderParam } from "@/lib/anime/fallback";
+import { measureAsync, recordLog } from "@/lib/observability";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -26,14 +27,22 @@ export async function GET(request: Request) {
   }
 
   try {
-    const session = await getFastWatchSession({
-      animeId,
-      episodeNumber: parseEpisodeNumber(searchParams.get("episodeNumber")),
-      provider: normalizeProviderParam(searchParams.get("provider")),
-      episodeId: searchParams.get("episodeId"),
-      dubbed: parseDubbed(searchParams.get("dub")),
-      server: searchParams.get("server"),
-    });
+    const session = await measureAsync(
+      "route.watch_session",
+      {
+        route: "/api/watch-session",
+        provider: normalizeProviderParam(searchParams.get("provider")) || "auto",
+      },
+      async () =>
+        getFastWatchSession({
+          animeId,
+          episodeNumber: parseEpisodeNumber(searchParams.get("episodeNumber")),
+          provider: normalizeProviderParam(searchParams.get("provider")),
+          episodeId: searchParams.get("episodeId"),
+          dubbed: parseDubbed(searchParams.get("dub")),
+          server: searchParams.get("server"),
+        }),
+    );
 
     return NextResponse.json(session, {
       headers: {
@@ -42,6 +51,12 @@ export async function GET(request: Request) {
       },
     });
   } catch (error) {
+    recordLog(
+      "warn",
+      "route.watch_session.failed",
+      { route: "/api/watch-session" },
+      error instanceof Error ? error.message : "Unable to resolve watch session",
+    );
     return NextResponse.json(
       {
         message: error instanceof Error ? error.message : "Unable to resolve watch session",

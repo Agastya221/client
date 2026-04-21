@@ -1,7 +1,7 @@
 import Navbar from "@/components/ui/Navbar";
 import SiteFooter from "@/components/ui/SiteFooter";
-import AnilistCard from "@/components/anilist/AnilistCard";
-import { getAnilistTrending, searchAnilist, anilistTitle, type AnilistMedia } from "@/lib/anilist/api";
+import { getCatalogAvailabilityForMedia, getWatchHrefsFromAvailability } from "@/lib/anilist/availability";
+import { searchAnilist, anilistTitle, type AnilistMedia } from "@/lib/anilist/api";
 import { Calendar, Clock, ChevronRight } from "lucide-react";
 import Link from "next/link";
 
@@ -46,6 +46,8 @@ export default async function UpdatesPage() {
     status: "RELEASING",
     perPage: 50,
   });
+  const availabilityHints = await getCatalogAvailabilityForMedia(media);
+  const watchHrefs = getWatchHrefsFromAvailability(availabilityHints);
 
   // Only those with airing info
   const withAiring = media.filter((m) => m.nextAiringEpisode);
@@ -96,7 +98,7 @@ export default async function UpdatesPage() {
                     {items.map((item) => (
                       <Link
                         key={item.id}
-                        href={`/anime/anilist~${item.id}`}
+                        href={watchHrefs[String(item.id)] || `/anime/anilist~${item.id}`}
                         className="flex items-center gap-3 rounded-xl bg-white/[0.03] border border-white/5 p-3 hover:bg-white/[0.06] hover:border-white/10 transition-all group"
                       >
                         <img
@@ -119,6 +121,11 @@ export default async function UpdatesPage() {
                               </span>
                             </div>
                           )}
+                          {availabilityHints[item.id] ? (
+                            <p className="mt-1 text-[10px] font-black uppercase tracking-wider text-white/35">
+                              {availabilityHints[item.id].isAvailable ? "Watch ready" : availabilityHints[item.id].message}
+                            </p>
+                          ) : null}
                         </div>
                       </Link>
                     ))}
