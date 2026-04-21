@@ -408,6 +408,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
   const [isResolvingStream, setIsResolvingStream] = useState(
     Boolean(resolveParams) &&
       !initialDirectAvailable &&
+      !initialSession.source?.iframeUrl &&
       Boolean(initialSession.episode.idByProvider?.[initialSession.provider]),
   );
   const [episodeQuery, setEpisodeQuery] = useState("");
@@ -493,6 +494,9 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
     return () => {
       cancelResolveRequest();
       clearDirectUpgradeTimeout();
+      if (progressSaveTimer.current) clearTimeout(progressSaveTimer.current);
+      if (autoNextTimerRef.current) clearInterval(autoNextTimerRef.current);
+      if (pendingCommitTimerRef.current) clearTimeout(pendingCommitTimerRef.current);
     };
   }, [cancelResolveRequest, clearDirectUpgradeTimeout]);
 
@@ -548,6 +552,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
     setIsResolvingStream(
       Boolean(resolveParams) &&
         !hasDirectPlaybackSource(initialSession) &&
+        !initialSession.source?.iframeUrl &&
         Boolean(initialSession.episode.idByProvider?.[initialSession.provider]),
     );
     setActiveEmbedLoaded(false);
@@ -702,11 +707,18 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
       const hasDirectUrl = hasDirectPlaybackSource(nextSession);
       if (hasDirectUrl) {
         const targetMode: SessionPlaybackMode =
-          options?.activate || !manualEmbedModeRef.current ? "direct" : "embed";
+          options?.activate ? "direct" : (nextSession.source?.iframeUrl ? "embed" : "direct");
         if (playerActivated || options?.activate) {
           resumePlaybackOnDirectRef.current = targetMode === "direct";
         }
-        stageOrCommitSession(nextSession, targetMode);
+        
+        // Immediately commit without staging in the background if we're sticking to the embed
+        if (targetMode === "embed") {
+          commitSession(nextSession, targetMode);
+        } else {
+          stageOrCommitSession(nextSession, targetMode);
+        }
+        
         if (options?.activate) {
           setPlayerActivated(true);
           setPlaybackMessage("Enhanced player ready.");
@@ -760,10 +772,10 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
 
   /* ── Auto-resolve after first paint until direct playback is ready ── */
   useEffect(() => {
-    if (!resolveParams || directAvailable || !canRequestEnhancedPlayback) {
-      if (!directAvailable && !canRequestEnhancedPlayback) {
-        setIsResolvingStream(false);
-      }
+    // Disabled automatic direct stream resolution if embed is available to prevent interruption
+    if (!resolveParams || directAvailable || embedAvailable || !canRequestEnhancedPlayback) {
+      // If we aren't going to resolve, make sure the loading state is cleared
+      setIsResolvingStream(false);
       return;
     }
 
@@ -1090,7 +1102,8 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
     mode: SessionPlaybackMode = "preserve",
   ) => {
     const nextKey = sessionViewKey(nextSession);
-    const canStagePlayer = Boolean(nextSession.source?.iframeUrl || nextSession.source?.proxiedUrl || nextSession.source?.url);
+    const targetEmbed = resolveSessionShowEmbed(nextSession, showEmbed, mode);
+    const canStagePlayer = !targetEmbed && Boolean(nextSession.source?.proxiedUrl || nextSession.source?.url);
 
     if (!canStagePlayer) {
       commitSession(nextSession, mode);
@@ -1579,9 +1592,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
           ? "Player ready"
           : "Opening player"
         : directAvailable && !activeDirectReady
-          ? embedLayerVisible
-            ? "Enhancing playback"
-            : "Loading video"
+          ? "Loading video"
           : "Player ready";
   const playerFeedbackHint =
     !embedAvailable && !directAvailable && isResolvingStream
@@ -1589,7 +1600,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
       : showEmbed
         ? "Starting with the fastest available player."
         : directAvailable && !activeDirectReady
-          ? "Upgrading to the enhanced stream without leaving the page."
+          ? "Loading direct stream."
           : "Playback is ready.";
 
   /* ════════════════════════════════════════════════
