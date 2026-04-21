@@ -76,8 +76,35 @@ function hasDirectPlaybackSource(session: WatchSessionModel): boolean {
    Keeps up to 20 recently fetched sessions in memory.
    Going back to a previously visited episode is instant. */
 const SESSION_CACHE_MAX = 20;
-const sessionCache = new Map<string, { data: WatchSessionModel; ts: number }>();
+const sessionCache = new Map<string, { data: WatchSessionModel; ts: number; prefetched?: boolean }>();
 const inflightSessionRequests = new Map<string, Promise<WatchSessionModel>>();
+
+/* ── Prefetch budget ─────────────────────────────────
+   Limits prefetch to MAX_PREFETCH_PER_ANIME episodes per anime
+   to avoid over-fetching and excessive backend load. */
+const MAX_PREFETCH_PER_ANIME = 3;
+const prefetchBudget = new Map<string, number>();
+
+function getPrefetchCount(animeId: string): number {
+  return prefetchBudget.get(animeId) || 0;
+}
+
+function incrementPrefetchCount(animeId: string): void {
+  prefetchBudget.set(animeId, (prefetchBudget.get(animeId) || 0) + 1);
+}
+
+function canPrefetch(animeId: string): boolean {
+  return getPrefetchCount(animeId) < MAX_PREFETCH_PER_ANIME;
+}
+
+/* ── Prefetch effectiveness tracking ─────────────────
+   Lightweight counters to measure if prefetches are used. */
+let prefetchStats = { fired: 0, used: 0, skippedBudget: 0, skippedCached: 0 };
+
+/** Call from dev tools: (window as any).__prefetchStats?.() */
+if (typeof window !== "undefined") {
+  (window as any).__prefetchStats = () => ({ ...prefetchStats });
+}
 
 function getCachedSession(url: string): WatchSessionModel | null {
   const entry = sessionCache.get(url);
@@ -90,23 +117,31 @@ function getCachedSession(url: string): WatchSessionModel | null {
   return entry.data;
 }
 
-function setCachedSession(url: string, data: WatchSessionModel): void {
+function isCachedOrInflight(url: string): boolean {
+  return sessionCache.has(url) || inflightSessionRequests.has(url);
+}
+
+function setCachedSession(url: string, data: WatchSessionModel, prefetched = false): void {
   // Evict oldest if full
   if (sessionCache.size >= SESSION_CACHE_MAX) {
     const oldest = [...sessionCache.entries()].sort((a, b) => a[1].ts - b[1].ts)[0];
     if (oldest) sessionCache.delete(oldest[0]);
   }
-  sessionCache.set(url, { data, ts: Date.now() });
+  sessionCache.set(url, { data, ts: Date.now(), prefetched });
 }
 
 function loadWatchSession(
   animeId: string,
   request: SessionRequest,
-  options?: { priority?: RequestPriority }
+  options?: { priority?: RequestPriority; isPrefetch?: boolean }
 ): Promise<WatchSessionModel> {
   const url = buildWatchSessionUrl(animeId, request);
   const cached = getCachedSession(url);
   if (cached) {
+    // Track that a prefetched session was used by a real navigation
+    if (!options?.isPrefetch && sessionCache.get(url)?.prefetched) {
+      prefetchStats.used += 1;
+    }
     return Promise.resolve(cached);
   }
 
@@ -127,7 +162,7 @@ function loadWatchSession(
       }
 
       const result = payload as WatchSessionModel;
-      setCachedSession(url, result);
+      setCachedSession(url, result, options?.isPrefetch ?? false);
       return result;
     })
     .finally(() => {
@@ -139,8 +174,26 @@ function loadWatchSession(
 }
 
 function prefetchWatchSession(animeId: string, request: SessionRequest): void {
+  const url = buildWatchSessionUrl(animeId, request);
+
+  // Skip if already cached or in-flight
+  if (isCachedOrInflight(url)) {
+    prefetchStats.skippedCached += 1;
+    return;
+  }
+
+  // Skip if budget exhausted for this anime
+  if (!canPrefetch(animeId)) {
+    prefetchStats.skippedBudget += 1;
+    return;
+  }
+
+  incrementPrefetchCount(animeId);
+  prefetchStats.fired += 1;
+
   void loadWatchSession(animeId, request, {
     priority: "low" as RequestPriority,
+    isPrefetch: true,
   }).catch(() => undefined);
 }
 
@@ -308,6 +361,7 @@ export default function WatchExperience({ initialSession, recommendations = null
   const hoverPrefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoverPrefetchKeyRef = useRef<string | null>(null);
   const pendingSessionKeyRef = useRef<string | null>(null);
+  const nearEndPrefetchedRef = useRef<string | null>(null);
   const [deferredRecommendations, setDeferredRecommendations] = useState<AnilistMedia[] | null>(initialRecommendations);
   const [resolvedCurrentUserId, setResolvedCurrentUserId] = useState<string | null>(currentUserId ?? null);
 
@@ -527,21 +581,22 @@ export default function WatchExperience({ initialSession, recommendations = null
       : null;
   const nextEpisodeNumber = nextEpisode?.number ?? null;
 
+  /* ── Intent-based next-episode prefetch ────────────
+     Fires once the current embed has loaded (user is watching).
+     This replaces the old timer=0 approach with an intent signal:
+     the embed finishing its load means the user committed to this episode. */
   useEffect(() => {
     if (!activeEmbedLoaded || isSessionLoading || isPending || nextEpisodeNumber === null) {
       return;
     }
 
-    const timer = setTimeout(() => {
-      prefetchWatchSession(session.anime.id, {
-        episodeNumber: nextEpisodeNumber,
-        provider: session.provider,
-        dubbed: session.dubbed,
-        server: null,
-      });
-    }, 0);
-
-    return () => clearTimeout(timer);
+    // Prefetch next episode immediately after embed loads (fire-and-forget)
+    prefetchWatchSession(session.anime.id, {
+      episodeNumber: nextEpisodeNumber,
+      provider: session.provider,
+      dubbed: session.dubbed,
+      server: null,
+    });
   }, [
     activeEmbedLoaded,
     isPending,
@@ -551,6 +606,49 @@ export default function WatchExperience({ initialSession, recommendations = null
     session.dubbed,
     session.provider,
   ]);
+
+  /* ── Near-end playback prefetch ────────────────────
+     Listen for postMessage from embed iframes reporting playback progress.
+     When progress >= 85%, prefetch the next episode.
+     This is fire-and-forget — must NOT affect current playback.
+     Trigger once per episode to avoid spamming. */
+  useEffect(() => {
+    if (!nextEpisodeNumber) return;
+
+    const nearEndKey = `${session.anime.id}|${session.episode.number}|${nextEpisodeNumber}`;
+
+    const handleMessage = (event: MessageEvent) => {
+      // Validate message shape — many embed players post progress data
+      if (!event.data || typeof event.data !== "object") return;
+      const progress = event.data.progress ?? event.data.percent ?? event.data.percentComplete;
+      if (typeof progress !== "number" || progress < 0.85) return;
+
+      // Only trigger once per episode viewing
+      if (nearEndPrefetchedRef.current === nearEndKey) return;
+      nearEndPrefetchedRef.current = nearEndKey;
+
+      prefetchWatchSession(session.anime.id, {
+        episodeNumber: nextEpisodeNumber,
+        provider: session.provider,
+        dubbed: session.dubbed,
+        server: null,
+      });
+    };
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [
+    nextEpisodeNumber,
+    session.anime.id,
+    session.episode.number,
+    session.dubbed,
+    session.provider,
+  ]);
+
+  // Reset near-end tracking when episode changes
+  useEffect(() => {
+    nearEndPrefetchedRef.current = null;
+  }, [session.episode.number]);
 
   const heroImage =
     session.anime.banner ||

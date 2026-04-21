@@ -1793,7 +1793,7 @@ export async function warmAnimeWatchWindow(input: {
       )
         .map((value) => Number(value))
         .filter((value) => Number.isFinite(value) && value > 0)
-        .slice(0, 6);
+        .slice(0, 3);
 
       const dubbedModes =
         input.dubbedModes && input.dubbedModes.length > 0
@@ -1826,31 +1826,20 @@ export async function warmAnimeWatchWindow(input: {
           .filter((episodeId): episodeId is string => Boolean(episodeId))
           .slice(0, 3);
 
-        const sampledDubbedMode = dubbedModes[0] ?? false;
-        const sampledLinkIds = (
-          await Promise.all(
-            animeKaiEpisodeIds.map(async (episodeId) => {
-              try {
-                const entries = await fetchAnimeKaiServerEntries(episodeId, sampledDubbedMode);
-                return entries[0]?.linkId || null;
-              } catch {
-                return null;
-              }
-            }),
-          )
-        ).filter((linkId): linkId is string => Boolean(linkId));
-
-        if (animeKaiEpisodeIds.length > 0 || sampledLinkIds.length > 0) {
+        // OPTIMIZATION: Only warm metadata + embed URL paths on the backend.
+        // We intentionally do NOT resolve link_ids here because:
+        // 1. Link IDs trigger direct stream source resolution (CPU + network heavy)
+        // 2. The platform uses embed-only playback — direct sources are unused
+        // 3. Embed URLs are already warmed by getFastWatchSession above
+        if (animeKaiEpisodeIds.length > 0) {
           void postBackendJson("/api/cache/warm", {
             slug: animeKaiProviderId,
             episode_ids: animeKaiEpisodeIds,
-            link_ids: sampledLinkIds,
           }).catch(() => undefined);
 
           recordCounter("anime.warm.backend_requested", 1, {
             provider: "animekai",
             episodes: animeKaiEpisodeIds.length,
-            links: sampledLinkIds.length,
           });
         }
       }
