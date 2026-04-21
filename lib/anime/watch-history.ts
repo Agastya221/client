@@ -1,48 +1,50 @@
 "use client";
 
 /**
- * Anonymous watch tracking via localStorage.
- * Works without login — tracks what anime/episodes the user has watched,
- * their progress (video position), and provides "Continue Watching" data.
+ * Local-first watch tracking.
  *
- * Data shape in localStorage:
- * {
- *   "animeId1": {
- *     title: "...",
- *     poster: "...",
- *     href: "...",
- *     provider: "animekai",
- *     lastEpisode: 5,
- *     lastUpdated: 1713500000000,
- *     episodes: {
- *       "1": { progress: 0.85, duration: 1440, timestamp: 1713499000000 },
- *       "5": { progress: 0.25, duration: 1440, timestamp: 1713500000000 },
- *     }
- *   }
- * }
+ * Guests:
+ * - everything stays in localStorage
+ *
+ * Signed-in users:
+ * - local history stays available
+ * - account history is merged into local on load
+ * - local updates are mirrored back to the account in the background
  */
+
+import {
+  mergeWatchHistories,
+  normalizeEpisodeProgress,
+  watchHistoryToList,
+  type EpisodeProgress,
+  type WatchHistory,
+  type WatchHistoryEntry,
+} from "@/lib/anime/watch-history-shared";
 
 const STORAGE_KEY = "animekai:watch-history";
 const MAX_ENTRIES = 100;
+const REMOTE_SYNC_DEBOUNCE_MS = 900;
 export const WATCH_HISTORY_UPDATED_EVENT = "animekai:watch-history-updated";
 
-export type EpisodeProgress = {
-  progress: number; // 0-1 fraction
-  duration: number; // total duration in seconds
-  timestamp: number; // last updated timestamp ms
-};
-
-export type WatchHistoryEntry = {
+type RemoteEpisodePayload = {
+  animeId: string;
+  episodeNumber: number;
+  progress: number;
+  duration: number;
   title: string;
   poster: string | null;
   href: string;
   provider: string;
-  lastEpisode: number;
-  lastUpdated: number;
-  episodes: Record<string, EpisodeProgress>;
+  timestamp: number;
 };
 
-export type WatchHistory = Record<string, WatchHistoryEntry>;
+let authState: "unknown" | "guest" | "authenticated" = "unknown";
+let hasHydratedFromAccount = false;
+let hydrationPromise: Promise<void> | null = null;
+let flushTimer: number | null = null;
+let pendingClear = false;
+const pendingAnimeRemovals = new Set<string>();
+const pendingEpisodeUpserts = new Map<string, RemoteEpisodePayload>();
 
 function scoreHistoryTitleQuality(title: string | null | undefined): number {
   const normalized = title?.trim();
@@ -68,7 +70,7 @@ function readHistory(): WatchHistory {
   if (typeof window === "undefined") return {};
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : {};
+    return raw ? (JSON.parse(raw) as WatchHistory) : {};
   } catch {
     return {};
   }
@@ -77,17 +79,172 @@ function readHistory(): WatchHistory {
 function writeHistory(history: WatchHistory): void {
   if (typeof window === "undefined") return;
   try {
-    // Evict oldest entries if over limit
     const entries = Object.entries(history);
     if (entries.length > MAX_ENTRIES) {
-      entries.sort((a, b) => b[1].lastUpdated - a[1].lastUpdated);
+      entries.sort((left, right) => right[1].lastUpdated - left[1].lastUpdated);
       history = Object.fromEntries(entries.slice(0, MAX_ENTRIES));
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
     window.dispatchEvent(new CustomEvent(WATCH_HISTORY_UPDATED_EVENT));
   } catch {
-    // localStorage full or unavailable — silently fail
+    // localStorage full or unavailable — ignore
   }
+}
+
+function flattenHistory(history: WatchHistory): RemoteEpisodePayload[] {
+  return Object.entries(history).flatMap(([animeId, entry]) =>
+    Object.entries(entry.episodes).map(([episodeNumber, progress]) => ({
+      animeId,
+      episodeNumber: Number(episodeNumber),
+      progress: normalizeEpisodeProgress(progress).progress,
+      duration: normalizeEpisodeProgress(progress).duration,
+      title: entry.title,
+      poster: entry.poster,
+      href: entry.href,
+      provider: entry.provider,
+      timestamp: normalizeEpisodeProgress(progress).timestamp || entry.lastUpdated,
+    })),
+  );
+}
+
+function queueRemoteFlush(): void {
+  if (typeof window === "undefined") return;
+  if (flushTimer) window.clearTimeout(flushTimer);
+  flushTimer = window.setTimeout(() => {
+    flushTimer = null;
+    void flushRemoteSync();
+  }, REMOTE_SYNC_DEBOUNCE_MS);
+}
+
+function queueEpisodeUpsert(animeId: string, episodeNumber: number): void {
+  const history = readHistory();
+  const entry = history[animeId];
+  const episode = entry?.episodes?.[String(episodeNumber)];
+  if (!entry || !episode) return;
+
+  pendingAnimeRemovals.delete(animeId);
+  pendingClear = false;
+  pendingEpisodeUpserts.set(`${animeId}:${episodeNumber}`, {
+    animeId,
+    episodeNumber,
+    progress: normalizeEpisodeProgress(episode).progress,
+    duration: normalizeEpisodeProgress(episode).duration,
+    title: entry.title,
+    poster: entry.poster,
+    href: entry.href,
+    provider: entry.provider,
+    timestamp: normalizeEpisodeProgress(episode).timestamp || entry.lastUpdated,
+  });
+  queueRemoteFlush();
+}
+
+function queueAnimeRemoval(animeId: string): void {
+  pendingAnimeRemovals.add(animeId);
+  for (const key of Array.from(pendingEpisodeUpserts.keys())) {
+    if (key.startsWith(`${animeId}:`)) {
+      pendingEpisodeUpserts.delete(key);
+    }
+  }
+  queueRemoteFlush();
+}
+
+async function flushRemoteSync(): Promise<void> {
+  if (typeof window === "undefined") return;
+  if (authState === "guest") return;
+
+  try {
+    if (pendingClear) {
+      const response = await fetch("/api/watch-history", {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
+      if (response.status === 401) {
+        authState = "guest";
+        return;
+      }
+      pendingClear = false;
+    }
+
+    for (const animeId of Array.from(pendingAnimeRemovals)) {
+      const response = await fetch(`/api/watch-history?animeId=${encodeURIComponent(animeId)}`, {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
+      if (response.status === 401) {
+        authState = "guest";
+        return;
+      }
+      pendingAnimeRemovals.delete(animeId);
+    }
+
+    if (pendingEpisodeUpserts.size > 0) {
+      const response = await fetch("/api/watch-history", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          entries: Array.from(pendingEpisodeUpserts.values()),
+        }),
+      });
+      if (response.status === 401) {
+        authState = "guest";
+        return;
+      }
+      if (response.ok) {
+        pendingEpisodeUpserts.clear();
+        authState = "authenticated";
+      }
+    }
+  } catch {
+    // keep pending changes for the next successful flush
+  }
+}
+
+export async function ensureWatchHistoryHydrated(): Promise<void> {
+  if (typeof window === "undefined") return;
+  if (hasHydratedFromAccount || authState === "guest") return;
+  if (hydrationPromise) return hydrationPromise;
+
+  hydrationPromise = (async () => {
+    try {
+      const response = await fetch("/api/watch-history", {
+        cache: "no-store",
+        credentials: "same-origin",
+      });
+
+      if (response.status === 401) {
+        authState = "guest";
+        return;
+      }
+
+      if (!response.ok) {
+        return;
+      }
+
+      authState = "authenticated";
+      const payload = (await response.json().catch(() => null)) as { history?: WatchHistory } | null;
+      const remoteHistory = payload?.history || {};
+      const localHistory = readHistory();
+      const merged = mergeWatchHistories(remoteHistory, localHistory);
+
+      writeHistory(merged);
+      hasHydratedFromAccount = true;
+
+      const entries = flattenHistory(merged);
+      if (entries.length > 0) {
+        await fetch("/api/watch-history", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ entries }),
+        }).catch(() => undefined);
+      }
+    } finally {
+      hydrationPromise = null;
+    }
+  })();
+
+  return hydrationPromise;
 }
 
 export function subscribeToWatchHistory(listener: () => void): () => void {
@@ -109,9 +266,6 @@ export function subscribeToWatchHistory(listener: () => void): () => void {
   };
 }
 
-/**
- * Record that the user is watching a specific episode.
- */
 export function trackEpisodeWatch(
   animeId: string,
   episodeNumber: number,
@@ -120,7 +274,7 @@ export function trackEpisodeWatch(
     poster: string | null;
     href: string;
     provider: string;
-  }
+  },
 ): void {
   const history = readHistory();
   const existing = history[animeId] || {
@@ -158,17 +312,14 @@ export function trackEpisodeWatch(
 
   history[animeId] = existing;
   writeHistory(history);
+  queueEpisodeUpsert(animeId, episodeNumber);
 }
 
-/**
- * Update the video progress for a specific episode.
- * Called on video `timeupdate` events (throttled).
- */
 export function updateEpisodeProgress(
   animeId: string,
   episodeNumber: number,
   progress: number,
-  duration: number
+  duration: number,
 ): void {
   const history = readHistory();
   const entry = history[animeId];
@@ -179,80 +330,62 @@ export function updateEpisodeProgress(
     duration,
     timestamp: Date.now(),
   };
+  entry.lastEpisode = episodeNumber;
   entry.lastUpdated = Date.now();
 
   writeHistory(history);
+  queueEpisodeUpsert(animeId, episodeNumber);
 }
 
-/**
- * Get the saved progress for a specific episode.
- */
-export function getEpisodeProgress(
-  animeId: string,
-  episodeNumber: number
-): EpisodeProgress | null {
+export function getEpisodeProgress(animeId: string, episodeNumber: number): EpisodeProgress | null {
   const history = readHistory();
   const entry = history[animeId];
   if (!entry) return null;
   return entry.episodes[String(episodeNumber)] || null;
 }
 
-/**
- * Check if a specific episode has been watched (>= 80% progress).
- */
 export function isEpisodeWatched(animeId: string, episodeNumber: number): boolean {
   const progress = getEpisodeProgress(animeId, episodeNumber);
   return progress ? progress.progress >= 0.8 : false;
 }
 
-/**
- * Get all watched episode numbers for an anime.
- */
 export function getWatchedEpisodes(animeId: string): Set<number> {
   const history = readHistory();
   const entry = history[animeId];
   if (!entry) return new Set();
 
   const watched = new Set<number>();
-  for (const [epNum, progress] of Object.entries(entry.episodes)) {
+  for (const [episodeNumber, progress] of Object.entries(entry.episodes)) {
     if (progress.progress >= 0.8) {
-      watched.add(Number(epNum));
+      watched.add(Number(episodeNumber));
     }
   }
   return watched;
 }
 
-/**
- * Get all watch history entries, sorted by most recently watched.
- */
 export function getContinueWatching(): (WatchHistoryEntry & { animeId: string })[] {
-  const history = readHistory();
-  return Object.entries(history)
-    .map(([animeId, entry]) => ({ ...entry, animeId }))
-    .sort((a, b) => b.lastUpdated - a.lastUpdated);
+  return watchHistoryToList(readHistory());
 }
 
-/**
- * Get the top N "Continue Watching" items.
- */
 export function getRecentlyWatched(limit = 10): (WatchHistoryEntry & { animeId: string })[] {
   return getContinueWatching().slice(0, limit);
 }
 
-/**
- * Remove a specific anime from watch history.
- */
 export function removeFromHistory(animeId: string): void {
   const history = readHistory();
   delete history[animeId];
   writeHistory(history);
+  queueAnimeRemoval(animeId);
 }
 
-/**
- * Clear all watch history.
- */
 export function clearHistory(): void {
   if (typeof window === "undefined") return;
   localStorage.removeItem(STORAGE_KEY);
   window.dispatchEvent(new CustomEvent(WATCH_HISTORY_UPDATED_EVENT));
+  pendingClear = true;
+  pendingAnimeRemovals.clear();
+  pendingEpisodeUpserts.clear();
+  queueRemoteFlush();
 }
+
+export type { EpisodeProgress, WatchHistory, WatchHistoryEntry };

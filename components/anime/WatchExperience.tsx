@@ -1,8 +1,18 @@
 "use client";
 
-import AttemptTrail from "@/components/anime/AttemptTrail";
 import CommentSection from "@/components/anime/CommentSection";
 import ProviderBadge from "@/components/anime/ProviderBadge";
+import {
+  WatchAnimeDetailsPanel,
+  WatchRecommendationsPanel,
+} from "@/components/anime/watch/WatchMetaPanels";
+import {
+  ControlBtn,
+  EpisodeNumberGrid,
+  SeasonRail,
+  ServerButton,
+  summarizeServerGroups,
+} from "@/components/anime/watch/WatchUiPrimitives";
 import { getFallbackWatchTargets } from "@/lib/anime/fallback";
 import type {
   AnimeSeasonEntry,
@@ -13,7 +23,7 @@ import type {
   SubtitleTrack,
   WatchSessionModel,
 } from "@/lib/anime/types";
-import { anilistTitle, anilistRating, anilistFormat, encodeAnilistRouteId, type AnilistMedia } from "@/lib/anilist/api";
+import type { AnilistMedia } from "@/lib/anilist/api";
 import { humanizeProviderId } from "@/lib/anime/utils";
 import {
   trackEpisodeWatch,
@@ -25,16 +35,13 @@ import Hls from "hls.js";
 import {
   AlertTriangle,
   Bookmark,
-  Calendar,
   Captions,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Clock,
   ExternalLink,
   Expand,
   Eye,
-  Film,
   Info,
   LoaderCircle,
   Maximize2,
@@ -45,7 +52,6 @@ import {
   RefreshCcw,
   Search,
   SkipForward,
-  Star,
   Tag,
   Tv2,
 } from "lucide-react";
@@ -76,6 +82,8 @@ interface SessionRequest {
 }
 
 type SkipWindow = { start: number; end: number } | null;
+type QualityOption = { value: string; label: string; level: number | null };
+type AudioTrackOption = { value: string; label: string; track: number | null };
 
 const STORAGE_KEYS = {
   preferEmbed: "animekai-watch:prefer-embed",
@@ -141,6 +149,46 @@ function normalizeSkipWindow(value?: { start: number; end: number } | null): Ski
 
 function subtitleValue(track: SubtitleTrack): string {
   return `${track.url}::${track.label}`;
+}
+
+function qualityOptionValue(level: number | null): string {
+  return level === null ? "auto" : `level:${level}`;
+}
+
+function buildQualityOptions(levels: Hls["levels"]): QualityOption[] {
+  if (!levels.length) return [];
+  return [
+    { value: qualityOptionValue(null), label: "Quality: Auto", level: null },
+    ...levels.map((level, index) => {
+      const parts: string[] = [];
+      if (Number.isFinite(level.height) && level.height > 0) {
+        parts.push(`${level.height}p`);
+      }
+      if (Number.isFinite(level.bitrate) && level.bitrate > 0) {
+        parts.push(`${Math.round(level.bitrate / 1000)} kbps`);
+      }
+      return {
+        value: qualityOptionValue(index),
+        label: parts.length > 0 ? parts.join(" · ") : `Level ${index + 1}`,
+        level: index,
+      };
+    }),
+  ];
+}
+
+function buildAudioTrackOptions(tracks: Hls["audioTracks"]): AudioTrackOption[] {
+  if (!tracks.length) return [];
+  return [
+    { value: "audio:auto", label: "Audio: Default", track: null },
+    ...tracks.map((track, index) => {
+      const label = [track.name, track.lang].filter(Boolean).join(" · ") || `Track ${index + 1}`;
+      return {
+        value: `audio:${index}`,
+        label,
+        track: index,
+      };
+    }),
+  ];
 }
 
 function sessionViewKey(session: WatchSessionModel): string {
@@ -291,227 +339,6 @@ function mergeWatchSessions(previous: WatchSessionModel, next: WatchSessionModel
 }
 
 /* ────────────────────────────────────────────────
-   Reusable: compact control button (icon + text)
-   ──────────────────────────────────────────────── */
-function ControlBtn({
-  icon: Icon,
-  label,
-  active,
-  accent,
-  disabled,
-  onClick,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  active?: boolean;
-  accent?: boolean;
-  disabled?: boolean;
-  onClick?: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className={`
-        flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold tracking-wide transition-colors
-        rounded-md select-none whitespace-nowrap
-        ${disabled ? "opacity-30 cursor-not-allowed" : "cursor-pointer hover:bg-white/8"}
-        ${active && accent ? "text-[#ff5500]" : active ? "text-white" : "text-white/60"}
-      `}
-    >
-      <Icon className="w-3.5 h-3.5" />
-      <span className="hidden sm:inline">{label}</span>
-    </button>
-  );
-}
-
-function ServerButton({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`px-3 py-1.5 rounded-md text-[11px] font-bold transition-colors border ${
-        active
-          ? "bg-[#4ade80] text-black border-[#4ade80]/60 shadow-[0_0_10px_rgba(74,222,128,0.2)]"
-          : "bg-white/[0.04] text-white/60 border-white/8 hover:bg-white/8 hover:text-white hover:border-white/15"
-      }`}
-    >
-      {label}
-    </button>
-  );
-}
-
-/* ────────────────────────────────────────────────
-   Season Rail 
-   ──────────────────────────────────────────────── */
-function SeasonRail({ seasons, activeHref }: { seasons: AnimeSeasonEntry[]; activeHref: string }) {
-  if (seasons.length === 0) return null;
-
-  return (
-    <div className="mt-6">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-bold text-white flex items-center gap-2">
-          Seasons
-          <span className="text-xs font-medium text-white/40 bg-white/5 rounded-full px-2 py-0.5">
-            {seasons.length}
-          </span>
-        </h2>
-        <div className="flex gap-2">
-          <button type="button" className="w-7 h-7 rounded-full border border-white/10 bg-white/5 flex items-center justify-center text-white/60 hover:text-white transition-colors">
-            <ChevronLeft className="w-3.5 h-3.5" />
-          </button>
-          <button type="button" className="w-7 h-7 rounded-full border border-white/10 bg-white/5 flex items-center justify-center text-white/60 hover:text-white transition-colors">
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-
-      <div className="flex gap-3 overflow-x-auto pb-2 hide-scrollbar">
-        {seasons.map((season) => {
-          const active = season.isActive || season.href === activeHref;
-          return (
-            <Link
-              key={`${season.href}-${season.title}`}
-              href={season.href}
-              className={`group relative block min-w-[11rem] overflow-hidden rounded-xl border transition-all shrink-0 ${
-                active
-                  ? "border-[#ff5500]/50 bg-[#ff5500]/10"
-                  : "border-white/8 bg-white/[0.03] hover:border-white/15"
-              }`}
-            >
-              {season.poster ? (
-                <div className="absolute inset-0">
-                  <img
-                    src={season.poster}
-                    alt={season.title}
-                    className="h-full w-full object-cover opacity-30 transition-transform duration-300 group-hover:scale-105"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/60 to-black/30" />
-                </div>
-              ) : null}
-              <div className="relative flex flex-col justify-end p-4 min-h-[7rem]">
-                <p className="text-sm font-bold text-white">{season.title}</p>
-                <div className="mt-1.5 flex items-center gap-2">
-                  <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
-                    active ? "bg-[#ff5500] text-white" : "bg-white/10 text-white/60"
-                  }`}>
-                    {season.episodeCount ? `${season.episodeCount} EPS` : season.episodeLabel || "Open"}
-                  </span>
-                </div>
-              </div>
-            </Link>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/* ────────────────────────────────────────────────
-   Episode Number Grid (AnimeKAI-style compact grid)
-   ──────────────────────────────────────────────── */
-function EpisodeNumberGrid({
-  episodes,
-  activeNumber,
-  onSelect,
-  onHover,
-  watchedSet = new Set(),
-}: {
-  episodes: { number: number; title: string; isSubbed?: boolean; isDubbed?: boolean }[];
-  activeNumber: number;
-  onSelect: (num: number) => void;
-  onHover?: (num: number) => void;
-  watchedSet?: Set<number>;
-}) {
-  const [rangeStart, setRangeStart] = useState(0);
-  const CHUNK_SIZE = 100;
-  const totalChunks = Math.ceil(episodes.length / CHUNK_SIZE);
-
-  // Auto-select the range containing the active episode
-  useEffect(() => {
-    const idx = episodes.findIndex((ep) => ep.number === activeNumber);
-    if (idx >= 0) {
-      setRangeStart(Math.floor(idx / CHUNK_SIZE) * CHUNK_SIZE);
-    }
-  }, [activeNumber, episodes]);
-
-  const visibleEpisodes = episodes.slice(rangeStart, rangeStart + CHUNK_SIZE);
-  const rangeLabel = `${String(episodes[rangeStart]?.number || 1).padStart(3, "0")}-${String(
-    episodes[Math.min(rangeStart + CHUNK_SIZE - 1, episodes.length - 1)]?.number || CHUNK_SIZE
-  ).padStart(3, "0")}`;
-
-  return (
-    <div>
-      {/* Range selector */}
-      {totalChunks > 1 && (
-        <div className="flex items-center justify-center gap-3 mb-3">
-          <button
-            type="button"
-            onClick={() => setRangeStart(Math.max(0, rangeStart - CHUNK_SIZE))}
-            disabled={rangeStart === 0}
-            className="w-7 h-7 rounded-full border border-white/10 bg-white/5 flex items-center justify-center text-white/50 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          >
-            <ChevronLeft className="w-3.5 h-3.5" />
-          </button>
-          <span className="text-xs text-white/50 font-medium tracking-wider min-w-[5rem] text-center">
-            {rangeLabel}
-          </span>
-          <button
-            type="button"
-            onClick={() => setRangeStart(Math.min(episodes.length - 1, rangeStart + CHUNK_SIZE))}
-            disabled={rangeStart + CHUNK_SIZE >= episodes.length}
-            className="w-7 h-7 rounded-full border border-white/10 bg-white/5 flex items-center justify-center text-white/50 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          >
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-
-      {/* Episode grid */}
-      <div className="flex flex-wrap gap-1.5">
-        {visibleEpisodes.map((ep) => {
-          const isActive = ep.number === activeNumber;
-          const isWatched = watchedSet.has(ep.number);
-          return (
-            <button
-              key={ep.number}
-              type="button"
-              onClick={() => onSelect(ep.number)}
-              onMouseEnter={() => onHover?.(ep.number)}
-              onFocus={() => onHover?.(ep.number)}
-              title={`${ep.title}${isWatched ? " ✓ Watched" : ""}`}
-              className={`
-                relative w-10 h-9 rounded-md text-xs font-bold transition-colors
-                ${isActive
-                  ? "bg-[#ff5500] text-white shadow-[0_0_12px_rgba(255,85,0,0.4)]"
-                  : isWatched
-                    ? "bg-emerald-500/15 text-emerald-400/80 border border-emerald-500/20 hover:bg-emerald-500/25"
-                    : "bg-white/[0.06] text-white/60 hover:bg-white/12 hover:text-white border border-white/[0.06]"
-                }
-              `}
-            >
-              {ep.number}
-              {isWatched && !isActive && (
-                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.6)]" />
-              )}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/* ────────────────────────────────────────────────
    Buffering Status Text — cycles through phases
    like a real streaming player
    ──────────────────────────────────────────────── */
@@ -553,6 +380,10 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
   const [isResolvingStream, setIsResolvingStream] = useState(!initialSession.source && !!resolveParams);
   const [episodeQuery, setEpisodeQuery] = useState("");
   const [selectedSubtitle, setSelectedSubtitle] = useState("off");
+  const [qualityOptions, setQualityOptions] = useState<QualityOption[]>([]);
+  const [selectedQuality, setSelectedQuality] = useState(qualityOptionValue(null));
+  const [audioTrackOptions, setAudioTrackOptions] = useState<AudioTrackOption[]>([]);
+  const [selectedAudioTrack, setSelectedAudioTrack] = useState("audio:auto");
   const [showEpisodeList, setShowEpisodeList] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [watchedEpisodes, setWatchedEpisodes] = useState<Set<number>>(new Set());
@@ -631,6 +462,10 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
     setIsRecovering(false);
     setIsSessionLoading(false);
     setSelectedSubtitle(initialSession.subtitles[0] ? subtitleValue(initialSession.subtitles[0]) : "off");
+    setQualityOptions([]);
+    setSelectedQuality(qualityOptionValue(null));
+    setAudioTrackOptions([]);
+    setSelectedAudioTrack("audio:auto");
     skipRef.current = { intro: false, outro: false };
     triedTargetsRef.current.clear();
   }, [initialSession, preferEmbeddedPlayback]);
@@ -943,6 +778,28 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
     video.load();
   });
 
+  const syncAdaptivePlaybackUi = useEffectEvent((hls: Hls | null) => {
+    if (!hls) {
+      setQualityOptions([]);
+      setSelectedQuality(qualityOptionValue(null));
+      setAudioTrackOptions([]);
+      setSelectedAudioTrack("audio:auto");
+      return;
+    }
+
+    const nextQualityOptions = buildQualityOptions(hls.levels);
+    setQualityOptions(nextQualityOptions);
+    setSelectedQuality((current) =>
+      nextQualityOptions.some((option) => option.value === current) ? current : qualityOptionValue(null),
+    );
+
+    const nextAudioTrackOptions = buildAudioTrackOptions(hls.audioTracks);
+    setAudioTrackOptions(nextAudioTrackOptions);
+    setSelectedAudioTrack((current) =>
+      nextAudioTrackOptions.some((option) => option.value === current) ? current : "audio:auto",
+    );
+  });
+
   const fetchSession = useEffectEvent(async (request: SessionRequest): Promise<WatchSessionModel> => {
     const url = buildWatchSessionUrl(session, request);
 
@@ -1221,6 +1078,8 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
 
     if (session.source?.isM3U8) {
       if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        setQualityOptions([]);
+        setAudioTrackOptions([]);
         video.src = directSourceUrl;
         video.load();
         maybeAutoPlay();
@@ -1229,23 +1088,57 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
         hlsRef.current = hls;
         hls.loadSource(directSourceUrl);
         hls.attachMedia(video);
-        hls.on(Hls.Events.MANIFEST_PARSED, maybeAutoPlay);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          syncAdaptivePlaybackUi(hls);
+          maybeAutoPlay();
+        });
+        hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, () => {
+          syncAdaptivePlaybackUi(hls);
+        });
+        hls.on(Hls.Events.LEVELS_UPDATED, () => {
+          syncAdaptivePlaybackUi(hls);
+        });
         hls.on(Hls.Events.ERROR, (_, data) => {
           if (!data.fatal) return;
           setPlaybackMessage("The current stream failed. Trying the next fallback...");
           void recoverPlayback();
         });
       } else {
+        setQualityOptions([]);
+        setAudioTrackOptions([]);
         setPlaybackMessage("This browser cannot play the proxied HLS stream.");
       }
     } else {
+      setQualityOptions([]);
+      setAudioTrackOptions([]);
       video.src = directSourceUrl;
       video.load();
       maybeAutoPlay();
     }
 
     return () => { destroyPlayer(); };
-  }, [autoPlayEnabled, destroyPlayer, directAvailable, directSourceUrl, playerActivated, recoverPlayback, session.source?.isM3U8, showEmbed]);
+  }, [autoPlayEnabled, destroyPlayer, directAvailable, directSourceUrl, playerActivated, recoverPlayback, session.source?.isM3U8, showEmbed, syncAdaptivePlaybackUi]);
+
+  useEffect(() => {
+    const hls = hlsRef.current;
+    if (!hls) return;
+
+    const qualityLevel = qualityOptions.find((option) => option.value === selectedQuality)?.level ?? null;
+    if (qualityLevel === null) {
+      hls.currentLevel = -1;
+      hls.nextLevel = -1;
+      hls.loadLevel = -1;
+    } else {
+      hls.currentLevel = qualityLevel;
+      hls.nextLevel = qualityLevel;
+      hls.loadLevel = qualityLevel;
+    }
+
+    const audioTrack = audioTrackOptions.find((option) => option.value === selectedAudioTrack)?.track ?? null;
+    if (audioTrack !== null && hls.audioTrack !== audioTrack) {
+      hls.audioTrack = audioTrack;
+    }
+  }, [audioTrackOptions, qualityOptions, selectedAudioTrack, selectedQuality, session.episode.number]);
 
   /* ── Subtitle track sync ─────────────────────── */
   useEffect(() => {
@@ -1382,12 +1275,9 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
   };
 
   /* ── Server buttons helper ───────────────────── */
-  const isDesidub = session.provider === "desidub";
-  const subServers = isDesidub ? [] : session.serverOptions.filter((e) => e.category !== "dub" && e.category !== "raw");
-  const dubServers = isDesidub ? [] : session.serverOptions.filter((e) => e.category === "dub" || e.category === "raw");
-  const hindiServers = isDesidub ? session.serverOptions : [];
+  const { isDesidub, subServers, dubServers, hindiServers } = summarizeServerGroups(session.serverOptions);
   const mainFallback = session.availableProviders.find((p) => p !== "desidub") || "animekai";
-  const showHindi = session.availableProviders.includes("desidub") || isDesidub;
+  const showHindi = session.availableProviders.includes("desidub") || session.provider === "desidub";
   const floatingStatus = isRecovering
     ? "Trying fallbacks..."
     : isSessionTransitioning
@@ -1496,6 +1386,8 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
             <video
               ref={videoRef}
               controls
+              autoPlay={autoPlayEnabled}
+              preload="auto"
               playsInline
               crossOrigin="anonymous"
               className="h-full w-full bg-black object-contain"
@@ -1975,6 +1867,32 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
                 Skip Outro
               </button>
             )}
+            {directAvailable && qualityOptions.length > 1 && (
+              <select
+                value={selectedQuality}
+                onChange={(e) => setSelectedQuality(e.target.value)}
+                className="rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-[11px] text-white/70 outline-none focus:border-[#ff5500]/30 transition-colors"
+              >
+                {qualityOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            )}
+            {directAvailable && audioTrackOptions.length > 1 && (
+              <select
+                value={selectedAudioTrack}
+                onChange={(e) => setSelectedAudioTrack(e.target.value)}
+                className="rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-[11px] text-white/70 outline-none focus:border-[#ff5500]/30 transition-colors"
+              >
+                {audioTrackOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            )}
             {session.subtitles.length > 0 && (
               <select
                 value={selectedSubtitle}
@@ -2103,210 +2021,9 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
 
       {/* ── ANIME INFO + RECOMMENDATIONS ─────────── */}
       <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_340px]">
-        {/* ── LEFT: Anime Details ── */}
-        <div className="space-y-5">
-          {/* Info Card */}
-          <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-5">
-            <div className="flex gap-5">
-              {/* Poster */}
-              <div className="shrink-0">
-                <div className="w-28 md:w-36 aspect-[2/3] rounded-xl overflow-hidden border border-white/10 shadow-[0_8px_30px_rgba(0,0,0,0.5)] relative group/poster">
-                  <img
-                    src={session.anime.poster || heroImage}
-                    alt={session.anime.title}
-                    className="w-full h-full object-cover transition-transform duration-500 group-hover/poster:scale-105"
-                  />
-                  {session.anime.rating && (
-                    <div className="absolute top-2 left-2 flex items-center gap-1 bg-black/70 backdrop-blur-sm rounded-md px-1.5 py-0.5">
-                      <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
-                      <span className="text-[10px] font-bold text-white">{session.anime.rating}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Info */}
-              <div className="flex-1 min-w-0 space-y-3">
-                <div>
-                  <Link href={session.anime.href} className="group/title">
-                    <h2 className="text-lg md:text-xl font-bold text-white group-hover/title:text-[#ff5500] transition-colors leading-tight">
-                      {session.anime.title}
-                    </h2>
-                  </Link>
-                  {session.anime.subtitle && (
-                    <p className="text-xs text-white/30 mt-1">{session.anime.subtitle}</p>
-                  )}
-                </div>
-
-                {/* Meta grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {session.anime.type && (
-                    <div className="bg-white/[0.03] border border-white/5 rounded-xl px-3 py-2 text-center">
-                      <Film className="w-3.5 h-3.5 text-[#ff5500] mx-auto mb-1" />
-                      <p className="text-[9px] font-black uppercase tracking-widest text-white/30">Type</p>
-                      <p className="text-xs font-bold text-white/80">{session.anime.type}</p>
-                    </div>
-                  )}
-                  {session.anime.year && (
-                    <div className="bg-white/[0.03] border border-white/5 rounded-xl px-3 py-2 text-center">
-                      <Calendar className="w-3.5 h-3.5 text-[#ff5500] mx-auto mb-1" />
-                      <p className="text-[9px] font-black uppercase tracking-widest text-white/30">Year</p>
-                      <p className="text-xs font-bold text-white/80">{session.anime.year}</p>
-                    </div>
-                  )}
-                  {session.anime.status && (
-                    <div className="bg-white/[0.03] border border-white/5 rounded-xl px-3 py-2 text-center">
-                      <Clock className="w-3.5 h-3.5 text-[#ff5500] mx-auto mb-1" />
-                      <p className="text-[9px] font-black uppercase tracking-widest text-white/30">Status</p>
-                      <p className={`text-xs font-bold ${
-                        session.anime.status.toLowerCase().includes("airing") || session.anime.status.toLowerCase().includes("ongoing")
-                          ? "text-green-400"
-                          : "text-white/80"
-                      }`}>{session.anime.status}</p>
-                    </div>
-                  )}
-                  {session.anime.episodeCount && (
-                    <div className="bg-white/[0.03] border border-white/5 rounded-xl px-3 py-2 text-center">
-                      <Tv2 className="w-3.5 h-3.5 text-[#ff5500] mx-auto mb-1" />
-                      <p className="text-[9px] font-black uppercase tracking-widest text-white/30">Episodes</p>
-                      <p className="text-xs font-bold text-white/80">{session.anime.episodeCount}</p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Genres */}
-                {session.anime.genres.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {session.anime.genres.map((genre) => (
-                      <Link
-                        key={genre}
-                        href={`/search?genre=${genre}`}
-                        className="text-[10px] font-bold px-2.5 py-1 rounded-full transition-all hover:opacity-80"
-                        style={{ color: "#ff5500", background: "rgba(255,85,0,0.1)", border: "1px solid rgba(255,85,0,0.15)" }}
-                      >
-                        {genre}
-                      </Link>
-                    ))}
-                  </div>
-                )}
-
-                {/* Quick links */}
-                <div className="flex items-center gap-4 pt-2 border-t border-white/5">
-                  <Link href={session.anime.href} className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#ff5500] hover:text-[#ff7733] transition-colors">
-                    <Info className="w-3.5 h-3.5" /> Full Details
-                  </Link>
-                  {session.anime.anilistId && (
-                    <a href={`https://anilist.co/anime/${session.anime.anilistId}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] font-bold text-white/35 hover:text-white/60 transition-colors">
-                      <ExternalLink className="w-3 h-3" /> AniList
-                    </a>
-                  )}
-                  {session.anime.malId && (
-                    <a href={`https://myanimelist.net/anime/${session.anime.malId}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] font-bold text-white/35 hover:text-white/60 transition-colors">
-                      <ExternalLink className="w-3 h-3" /> MAL
-                    </a>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Synopsis */}
-            {session.anime.description && (
-              <div className="mt-4 pt-4 border-t border-white/5">
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-white/30 mb-2">Synopsis</h3>
-                <p className="text-[13px] text-white/50 leading-relaxed">
-                  {session.anime.description.replace(/<[^>]+>/g, "")}
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Attempt Trail */}
-          <AttemptTrail attempts={session.attempts} activeProvider={session.provider} label="Catalog fallback trail" />
-        </div>
-
-        {/* ── RIGHT: Recommendations ── */}
+        <WatchAnimeDetailsPanel session={session} heroImage={heroImage} />
         <div>
-          <div className="sticky top-20 space-y-4">
-            <h2 className="text-[11px] font-black uppercase tracking-widest text-white/40">
-              {recommendations.length > 0 ? "Recommended for You" : "Trending Now"}
-            </h2>
-
-            {recommendations.length > 0 && (
-              <div className="grid grid-cols-2 gap-3">
-                {recommendations.slice(0, 8).map((rec) => {
-                  const recTitle = anilistTitle(rec);
-                  const recRating = anilistRating(rec);
-                  const recFormat = anilistFormat(rec);
-                  const recHref = `/anime/${encodeAnilistRouteId(rec.id)}`;
-                  const recImage = rec.coverImage.extraLarge || rec.coverImage.large;
-                  const recColor = rec.coverImage.color || "#ff5500";
-                  const isAiring = rec.status === "RELEASING";
-                  return (
-                    <Link
-                      key={rec.id}
-                      href={recHref}
-                      className="group/rec flex flex-col gap-1.5 transition-all duration-300"
-                    >
-                      <div className="relative overflow-hidden rounded-xl bg-[#1a1c22]" style={{ aspectRatio: "2/3" }}>
-                        <img
-                          src={recImage}
-                          alt={recTitle}
-                          className="w-full h-full object-cover transition-transform duration-500 group-hover/rec:scale-105"
-                          loading="lazy"
-                        />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover/rec:opacity-100 transition-opacity duration-300" />
-                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/rec:opacity-100 transition-opacity duration-300">
-                          <div className="w-10 h-10 rounded-full flex items-center justify-center shadow-2xl pl-0.5" style={{ backgroundColor: recColor }}>
-                            <Play className="w-4 h-4 text-white fill-current" />
-                          </div>
-                        </div>
-                        {/* Badges */}
-                        <div className="absolute top-1.5 left-1.5 flex flex-col gap-1">
-                          {isAiring && (
-                            <span className="flex items-center gap-1 bg-[#ff5500] text-white text-[8px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-wider">
-                              <span className="w-1 h-1 rounded-full bg-white animate-pulse" />
-                              Airing
-                            </span>
-                          )}
-                        </div>
-                        {recRating && (
-                          <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 bg-black/70 backdrop-blur text-yellow-400 text-[9px] font-black px-1.5 py-0.5 rounded-md">
-                            <Star className="w-2.5 h-2.5 fill-current" />
-                            {recRating}
-                          </div>
-                        )}
-                        {rec.episodes && (
-                          <div className="absolute bottom-1.5 right-1.5 bg-black/70 backdrop-blur text-white/80 text-[8px] font-bold px-1.5 py-0.5 rounded-md">
-                            {rec.nextAiringEpisode
-                              ? `EP ${rec.nextAiringEpisode.episode - 1}/${rec.episodes}`
-                              : `${rec.episodes} EP`}
-                          </div>
-                        )}
-                      </div>
-                      <div className="px-0.5">
-                        <h3 className="text-[11px] font-bold text-white/80 group-hover/rec:text-white line-clamp-2 leading-tight transition-colors">
-                          {recTitle}
-                        </h3>
-                        <div className="flex items-center justify-between mt-0.5">
-                          <span className="text-[9px] text-white/30 font-semibold uppercase tracking-wider">
-                            {recFormat}
-                          </span>
-                          {rec.genres[0] && (
-                            <span
-                              className="text-[8px] font-bold px-1.5 py-0.5 rounded-full"
-                              style={{ color: recColor, background: `${recColor}20` }}
-                            >
-                              {rec.genres[0]}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </Link>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          <WatchRecommendationsPanel recommendations={recommendations} />
         </div>
       </div>
 

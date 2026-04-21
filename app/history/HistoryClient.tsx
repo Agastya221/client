@@ -61,7 +61,9 @@ export default function HistoryPage() {
               <p className="text-[10px] font-black uppercase tracking-widest text-purple-400">Your Activity</p>
             </div>
             <h1 className="text-4xl font-black text-white mb-2">Watch History</h1>
-            <p className="text-white/40 text-sm">{history.length} anime watched • Stored locally in your browser</p>
+            <p className="text-white/40 text-sm">
+              {history.length} anime watched • Stored locally and synced when you sign in
+            </p>
           </div>
 
           {history.length > 0 && (
