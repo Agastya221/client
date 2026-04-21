@@ -2,10 +2,12 @@ import Navbar from "@/components/ui/Navbar";
 import SiteFooter from "@/components/ui/SiteFooter";
 import AnilistCard from "@/components/anilist/AnilistCard";
 import { getCatalogAvailabilityForMedia } from "@/lib/anilist/availability";
-import { searchAnilist, getAnilistGenres } from "@/lib/anilist/api";
+import { searchAnilist, getAnilistGenres, type AnilistMedia, type AnilistPageInfo } from "@/lib/anilist/api";
+import type { CatalogAvailabilityHint } from "@/lib/anime/api";
 import { Search, SlidersHorizontal, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import type { Metadata } from "next";
+import { recordLog } from "@/lib/observability";
 
 function firstParam(v: string | string[] | undefined): string {
   return Array.isArray(v) ? v[0] || "" : v || "";
@@ -55,11 +57,45 @@ export default async function SearchPage({
                sortParam === "season" ? ["POPULARITY_DESC"] :
                search ? ["SEARCH_MATCH"] : ["POPULARITY_DESC"];
 
-  const [{ media, pageInfo }, genres] = await Promise.all([
-    searchAnilist({ search: search || undefined, genre: genre || undefined, page, perPage: 24, sort }),
-    getAnilistGenres(),
-  ]);
-  const availabilityHints = await getCatalogAvailabilityForMedia(media);
+  let media: AnilistMedia[] = [];
+  let pageInfo: AnilistPageInfo = {
+    total: 0,
+    currentPage: page,
+    lastPage: page,
+    hasNextPage: false,
+    perPage: 24,
+  };
+  let genres: string[] = [];
+  let availabilityHints: Record<number, CatalogAvailabilityHint> = {};
+
+  try {
+    const [searchResult, genresResult] = await Promise.all([
+      searchAnilist({ search: search || undefined, genre: genre || undefined, page, perPage: 24, sort }),
+      getAnilistGenres(),
+    ]);
+    media = searchResult.media;
+    pageInfo = searchResult.pageInfo;
+    genres = genresResult;
+  } catch (error) {
+    recordLog(
+      "warn",
+      "page.search.load_failed",
+      { route: "/search", sort: sortParam || "default", page },
+      error instanceof Error ? error.message : "Search page load failed",
+    );
+  }
+
+  try {
+    availabilityHints = media.length > 0 ? await getCatalogAvailabilityForMedia(media) : {};
+  } catch (error) {
+    recordLog(
+      "warn",
+      "page.search.availability_failed",
+      { route: "/search", sort: sortParam || "default", page, media: media.length },
+      error instanceof Error ? error.message : "Catalog availability lookup failed",
+    );
+    availabilityHints = {};
+  }
 
   const heading = genre
     ? `${genre} Anime`
@@ -179,7 +215,11 @@ export default async function SearchPage({
               <div className="text-center py-24">
                 <p className="text-6xl mb-4">🔍</p>
                 <p className="text-white/40 text-lg font-semibold">No results found</p>
-                <p className="text-white/20 text-sm mt-2">Try a different search term or genre</p>
+                <p className="text-white/20 text-sm mt-2">
+                  {page > 1 && !search && !genre
+                    ? "This page could not be loaded right now. Try again in a moment or go back one page."
+                    : "Try a different search term or genre"}
+                </p>
                 <Link href="/search" className="mt-6 inline-flex items-center gap-2 text-[#ff5500] text-sm font-bold hover:underline">
                   Clear search <ChevronRight className="w-3.5 h-3.5" />
                 </Link>

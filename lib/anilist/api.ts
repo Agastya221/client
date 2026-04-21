@@ -7,6 +7,7 @@
 const ANILIST_URL = "https://graphql.anilist.co";
 
 import { cache } from "react";
+import { cacheFetch } from "@/lib/cache";
 
 const MEDIA_FRAGMENT = `
   fragment MediaFields on Media {
@@ -36,16 +37,39 @@ const MEDIA_FRAGMENT = `
 `;
 
 async function anilistQuery<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
-  const res = await fetch(ANILIST_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ query, variables }),
-    next: { revalidate: 300 },
-  });
-  if (!res.ok) throw new Error(`AniList API error: ${res.status}`);
-  const json = await res.json();
-  if (json.errors) throw new Error(json.errors[0]?.message || "AniList GraphQL error");
-  return json.data as T;
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const res = await fetch(ANILIST_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ query, variables }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(12_000),
+    });
+
+    if (res.ok) {
+      const json = await res.json();
+      if (json.errors) {
+        throw new Error(json.errors[0]?.message || "AniList GraphQL error");
+      }
+      return json.data as T;
+    }
+
+    lastError = new Error(`AniList API error: ${res.status}`);
+    const shouldRetry = res.status === 429 || res.status >= 500;
+    if (!shouldRetry || attempt === 2) {
+      throw lastError;
+    }
+
+    const retryAfterSeconds = Number(res.headers.get("retry-after") || 0);
+    const waitMs = retryAfterSeconds > 0
+      ? retryAfterSeconds * 1000
+      : 500 * (attempt + 1);
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+
+  throw lastError || new Error("AniList query failed");
 }
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -346,30 +370,63 @@ function getCurrentSeason(): { season: string; year: number } {
 // ─── Public API ────────────────────────────────────────────────────────────
 
 export async function getAnilistTrending(perPage = 10): Promise<AnilistMedia[]> {
-  const data = await anilistQuery<{ trending: { media: AnilistMedia[] } }>(TRENDING_QUERY, {
-    page: 1,
-    perPage,
-  });
-  return normalizeAnilistMediaCollection(data?.trending?.media);
+  return cacheFetch(
+    `anilist:trending:${perPage}`,
+    async () => {
+      const data = await anilistQuery<{ trending: { media: AnilistMedia[] } }>(TRENDING_QUERY, {
+        page: 1,
+        perPage,
+      });
+      return normalizeAnilistMediaCollection(data?.trending?.media);
+    },
+    {
+      freshMs: 5 * 60 * 1000,
+      staleMs: 30 * 60 * 1000,
+      expireMs: 60 * 60 * 1000,
+      shouldCache: (value) => Array.isArray(value) && value.length > 0,
+    },
+  );
 }
 
 export async function getAnilistSeasonal(perPage = 20): Promise<AnilistMedia[]> {
   const { season, year } = getCurrentSeason();
-  const data = await anilistQuery<{ seasonal: { media: AnilistMedia[] } }>(SEASONAL_QUERY, {
-    season,
-    year,
-    page: 1,
-    perPage,
-  });
-  return normalizeAnilistMediaCollection(data?.seasonal?.media);
+  return cacheFetch(
+    `anilist:seasonal:${season}:${year}:${perPage}`,
+    async () => {
+      const data = await anilistQuery<{ seasonal: { media: AnilistMedia[] } }>(SEASONAL_QUERY, {
+        season,
+        year,
+        page: 1,
+        perPage,
+      });
+      return normalizeAnilistMediaCollection(data?.seasonal?.media);
+    },
+    {
+      freshMs: 5 * 60 * 1000,
+      staleMs: 30 * 60 * 1000,
+      expireMs: 60 * 60 * 1000,
+      shouldCache: (value) => Array.isArray(value) && value.length > 0,
+    },
+  );
 }
 
 export async function getAnilistPopular(perPage = 20): Promise<AnilistMedia[]> {
-  const data = await anilistQuery<{ popular: { media: AnilistMedia[] } }>(POPULAR_QUERY, {
-    page: 1,
-    perPage,
-  });
-  return normalizeAnilistMediaCollection(data?.popular?.media);
+  return cacheFetch(
+    `anilist:popular:${perPage}`,
+    async () => {
+      const data = await anilistQuery<{ popular: { media: AnilistMedia[] } }>(POPULAR_QUERY, {
+        page: 1,
+        perPage,
+      });
+      return normalizeAnilistMediaCollection(data?.popular?.media);
+    },
+    {
+      freshMs: 5 * 60 * 1000,
+      staleMs: 30 * 60 * 1000,
+      expireMs: 60 * 60 * 1000,
+      shouldCache: (value) => Array.isArray(value) && value.length > 0,
+    },
+  );
 }
 
 export async function searchAnilist(options: {
@@ -381,26 +438,67 @@ export async function searchAnilist(options: {
   status?: string;
   format?: string;
 }): Promise<{ media: AnilistMedia[]; pageInfo: AnilistPageInfo }> {
-  const data = await anilistQuery<{
-    Page: { media: AnilistMedia[]; pageInfo: AnilistPageInfo };
-  }>(SEARCH_QUERY, {
-    search: options.search || undefined,
-    genre: options.genre || undefined,
-    page: options.page || 1,
-    perPage: options.perPage || 24,
-    sort: options.sort || (options.search ? ["SEARCH_MATCH"] : ["POPULARITY_DESC"]),
-    status: options.status || undefined,
-    format: options.format || undefined,
-  });
-  return {
-    media: normalizeAnilistMediaCollection(data?.Page?.media),
-    pageInfo: normalizeAnilistPageInfo(data?.Page?.pageInfo, options.page || 1, options.perPage || 24),
-  };
+  const page = options.page || 1;
+  const perPage = options.perPage || 24;
+  const sort = options.sort || (options.search ? ["SEARCH_MATCH"] : ["POPULARITY_DESC"]);
+  const cacheKey = [
+    "anilist:search",
+    options.search || "",
+    options.genre || "",
+    page,
+    perPage,
+    sort.join(","),
+    options.status || "",
+    options.format || "",
+  ].join(":");
+
+  return cacheFetch(
+    cacheKey,
+    async () => {
+      const data = await anilistQuery<{
+        Page: { media: AnilistMedia[]; pageInfo: AnilistPageInfo };
+      }>(SEARCH_QUERY, {
+        search: options.search || undefined,
+        genre: options.genre || undefined,
+        page,
+        perPage,
+        sort,
+        status: options.status || undefined,
+        format: options.format || undefined,
+      });
+      return {
+        media: normalizeAnilistMediaCollection(data?.Page?.media),
+        pageInfo: normalizeAnilistPageInfo(data?.Page?.pageInfo, page, perPage),
+      };
+    },
+    {
+      freshMs: 5 * 60 * 1000,
+      staleMs: 20 * 60 * 1000,
+      expireMs: 45 * 60 * 1000,
+      shouldCache: (value) =>
+        Boolean(
+          value &&
+          typeof value === "object" &&
+          Array.isArray((value as { media?: unknown[] }).media),
+        ),
+    },
+  );
 }
 
 export async function getAnilistGenres(): Promise<string[]> {
-  const data = await anilistQuery<{ GenreCollection: string[] }>(GENRES_QUERY);
-  return data.GenreCollection.filter(Boolean);
+  return cacheFetch(
+    "anilist:genres",
+    async () => {
+      const data = await anilistQuery<{ GenreCollection: string[] }>(GENRES_QUERY);
+      return data.GenreCollection.filter(Boolean);
+    },
+    {
+      freshMs: 12 * 60 * 60 * 1000,
+      staleMs: 24 * 60 * 60 * 1000,
+      expireMs: 3 * 24 * 60 * 60 * 1000,
+      shouldCache: (value) => Array.isArray(value) && value.length > 0,
+    },
+  );
 }
 
 export interface AnilistDetailMedia extends AnilistMedia {
