@@ -1107,9 +1107,9 @@ async function postBackendJson(path: string, payload: JsonValue): Promise<void> 
 }
 
 const ANIMEKAI_V2_BASE_PATH = "/api/v2/anime/animekai";
-const WATCH_SESSION_FRESH_MS = 2 * 60 * 1000;
-const WATCH_SESSION_STALE_MS = 10 * 60 * 1000;
-const WATCH_SESSION_EXPIRE_MS = 20 * 60 * 1000;
+const WATCH_SESSION_FRESH_MS = 5 * 60 * 1000;
+const WATCH_SESSION_STALE_MS = 20 * 60 * 1000;
+const WATCH_SESSION_EXPIRE_MS = 30 * 60 * 1000;
 
 function hasPlayableStreamSource(source: StreamSource | null | undefined): boolean {
   return Boolean(source?.url || source?.iframeUrl || source?.proxiedUrl);
@@ -2402,14 +2402,23 @@ async function _getAnimeDetailModelRaw(
   const episodeMap = new Map<number, EpisodeModel>();
   const providerOrder = [detail.activeProvider, ...PROVIDERS.filter((provider) => provider !== detail.activeProvider)];
 
-  for (const provider of providerOrder) {
-    const providerId = detail.anime.providerIds[provider];
-    if (!providerId) continue;
-    try {
-      const episodes = await fetchProviderEpisodes(provider, providerId);
-      mergeEpisodeMaps(episodeMap, episodes, provider, { allowNewEntries: episodeMap.size === 0 });
-    } catch {
-      // Keep detail page resilient; overview already captured primary selection attempts.
+  // Fetch episodes from all providers in parallel for speed
+  const episodeFetchTargets = providerOrder
+    .map((provider) => ({ provider, providerId: detail.anime.providerIds[provider] }))
+    .filter((target): target is { provider: ProviderId; providerId: string } => Boolean(target.providerId));
+
+  const episodeResults = await Promise.allSettled(
+    episodeFetchTargets.map(async ({ provider, providerId }) => ({
+      provider,
+      episodes: await fetchProviderEpisodes(provider, providerId),
+    })),
+  );
+
+  // Merge in original provider order for deterministic results
+  for (const target of episodeFetchTargets) {
+    const result = episodeResults[episodeFetchTargets.indexOf(target)];
+    if (result.status === "fulfilled") {
+      mergeEpisodeMaps(episodeMap, result.value.episodes, result.value.provider, { allowNewEntries: episodeMap.size === 0 });
     }
   }
 
@@ -2665,6 +2674,13 @@ async function fetchAnimeKaiEmbedWatchSession(
   const embed = await fetchAnimeKaiEmbedSource(selected.linkId);
   const embedUrl = String(embed.embed_url || "");
   const skip = embed.skip || {};
+
+  // Pre-warm embed cache for sibling servers (fire-and-forget)
+  for (const entry of entries) {
+    if (entry.linkId !== selected.linkId) {
+      void fetchAnimeKaiEmbedSource(entry.linkId).catch(() => undefined);
+    }
+  }
   const source = normalizeStreamSourceFromUrl({
     label: selected.name || "AnimeKai",
     url: null,
