@@ -207,6 +207,7 @@ async function AnilistDetailContent({ anilistId }: { anilistId: number }) {
                 {watchHref ? (
                   <Link
                     href={watchHref}
+                    prefetch
                     className="flex items-center gap-2.5 text-white font-black text-sm px-8 py-4 rounded-full transition-all hover:scale-105 shadow-xl"
                     style={{ backgroundColor: accentColor, boxShadow: `0 12px 32px ${accentColor}50` }}
                   >

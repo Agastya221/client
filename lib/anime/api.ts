@@ -2646,10 +2646,6 @@ async function fetchAnimeKaiEmbedWatchSession(
   dubbed: boolean,
   requestedServer?: string | null,
 ): Promise<ProviderWatchPayload> {
-  if (episodeId.includes("$token=")) {
-    return fetchAnimeKaiWatchSession(episodeId, dubbed, requestedServer);
-  }
-
   const entries = await fetchAnimeKaiServerEntries(episodeId, dubbed);
   const selected =
     entries.find((entry) => entry.name.toLowerCase() === String(requestedServer || "").toLowerCase()) ||

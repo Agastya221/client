@@ -150,8 +150,26 @@ export function WatchAnimeDetailsPanel({
 export function WatchRecommendationsPanel({
   recommendations,
 }: {
-  recommendations: AnilistMedia[];
+  recommendations: AnilistMedia[] | null;
 }) {
+  if (recommendations === null) {
+    return (
+      <div className="sticky top-20 space-y-4">
+        <h2 className="text-[11px] font-black uppercase tracking-widest text-white/40">
+          Loading Recommendations
+        </h2>
+        <div className="grid grid-cols-2 gap-3">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div
+              key={index}
+              className="aspect-[2/3] rounded-xl border border-white/5 bg-white/[0.03] animate-pulse"
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="sticky top-20 space-y-4">
       <h2 className="text-[11px] font-black uppercase tracking-widest text-white/40">

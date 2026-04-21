@@ -163,6 +163,7 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
             {watchHref ? (
               <Link
                 href={watchHref}
+                prefetch
                 className="flex items-center gap-2.5 text-white font-black text-sm px-7 py-3.5 rounded-full transition-all duration-200 hover:scale-105 hover:shadow-lg shadow-md"
                 style={{ backgroundColor: accentColor, boxShadow: `0 8px 24px ${accentColor}50` }}
               >

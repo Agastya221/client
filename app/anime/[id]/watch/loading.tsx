@@ -1,4 +1,3 @@
-import { Loader2 } from "lucide-react";
 import Navbar from "@/components/ui/Navbar";
 import SiteFooter from "@/components/ui/SiteFooter";
 
@@ -22,11 +21,25 @@ export default function WatchLoading() {
           <div className="flex flex-col lg:flex-row gap-6">
             {/* Main Player Skeleton */}
             <div className="flex-1 space-y-6">
-              <div className="aspect-video w-full rounded-2xl bg-[#161616] border border-white/10 shadow-2xl flex flex-col items-center justify-center gap-4">
-                <Loader2 className="w-12 h-12 text-[#ff5500] animate-spin" />
-                <p className="text-white/50 text-xs font-bold uppercase tracking-widest">
-                  CONNECTING TO SERVERS...
-                </p>
+              <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-white/10 bg-[#161616] shadow-2xl">
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.06),transparent_45%)]" />
+                <div className="absolute inset-0 bg-[linear-gradient(115deg,rgba(255,255,255,0.03),transparent_35%,rgba(255,255,255,0.03)_65%,transparent)] animate-pulse" />
+                <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/80 to-transparent" />
+                <div className="absolute left-5 bottom-5 space-y-3">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/35 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.24em] text-white/65">
+                    <span className="h-2 w-2 rounded-full bg-[#ff5500] animate-pulse" />
+                    Opening Player
+                  </div>
+                  <div className="space-y-2">
+                    <div className="h-4 w-44 rounded bg-white/10" />
+                    <div className="h-3 w-64 rounded bg-white/5" />
+                  </div>
+                </div>
+                <div className="absolute right-5 bottom-5 hidden md:block">
+                  <div className="h-2 w-24 overflow-hidden rounded-full bg-white/10">
+                    <div className="h-full w-full animate-[bufferBar_1.8s_ease-in-out_infinite] bg-gradient-to-r from-[#ff5500] via-[#ff7733] to-[#ff5500]" />
+                  </div>
+                </div>
               </div>
 
               {/* Server Select Skeleton */}

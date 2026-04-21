@@ -95,6 +95,7 @@ function EpisodeCard({
   return (
     <Link
       href={`/anime/${id}/watch?ep=${episode.number}&provider=${activeProvider}`}
+      prefetch
       className="group rounded-[1.35rem] border border-white/8 bg-[linear-gradient(160deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-4 transition-all hover:-translate-y-0.5 hover:border-[#ff5500]/35 hover:bg-white/[0.07]"
     >
       <div className="flex items-start justify-between gap-3">
@@ -228,6 +229,7 @@ async function DetailContent({ idPromise, searchParamsPromise }: { idPromise: Pr
               <div className="flex flex-wrap gap-3">
                 <Link
                   href={`/anime/${id}/watch?ep=1&provider=${detail.activeProvider}`}
+                  prefetch
                   className="inline-flex items-center gap-2 rounded-full bg-[#ff5500] px-8 py-3.5 text-sm font-black text-white transition-transform hover:scale-105 shadow-[0_0_20px_rgba(255,85,0,0.4)]"
                 >
                   <Play className="h-4 w-4 fill-current" />

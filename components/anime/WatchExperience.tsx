@@ -70,7 +70,7 @@ interface ResolveParams {
 interface WatchExperienceProps {
   initialSession: WatchSessionModel;
   resolveParams?: ResolveParams;
-  recommendations?: AnilistMedia[];
+  recommendations?: AnilistMedia[] | null;
   currentUserId?: string | null;
 }
 
@@ -84,6 +84,7 @@ interface SessionRequest {
 type SkipWindow = { start: number; end: number } | null;
 type QualityOption = { value: string; label: string; level: number | null };
 type AudioTrackOption = { value: string; label: string; track: number | null };
+type SessionPlaybackMode = "preserve" | "embed" | "direct";
 
 const STORAGE_KEYS = {
   preferEmbed: "animekai-watch:prefer-embed",
@@ -100,6 +101,27 @@ function buildWatchSessionUrl(session: WatchSessionModel, request: SessionReques
   if (request.dubbed) params.set("dub", "1");
   if (request.server) params.set("server", request.server);
   return `/api/watch-session?${params.toString()}`;
+}
+
+function hasDirectPlaybackSource(session: WatchSessionModel): boolean {
+  return Boolean(session.source?.proxiedUrl || session.source?.url);
+}
+
+function shouldUseEmbedPlayback(session: WatchSessionModel): boolean {
+  if (!session.source?.iframeUrl) return false;
+  return true;
+}
+
+function resolveSessionShowEmbed(
+  nextSession: WatchSessionModel,
+  currentShowEmbed: boolean,
+  mode: SessionPlaybackMode = "preserve",
+): boolean {
+  if (!nextSession.source?.iframeUrl) return false;
+  if (!hasDirectPlaybackSource(nextSession)) return true;
+  if (mode === "embed") return true;
+  if (mode === "direct") return false;
+  return currentShowEmbed;
 }
 
 /* ── Client-side session cache ─────────────────────
@@ -365,19 +387,21 @@ function BufferingText() {
 /* ════════════════════════════════════════════════
    MAIN: WatchExperience
    ════════════════════════════════════════════════ */
-export default function WatchExperience({ initialSession, resolveParams, recommendations = [], currentUserId }: WatchExperienceProps) {
+export default function WatchExperience({ initialSession, resolveParams, recommendations = null, currentUserId }: WatchExperienceProps) {
+  const initialDirectAvailable = hasDirectPlaybackSource(initialSession);
+  const initialRecommendations = recommendations ?? null;
   const [session, setSession] = useState(initialSession);
   const [isPending, startTransition] = useTransition();
   const [isSessionLoading, setIsSessionLoading] = useState(false);
   const [playbackMessage, setPlaybackMessage] = useState<string | null>(null);
   const [preferEmbeddedPlayback, setPreferEmbeddedPlayback] = useState(true);
-  const [showEmbed, setShowEmbed] = useState(Boolean(initialSession.source?.iframeUrl));
+  const [showEmbed, setShowEmbed] = useState(shouldUseEmbedPlayback(initialSession));
   const [autoNextEnabled, setAutoNextEnabled] = useState(true);
   const [autoSkipEnabled, setAutoSkipEnabled] = useState(true);
   const [autoPlayEnabled, setAutoPlayEnabled] = useState(false);
-  const [playerActivated, setPlayerActivated] = useState(false);
+  const [playerActivated, setPlayerActivated] = useState(true);
   const [isRecovering, setIsRecovering] = useState(false);
-  const [isResolvingStream, setIsResolvingStream] = useState(!initialSession.source && !!resolveParams);
+  const [isResolvingStream, setIsResolvingStream] = useState(Boolean(resolveParams) && !initialDirectAvailable);
   const [episodeQuery, setEpisodeQuery] = useState("");
   const [selectedSubtitle, setSelectedSubtitle] = useState("off");
   const [qualityOptions, setQualityOptions] = useState<QualityOption[]>([]);
@@ -388,6 +412,9 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
   const [focusMode, setFocusMode] = useState(false);
   const [watchedEpisodes, setWatchedEpisodes] = useState<Set<number>>(new Set());
   const [autoNextCountdown, setAutoNextCountdown] = useState<number | null>(null);
+  const [activeEmbedLoaded, setActiveEmbedLoaded] = useState(false);
+  const [activeDirectReady, setActiveDirectReady] = useState(initialDirectAvailable);
+  const [playerFeedbackVisible, setPlayerFeedbackVisible] = useState(true);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
   const pendingVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -398,6 +425,14 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
   const autoNextTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSessionKeyRef = useRef<string | null>(null);
+  const pendingSessionModeRef = useRef<SessionPlaybackMode>("preserve");
+  const autoResolveKeyRef = useRef<string | null>(null);
+  const resolveRequestIdRef = useRef(0);
+  const resumePlaybackOnDirectRef = useRef(initialDirectAvailable);
+  const playerFeedbackStartRef = useRef(Date.now());
+  const manualEmbedModeRef = useRef(false);
+  const [deferredRecommendations, setDeferredRecommendations] = useState<AnilistMedia[] | null>(initialRecommendations);
+  const [resolvedCurrentUserId, setResolvedCurrentUserId] = useState<string | null>(currentUserId ?? null);
 
   const embedAvailable = Boolean(session.source?.iframeUrl);
   const directSourceUrl = session.source?.proxiedUrl || session.source?.url || null;
@@ -419,6 +454,26 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
   const pendingEmbedUrl = pendingSession?.source?.iframeUrl || null;
   const pendingDirectSourceUrl = pendingSession?.source?.proxiedUrl || pendingSession?.source?.url || null;
   const pendingDirectIsHls = Boolean(pendingSession?.source?.isM3U8);
+  const animeGenresKey = session.anime.genres.join("|");
+  const activePlayerSurfaceKey = [
+    session.anime.id,
+    session.episode.number,
+    session.provider,
+    session.activeServerId || "",
+    session.source?.iframeUrl || "",
+    directSourceUrl || "",
+    showEmbed ? "embed" : "direct",
+  ].join("|");
+  const activeSurfaceReady =
+    showEmbed
+      ? embedAvailable
+        ? activeEmbedLoaded
+        : !isResolvingStream
+      : directAvailable
+        ? activeDirectReady
+        : !isResolvingStream;
+  const embedLayerVisible = Boolean(session.source?.iframeUrl) && (showEmbed || !activeDirectReady);
+  const directLayerVisible = directAvailable && !showEmbed;
 
   /* ── localStorage sync ───────────────────────── */
   useEffect(() => {
@@ -453,14 +508,25 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
     setSession(initialSession);
     setPendingSession(null);
     pendingSessionKeyRef.current = null;
+    pendingSessionModeRef.current = "preserve";
+    autoResolveKeyRef.current = null;
+    resolveRequestIdRef.current += 1;
+    resumePlaybackOnDirectRef.current = hasDirectPlaybackSource(initialSession);
+    manualEmbedModeRef.current = false;
     if (pendingCommitTimerRef.current) {
       clearTimeout(pendingCommitTimerRef.current);
       pendingCommitTimerRef.current = null;
     }
     setPlaybackMessage(null);
-    setShowEmbed(Boolean(initialSession.source?.iframeUrl) && preferEmbeddedPlayback);
+    setShowEmbed(shouldUseEmbedPlayback(initialSession));
+    setPlayerActivated(true);
     setIsRecovering(false);
     setIsSessionLoading(false);
+    setIsResolvingStream(Boolean(resolveParams) && !hasDirectPlaybackSource(initialSession));
+    setActiveEmbedLoaded(false);
+    setActiveDirectReady(hasDirectPlaybackSource(initialSession) && !initialSession.source?.iframeUrl);
+    setPlayerFeedbackVisible(true);
+    playerFeedbackStartRef.current = Date.now();
     setSelectedSubtitle(initialSession.subtitles[0] ? subtitleValue(initialSession.subtitles[0]) : "off");
     setQualityOptions([]);
     setSelectedQuality(qualityOptionValue(null));
@@ -468,7 +534,61 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
     setSelectedAudioTrack("audio:auto");
     skipRef.current = { intro: false, outro: false };
     triedTargetsRef.current.clear();
-  }, [initialSession, preferEmbeddedPlayback]);
+  }, [initialSession, resolveParams]);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (session.anime.anilistId) params.set("anilistId", String(session.anime.anilistId));
+    if (session.anime.title) params.set("title", session.anime.title);
+    if (session.anime.genres.length > 0) params.set("genres", session.anime.genres.join(","));
+
+    const controller = new AbortController();
+
+    setDeferredRecommendations(null);
+
+    void fetch(`/api/watch-page-context?${params.toString()}`, {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`Watch page context failed with ${response.status}`);
+        }
+        return response.json() as Promise<{
+          currentUserId?: string | null;
+          recommendations?: AnilistMedia[];
+        }>;
+      })
+      .then((payload) => {
+        if (controller.signal.aborted) return;
+        setDeferredRecommendations(payload.recommendations ?? []);
+        setResolvedCurrentUserId(payload.currentUserId ?? null);
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setDeferredRecommendations((current) => current ?? []);
+      });
+
+    return () => controller.abort();
+  }, [animeGenresKey, session.anime.anilistId, session.anime.id, session.anime.title]);
+
+  useEffect(() => {
+    playerFeedbackStartRef.current = Date.now();
+    setPlayerFeedbackVisible(true);
+    setActiveEmbedLoaded(false);
+    setActiveDirectReady(showEmbed ? false : !directAvailable);
+  }, [activePlayerSurfaceKey, directAvailable, showEmbed]);
+
+  useEffect(() => {
+    if (!playerFeedbackVisible || !activeSurfaceReady) return;
+
+    const remaining = Math.max(0, 240 - (Date.now() - playerFeedbackStartRef.current));
+    const timer = window.setTimeout(() => {
+      setPlayerFeedbackVisible(false);
+    }, remaining);
+
+    return () => window.clearTimeout(timer);
+  }, [activeSurfaceReady, playerFeedbackVisible]);
 
   const resolveEnhancedPlayback = useEffectEvent(async (options?: {
     activate?: boolean;
@@ -487,6 +607,9 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
       dubbed: options?.dubbed ?? session.dubbed,
       server: options?.server ?? session.activeServerId ?? "",
     };
+    const requestId = resolveRequestIdRef.current + 1;
+
+    resolveRequestIdRef.current = requestId;
 
     setIsResolvingStream(true);
 
@@ -505,32 +628,57 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
       }
 
       const data = await res.json();
-      setSession((prev) => ({
-        ...prev,
-        source: data.source || prev.source,
-        subtitles: data.subtitles || prev.subtitles,
-        serverOptions: data.serverOptions || prev.serverOptions,
-        activeServerId: data.activeServerId || prev.activeServerId,
-        provider: data.provider || prev.provider,
-        intro: data.intro ?? prev.intro,
-        outro: data.outro ?? prev.outro,
-        watchAttempts: data.watchAttempts || prev.watchAttempts,
-      }));
+      if (requestId !== resolveRequestIdRef.current) {
+        return false;
+      }
+
+      const nextSession: WatchSessionModel = {
+        ...session,
+        source: data.source || session.source,
+        subtitles: data.subtitles || session.subtitles,
+        serverOptions: data.serverOptions || session.serverOptions,
+        activeServerId: data.activeServerId || session.activeServerId,
+        provider: data.provider || session.provider,
+        intro: data.intro ?? session.intro,
+        outro: data.outro ?? session.outro,
+        watchAttempts: data.watchAttempts || session.watchAttempts,
+      };
+
       if (data.subtitles?.[0]) {
         setSelectedSubtitle(subtitleValue(data.subtitles[0]));
       }
 
-      const hasDirectUrl = Boolean(data.source?.proxiedUrl || data.source?.url);
+      const hasDirectUrl = hasDirectPlaybackSource(nextSession);
       if (hasDirectUrl) {
+        const targetMode: SessionPlaybackMode =
+          options?.activate || !manualEmbedModeRef.current ? "direct" : "embed";
+        if (playerActivated || options?.activate) {
+          resumePlaybackOnDirectRef.current = targetMode === "direct";
+        }
+        stageOrCommitSession(nextSession, targetMode);
         if (options?.activate) {
           setPlayerActivated(true);
-          setShowEmbed(false);
           setPlaybackMessage("Enhanced player ready.");
         }
         return true;
       }
 
-      if (data.source?.iframeUrl && preferEmbeddedPlayback) {
+      setSession((prev) => ({
+        ...prev,
+        source: nextSession.source,
+        subtitles: nextSession.subtitles,
+        serverOptions: nextSession.serverOptions,
+        activeServerId: nextSession.activeServerId,
+        provider: nextSession.provider,
+        intro: nextSession.intro,
+        outro: nextSession.outro,
+        watchAttempts: nextSession.watchAttempts,
+      }));
+
+      if (nextSession.source?.iframeUrl) {
+        if (options?.activate) {
+          setPlayerActivated(true);
+        }
         setShowEmbed(true);
       }
 
@@ -544,30 +692,53 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
       }
       return false;
     } finally {
-      setIsResolvingStream(false);
+      if (requestId === resolveRequestIdRef.current) {
+        setIsResolvingStream(false);
+      }
     }
   });
 
-  /* ── Auto-resolve only when no embed/direct source exists ── */
+  /* ── Auto-resolve after first paint until direct playback is ready ── */
   useEffect(() => {
-    if (!resolveParams || initialSession.source) return;
+    if (!resolveParams || directAvailable) return;
+
+    const requestKey = [
+      session.anime.id,
+      resolveParams.episodeNumber,
+      resolveParams.provider || session.provider,
+      resolveParams.dubbed ? "dub" : "sub",
+      resolveParams.server || session.activeServerId || "",
+    ].join("|");
+
+    if (autoResolveKeyRef.current === requestKey) return;
+    autoResolveKeyRef.current = requestKey;
 
     let cancelled = false;
-
-    (async () => {
-      const ok = await resolveEnhancedPlayback({
+    const timer = window.setTimeout(() => {
+      void resolveEnhancedPlayback({
         silent: true,
         provider: resolveParams.provider || session.provider,
         episodeNumber: resolveParams.episodeNumber,
         dubbed: resolveParams.dubbed,
         server: resolveParams.server,
+      }).then((ok) => {
+        if (cancelled || ok) return;
+        setPlaybackMessage("No stream source available. Try a different server.");
       });
-      if (cancelled || ok) return;
-      setPlaybackMessage("No stream source available. Try a different server.");
-    })();
+    }, 0);
 
-    return () => { cancelled = true; };
-  }, [initialSession.source, resolveEnhancedPlayback, resolveParams, session.provider]);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    directAvailable,
+    resolveEnhancedPlayback,
+    resolveParams,
+    session.activeServerId,
+    session.anime.id,
+    session.provider,
+  ]);
 
   useEffect(() => {
     if (autoPlayEnabled && directAvailable && !embedAvailable) {
@@ -829,19 +1000,24 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
     }
   });
 
-  const commitSession = useEffectEvent((nextSession: WatchSessionModel) => {
-    const hasDirectUrl = Boolean(nextSession.source?.proxiedUrl || nextSession.source?.url);
+  const commitSession = useEffectEvent((
+    nextSession: WatchSessionModel,
+    mode: SessionPlaybackMode = "preserve",
+  ) => {
     const defaultSubtitle = nextSession.subtitles[0] ? subtitleValue(nextSession.subtitles[0]) : "off";
     clearPendingCommit();
     destroyPendingPlayer();
     pendingSessionKeyRef.current = null;
+    pendingSessionModeRef.current = "preserve";
+    autoResolveKeyRef.current = null;
+    resolveRequestIdRef.current += 1;
     setPendingSession(null);
     setIsSessionLoading(false);
 
     startTransition(() => {
       setSession((previous) => mergeWatchSessions(previous, nextSession));
       setPlaybackMessage(null);
-      setShowEmbed(!hasDirectUrl && Boolean(nextSession.source?.iframeUrl) && preferEmbeddedPlayback);
+      setShowEmbed(resolveSessionShowEmbed(nextSession, showEmbed, mode));
       setSelectedSubtitle((current) =>
         current !== "off" && nextSession.subtitles.some((subtitle) => subtitleValue(subtitle) === current)
           ? current
@@ -852,28 +1028,35 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
     skipRef.current = { intro: false, outro: false };
   });
 
-  const stageOrCommitSession = useEffectEvent((nextSession: WatchSessionModel) => {
+  const stageOrCommitSession = useEffectEvent((
+    nextSession: WatchSessionModel,
+    mode: SessionPlaybackMode = "preserve",
+  ) => {
     const nextKey = sessionViewKey(nextSession);
     const canStagePlayer = Boolean(nextSession.source?.iframeUrl || nextSession.source?.proxiedUrl || nextSession.source?.url);
 
     if (!canStagePlayer) {
-      commitSession(nextSession);
+      commitSession(nextSession, mode);
       return;
     }
 
     clearPendingCommit();
     pendingSessionKeyRef.current = nextKey;
+    pendingSessionModeRef.current = mode;
     setPendingSession(nextSession);
     pendingCommitTimerRef.current = setTimeout(() => {
       if (pendingSessionKeyRef.current === nextKey) {
-        commitSession(nextSession);
+        commitSession(nextSession, mode);
       }
     }, 4000);
   });
 
-  const applySession = useEffectEvent(async (request: SessionRequest): Promise<WatchSessionModel> => {
+  const applySession = useEffectEvent(async (
+    request: SessionRequest,
+    mode: SessionPlaybackMode = "preserve",
+  ): Promise<WatchSessionModel> => {
     const nextSession = await fetchSession(request);
-    stageOrCommitSession(nextSession);
+    stageOrCommitSession(nextSession, mode);
     return nextSession;
   });
 
@@ -886,7 +1069,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
       return;
     }
 
-    commitSession(pendingSession);
+    commitSession(pendingSession, pendingSessionModeRef.current);
   });
 
   useEffect(() => {
@@ -972,6 +1155,8 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
 
   const activateEmbedFallback = useEffectEvent((message?: string): boolean => {
     if (!session.source?.iframeUrl) return false;
+    manualEmbedModeRef.current = true;
+    setPreferEmbeddedPlayback(true);
     destroyPlayer();
     setPlayerActivated(true);
     setShowEmbed(true);
@@ -982,6 +1167,9 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
 
   const activateDirectMode = useEffectEvent((message?: string) => {
     if (!directAvailable) return;
+    manualEmbedModeRef.current = false;
+    setPreferEmbeddedPlayback(false);
+    resumePlaybackOnDirectRef.current = true;
     setPlayerActivated(true);
     setShowEmbed(false);
     setPlaybackMessage(message || "Enhanced player enabled. Auto-skip, subtitle selection, and auto-next are available here.");
@@ -1005,8 +1193,11 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
     }
 
     triedTargetsRef.current.clear();
+    autoResolveKeyRef.current = null;
+    resolveRequestIdRef.current += 1;
+    setIsResolvingStream(false);
     setIsSessionLoading(true);
-    void applySession(normalizedRequest)
+    void applySession(normalizedRequest, showEmbed ? "embed" : "direct")
       .catch((error) => {
         setPlaybackMessage(error instanceof Error ? error.message : "Unable to refresh watch session.");
         setIsSessionLoading(false);
@@ -1042,7 +1233,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
           provider: target.provider,
           dubbed: session.dubbed,
           server: target.server ?? null,
-        });
+        }, "direct");
 
         if (nextSession.source?.iframeUrl) {
           activateEmbedFallback(`Switched to ${humanizeProviderId(nextSession.provider)} embedded playback.`);
@@ -1072,7 +1263,9 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
     if (!video || !directSourceUrl) return;
 
     const maybeAutoPlay = () => {
-      if (!autoPlayEnabled) return;
+      const shouldResumePlayback = resumePlaybackOnDirectRef.current;
+      resumePlaybackOnDirectRef.current = false;
+      if (!autoPlayEnabled && !shouldResumePlayback) return;
       void video.play().catch(() => undefined);
     };
 
@@ -1089,6 +1282,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
         hls.loadSource(directSourceUrl);
         hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          setActiveDirectReady(true);
           syncAdaptivePlaybackUi(hls);
           maybeAutoPlay();
         });
@@ -1283,6 +1477,26 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
     : isSessionTransitioning
       ? "Refreshing session..."
       : null;
+  const playerFeedbackTitle =
+    !embedAvailable && !directAvailable && isResolvingStream
+      ? "Preparing playback"
+      : showEmbed
+        ? activeEmbedLoaded
+          ? "Player ready"
+          : "Opening player"
+        : directAvailable && !activeDirectReady
+          ? embedLayerVisible
+            ? "Enhancing playback"
+            : "Loading video"
+          : "Player ready";
+  const playerFeedbackHint =
+    !embedAvailable && !directAvailable && isResolvingStream
+      ? "Resolving the best stream in the background."
+      : showEmbed
+        ? "Starting with the fastest available player."
+        : directAvailable && !activeDirectReady
+          ? "Upgrading to the enhanced stream without leaving the page."
+          : "Playback is ready.";
 
   /* ════════════════════════════════════════════════
      RENDER
@@ -1299,291 +1513,194 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
     <div className={`space-y-0 ${focusMode ? "relative z-50" : ""}`}>
       {/* ── VIDEO PLAYER ────────────────────────── */}
       <div className="rounded-t-2xl overflow-hidden border border-white/8 border-b-0 bg-black relative">
-        {!playerActivated ? (
-          /* ── THUMBNAIL + PLAY OVERLAY ── */
-          <div
-            role="button"
-            tabIndex={0}
-            aria-label="Play video"
-            className="relative aspect-video bg-black group cursor-pointer"
-            onClick={() => {
-              // Always activate immediately — if source resolved, use best mode
-              if (directAvailable) {
-                activateDirectMode();
-              } else if (embedAvailable) {
-                setPlayerActivated(true);
-                setShowEmbed(true);
-              } else {
-                // Still resolving — show loading animation, player will activate when ready
-                setPlayerActivated(true);
-              }
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                if (directAvailable) {
-                  activateDirectMode();
-                } else if (embedAvailable) {
-                  setPlayerActivated(true);
-                  setShowEmbed(true);
-                } else {
-                  setPlayerActivated(true);
-                }
-              }
-            }}
-          >
-            <img
-              src={heroImage}
-              alt={session.anime.title}
-              className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.02]"
-            />
-            {/* Dark overlay */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-black/40" />
-            {/* Vignette */}
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_30%,rgba(0,0,0,0.6)_100%)]" />
+        <div className="relative aspect-video overflow-hidden bg-black">
+          <img
+            src={heroImage}
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover opacity-20 blur-xl scale-[1.04]"
+          />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_20%,rgba(0,0,0,0.78)_100%)]" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/15 to-black/45" />
 
-            {/* Play button — always clickable */}
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="relative">
-                {/* Pulse ring */}
-                <div className="absolute inset-0 rounded-full bg-[#ff5500]/20 animate-ping" style={{ animationDuration: "2s" }} />
-                <div className="relative w-16 h-16 md:w-20 md:h-20 rounded-full bg-[#ff5500]/90 backdrop-blur-sm flex items-center justify-center shadow-[0_0_40px_rgba(255,85,0,0.4)] transition-transform duration-300 group-hover:scale-110">
-                  <Play className="w-7 h-7 md:w-8 md:h-8 text-white fill-white ml-1" />
-                </div>
-              </div>
-            </div>
-
-            {/* Bottom info */}
-            <div className="absolute bottom-0 left-0 right-0 p-4 md:p-6">
-              <p className="text-white/60 text-xs font-medium mb-1">
-                {session.anime.title}
-              </p>
-              <p className="text-white text-sm md:text-base font-semibold">
-                Episode {session.episode.number}: {session.episode.title}
-              </p>
-            </div>
-
-            {/* Loading overlay (only during isPending episode switch) */}
-            {isSessionTransitioning && (
-              <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center gap-3">
-                <LoaderCircle className="w-10 h-10 text-[#ff5500] animate-spin" />
-              </div>
-            )}
-          </div>
-        ) : showEmbed && session.source?.iframeUrl ? (
-          /* ── EMBEDDED PLAYER ── */
-          <div className="aspect-video bg-black">
-            <iframe
-              src={session.source.iframeUrl}
-              className="h-full w-full"
-              allowFullScreen
-              title={`${session.anime.title} embedded player`}
-            />
-          </div>
-        ) : directAvailable ? (
-          /* ── DIRECT / ENHANCED PLAYER ── */
-          <div className="relative aspect-video bg-black">
-            <video
-              ref={videoRef}
-              controls
-              autoPlay={autoPlayEnabled}
-              preload="auto"
-              playsInline
-              crossOrigin="anonymous"
-              className="h-full w-full bg-black object-contain"
-              onError={onVideoError}
-              onTimeUpdate={handleTimeUpdate}
-              onEnded={handleEnded}
-              poster={heroImage}
+          {session.source?.iframeUrl && (
+            <div
+              className={`absolute inset-0 transition-opacity duration-300 ${
+                embedLayerVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+              }`}
             >
-              {session.subtitles.map((subtitle, index) => {
-                const trackLang = subtitle.lang.toLowerCase().replace(/[^a-z]/g, "").slice(0, 6) || `sub${index}`;
-                return (
-                  <track
-                    key={subtitleValue(subtitle)}
-                    src={subtitle.url}
-                    kind="subtitles"
-                    srcLang={trackLang}
-                    label={subtitle.label}
-                    default={index === 0}
-                  />
-                );
-              })}
-            </video>
+              <iframe
+                src={session.source.iframeUrl}
+                className="h-full w-full"
+                allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+                allowFullScreen
+                loading="eager"
+                title={`${session.anime.title} embedded player`}
+                onLoad={() => setActiveEmbedLoaded(true)}
+              />
+            </div>
+          )}
 
-            {/* Auto-next countdown overlay */}
-            {autoNextCountdown !== null && nextEpisode && (
-              <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center gap-4 z-20 animate-in fade-in duration-300">
-                <div className="relative w-20 h-20">
-                  <svg className="w-20 h-20 -rotate-90" viewBox="0 0 80 80">
-                    <circle cx="40" cy="40" r="36" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="3" />
-                    <circle
-                      cx="40" cy="40" r="36" fill="none" stroke="#ff5500" strokeWidth="3"
-                      strokeDasharray={`${2 * Math.PI * 36}`}
-                      strokeDashoffset={`${2 * Math.PI * 36 * (1 - autoNextCountdown / 5)}`}
-                      strokeLinecap="round"
-                      className="transition-all duration-1000 ease-linear"
+          {directAvailable && (
+            <div
+              className={`absolute inset-0 transition-opacity duration-300 ${
+                directLayerVisible && activeDirectReady ? "opacity-100" : "opacity-0 pointer-events-none"
+              }`}
+            >
+              <video
+                ref={videoRef}
+                controls
+                autoPlay={autoPlayEnabled}
+                preload="auto"
+                playsInline
+                crossOrigin="anonymous"
+                className="h-full w-full bg-black object-contain"
+                onError={onVideoError}
+                onTimeUpdate={handleTimeUpdate}
+                onEnded={handleEnded}
+                onLoadedData={() => setActiveDirectReady(true)}
+                onCanPlay={() => setActiveDirectReady(true)}
+                poster={heroImage}
+              >
+                {session.subtitles.map((subtitle, index) => {
+                  const trackLang = subtitle.lang.toLowerCase().replace(/[^a-z]/g, "").slice(0, 6) || `sub${index}`;
+                  return (
+                    <track
+                      key={subtitleValue(subtitle)}
+                      src={subtitle.url}
+                      kind="subtitles"
+                      srcLang={trackLang}
+                      label={subtitle.label}
+                      default={index === 0}
                     />
-                  </svg>
-                  <span className="absolute inset-0 flex items-center justify-center text-2xl font-bold text-white">
-                    {autoNextCountdown}
+                  );
+                })}
+              </video>
+
+              {autoNextCountdown !== null && nextEpisode && (
+                <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center gap-4 z-20 animate-in fade-in duration-300">
+                  <div className="relative w-20 h-20">
+                    <svg className="w-20 h-20 -rotate-90" viewBox="0 0 80 80">
+                      <circle cx="40" cy="40" r="36" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="3" />
+                      <circle
+                        cx="40" cy="40" r="36" fill="none" stroke="#ff5500" strokeWidth="3"
+                        strokeDasharray={`${2 * Math.PI * 36}`}
+                        strokeDashoffset={`${2 * Math.PI * 36 * (1 - autoNextCountdown / 5)}`}
+                        strokeLinecap="round"
+                        className="transition-all duration-1000 ease-linear"
+                      />
+                    </svg>
+                    <span className="absolute inset-0 flex items-center justify-center text-2xl font-bold text-white">
+                      {autoNextCountdown}
+                    </span>
+                  </div>
+                  <p className="text-white/80 text-sm font-medium">
+                    Next: <span className="text-white font-bold">Episode {nextEpisode.number}</span>
+                  </p>
+                  <p className="text-white/50 text-xs">{nextEpisode.title}</p>
+                  <div className="flex gap-3 mt-2">
+                    <button
+                      type="button"
+                      onClick={cancelAutoNext}
+                      className="px-4 py-2 text-xs font-bold text-white/70 bg-white/10 rounded-lg hover:bg-white/15 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        cancelAutoNext();
+                        goToEpisode(nextEpisode.number);
+                      }}
+                      className="px-4 py-2 text-xs font-bold text-white bg-[#ff5500] rounded-lg hover:bg-[#ff6600] transition-colors"
+                    >
+                      Play Now
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {!embedAvailable && !directAvailable && !isResolvingStream && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-[#0a0a0c]/95 px-8 text-center">
+              <div className="rounded-full border border-white/10 bg-white/6 p-4 text-[#ff5500]">
+                <Tv2 className="h-8 w-8" />
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-xl font-bold text-white">
+                  {mappingUnavailable ? "Not available to watch yet" : "No stream available"}
+                </h2>
+                <p className="max-w-md text-sm text-white/60">
+                  {mappingUnavailable
+                    ? "This title exists on AniList, but we do not have a working provider mapping for it yet."
+                    : "The active provider did not return a source. Try refreshing or switching providers."}
+                </p>
+              </div>
+              <div className="flex flex-wrap justify-center gap-3">
+                {mappingUnavailable ? (
+                  <Link
+                    href={session.anime.href}
+                    className="inline-flex items-center gap-2 rounded-full bg-[#ff5500] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#e64d00] transition-colors"
+                  >
+                    <Info className="h-4 w-4" />
+                    Back to details
+                  </Link>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => queueSession({ episodeNumber: session.episode.number, provider: session.provider, dubbed: session.dubbed, server: null })}
+                    className="inline-flex items-center gap-2 rounded-full bg-[#ff5500] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#e64d00] transition-colors"
+                  >
+                    <RefreshCcw className="h-4 w-4" />
+                    Refresh source
+                  </button>
+                )}
+                {canUseEmbedFallback && (
+                  <button
+                    type="button"
+                    onClick={() => activateEmbedFallback("Switched to the embedded player.")}
+                    className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/6 px-5 py-2.5 text-sm font-semibold text-white hover:bg-white/10 transition-colors"
+                  >
+                    <MonitorPlay className="h-4 w-4" />
+                    Embed fallback
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {playerFeedbackVisible && (embedAvailable || directAvailable || isResolvingStream) && (
+            <div className="pointer-events-none absolute inset-0 z-20 transition-opacity duration-300">
+              <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" />
+              <div className="absolute inset-0 bg-[linear-gradient(110deg,transparent,rgba(255,255,255,0.06),transparent)] opacity-70 animate-pulse" />
+              <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/85 to-transparent" />
+              <div className="absolute inset-x-4 bottom-4 md:inset-x-6 md:bottom-6 flex items-end justify-between gap-4">
+                <div className="max-w-md space-y-2">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/45 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.24em] text-white/70">
+                    <span className="h-2 w-2 rounded-full bg-[#ff5500] animate-pulse" />
+                    {playerFeedbackTitle}
+                  </div>
+                  <div>
+                    <p className="text-white text-sm md:text-base font-semibold">
+                      Episode {session.episode.number}: {session.episode.title}
+                    </p>
+                    <p className="text-white/55 text-xs md:text-sm">
+                      {playerFeedbackHint}
+                    </p>
+                  </div>
+                </div>
+                <div className="hidden md:flex flex-col items-end gap-2">
+                  <div className="h-2 w-24 rounded-full bg-white/10 overflow-hidden">
+                    <div className="h-full w-full bg-gradient-to-r from-[#ff5500] via-[#ff7733] to-[#ff5500] animate-[bufferBar_1.8s_ease-in-out_infinite]" />
+                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-[0.24em] text-white/35">
+                    AnimeKAI
                   </span>
                 </div>
-                <p className="text-white/80 text-sm font-medium">
-                  Next: <span className="text-white font-bold">Episode {nextEpisode.number}</span>
-                </p>
-                <p className="text-white/50 text-xs">{nextEpisode.title}</p>
-                <div className="flex gap-3 mt-2">
-                  <button
-                    type="button"
-                    onClick={cancelAutoNext}
-                    className="px-4 py-2 text-xs font-bold text-white/70 bg-white/10 rounded-lg hover:bg-white/15 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      cancelAutoNext();
-                      goToEpisode(nextEpisode.number);
-                    }}
-                    className="px-4 py-2 text-xs font-bold text-white bg-[#ff5500] rounded-lg hover:bg-[#ff6600] transition-colors"
-                  >
-                    Play Now
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        ) : isResolvingStream ? (
-          /* ── BUFFERING SCREEN (Netflix/Crunchyroll style) ── */
-          <div className="relative aspect-video bg-black overflow-hidden">
-            {/* Blurred poster background */}
-            <img
-              src={heroImage}
-              alt=""
-              className="absolute inset-0 w-full h-full object-cover blur-2xl scale-110 opacity-20"
-            />
-            {/* Dark overlay */}
-            <div className="absolute inset-0 bg-black/75" />
-
-            {/* Center: Spinning ring + logo */}
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 z-10">
-              <div className="relative w-16 h-16 md:w-20 md:h-20">
-                {/* Outer spinner ring */}
-                <svg className="absolute inset-0 w-full h-full animate-spin" viewBox="0 0 80 80" style={{ animationDuration: "1.5s" }}>
-                  <defs>
-                    <linearGradient id="spinnerGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#ff5500" stopOpacity="1" />
-                      <stop offset="100%" stopColor="#ff5500" stopOpacity="0" />
-                    </linearGradient>
-                  </defs>
-                  <circle cx="40" cy="40" r="36" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="3" />
-                  <circle
-                    cx="40" cy="40" r="36" fill="none"
-                    stroke="url(#spinnerGrad)"
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                    strokeDasharray={`${Math.PI * 72 * 0.75} ${Math.PI * 72 * 0.25}`}
-                  />
-                </svg>
-                {/* Inner pulse dot */}
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="w-2.5 h-2.5 rounded-full bg-[#ff5500] animate-pulse" />
-                </div>
-              </div>
-
-              {/* Status text with animated dots */}
-              <div className="text-center space-y-1.5">
-                <p className="text-white/90 text-sm font-semibold tracking-wide">
-                  <BufferingText />
-                </p>
-                <div className="flex items-center justify-center gap-1">
-                  <span className="w-1 h-1 rounded-full bg-[#ff5500] animate-bounce" style={{ animationDelay: "0ms" }} />
-                  <span className="w-1 h-1 rounded-full bg-[#ff5500] animate-bounce" style={{ animationDelay: "150ms" }} />
-                  <span className="w-1 h-1 rounded-full bg-[#ff5500] animate-bounce" style={{ animationDelay: "300ms" }} />
-                </div>
               </div>
             </div>
-
-            {/* Bottom episode info (like Crunchyroll) */}
-            <div className="absolute bottom-0 left-0 right-0 p-4 md:p-6 z-10">
-              <div className="flex items-end justify-between">
-                <div>
-                  <p className="text-white/40 text-[10px] uppercase tracking-[0.2em] font-semibold mb-1">
-                    Now Loading
-                  </p>
-                  <p className="text-white/80 text-xs md:text-sm font-medium">
-                    {session.anime.title}
-                  </p>
-                  <p className="text-white text-sm md:text-base font-bold">
-                    E{session.episode.number} · {session.episode.title}
-                  </p>
-                </div>
-                <div className="text-[#ff5500] text-[10px] font-bold tracking-widest uppercase opacity-60">
-                  AnimeKAI
-                </div>
-              </div>
-              {/* Fake progress bar */}
-              <div className="mt-3 h-[3px] bg-white/[0.06] rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-[#ff5500] to-[#ff7733] rounded-full"
-                  style={{
-                    width: "100%",
-                    animation: "bufferBar 3s ease-in-out infinite",
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-        ) : (
-          /* ── NO SOURCE ── */
-          <div className="flex aspect-video flex-col items-center justify-center gap-4 bg-[#0a0a0c] px-8 text-center">
-            <div className="rounded-full border border-white/10 bg-white/6 p-4 text-[#ff5500]">
-              <Tv2 className="h-8 w-8" />
-            </div>
-            <div className="space-y-2">
-              <h2 className="text-xl font-bold text-white">
-                {mappingUnavailable ? "Not available to watch yet" : "No stream available"}
-              </h2>
-              <p className="max-w-md text-sm text-white/60">
-                {mappingUnavailable
-                  ? "This title exists on AniList, but we do not have a working provider mapping for it yet."
-                  : "The active provider did not return a source. Try refreshing or switching providers."}
-              </p>
-            </div>
-            <div className="flex flex-wrap justify-center gap-3">
-              {mappingUnavailable ? (
-                <Link
-                  href={session.anime.href}
-                  className="inline-flex items-center gap-2 rounded-full bg-[#ff5500] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#e64d00] transition-colors"
-                >
-                  <Info className="h-4 w-4" />
-                  Back to details
-                </Link>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => queueSession({ episodeNumber: session.episode.number, provider: session.provider, dubbed: session.dubbed, server: null })}
-                  className="inline-flex items-center gap-2 rounded-full bg-[#ff5500] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#e64d00] transition-colors"
-                >
-                  <RefreshCcw className="h-4 w-4" />
-                  Refresh source
-                </button>
-              )}
-              {canUseEmbedFallback && (
-                <button
-                  type="button"
-                  onClick={() => activateEmbedFallback("Switched to the embedded player.")}
-                  className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/6 px-5 py-2.5 text-sm font-semibold text-white hover:bg-white/10 transition-colors"
-                >
-                  <MonitorPlay className="h-4 w-4" />
-                  Embed fallback
-                </button>
-              )}
-            </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {pendingSession && pendingEmbedUrl && (
           <div className="pointer-events-none absolute inset-0 opacity-0">
@@ -1591,7 +1708,9 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
               key={sessionViewKey(pendingSession)}
               src={pendingEmbedUrl}
               className="h-full w-full"
+              allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
               allowFullScreen
+              loading="eager"
               aria-hidden="true"
               tabIndex={-1}
               title="Preloading embedded player"
@@ -2023,7 +2142,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
       <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_340px]">
         <WatchAnimeDetailsPanel session={session} heroImage={heroImage} />
         <div>
-          <WatchRecommendationsPanel recommendations={recommendations} />
+          <WatchRecommendationsPanel recommendations={deferredRecommendations} />
         </div>
       </div>
 
@@ -2032,7 +2151,7 @@ export default function WatchExperience({ initialSession, resolveParams, recomme
         <CommentSection
           animeId={session.anime.id}
           episodeNumber={session.episode.number}
-          currentUserId={currentUserId}
+          currentUserId={resolvedCurrentUserId}
           onTimestampClick={(time) => {
             const video = videoRef.current;
             if (video) {
