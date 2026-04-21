@@ -72,15 +72,6 @@ async function WatchContent({
     dubbed,
   });
 
-  const resolveParams = {
-    animeId: id,
-    episodeNumber: parseEpisodeNumber(firstParam(query.ep)) || 1,
-    provider: firstParam(query.provider) || "",
-    episodeId: firstParam(query.episodeId) || "",
-    dubbed,
-    server: firstParam(query.server) || "",
-  };
-
   return (
     <>
       {/* Breadcrumb */}
@@ -96,7 +87,16 @@ async function WatchContent({
         </Link>
       </nav>
 
-      <WatchExperience initialSession={session} resolveParams={resolveParams} />
+      <WatchExperience
+        key={[
+          session.anime.id,
+          session.episode.number,
+          session.provider,
+          session.dubbed ? "dub" : "sub",
+          session.activeServerId || "",
+        ].join("|")}
+        initialSession={session}
+      />
     </>
   );
 }
