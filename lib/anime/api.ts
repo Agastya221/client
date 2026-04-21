@@ -1093,10 +1093,41 @@ async function apiJsonWithFallback<T>(
     : new Error(`Failed to resolve API payload from ${paths.join(", ")}`);
 }
 
+async function postBackendJson(path: string, payload: JsonValue): Promise<void> {
+  await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json, text/plain, */*",
+      "Content-Type": "application/json",
+      "User-Agent": "AnimeKAI-Frontend/1.0",
+    },
+    cache: "no-store",
+    body: JSON.stringify(payload),
+  });
+}
+
 const ANIMEKAI_V2_BASE_PATH = "/api/v2/anime/animekai";
 const WATCH_SESSION_FRESH_MS = 2 * 60 * 1000;
 const WATCH_SESSION_STALE_MS = 10 * 60 * 1000;
 const WATCH_SESSION_EXPIRE_MS = 20 * 60 * 1000;
+
+function hasPlayableStreamSource(source: StreamSource | null | undefined): boolean {
+  return Boolean(source?.url || source?.iframeUrl || source?.proxiedUrl);
+}
+
+function shouldCacheWatchShell(session: WatchSessionModel): boolean {
+  return hasPlayableStreamSource(session.source) || session.serverOptions.length > 0;
+}
+
+function shouldCacheStreamResolution(result: { source: StreamSource | null }): boolean {
+  return hasPlayableStreamSource(result.source);
+}
+
+function invalidateAnimeRuntimeCaches(animeId: string): void {
+  cacheInvalidatePrefix(`detail-model:${animeId}`);
+  cacheInvalidatePrefix(`watch-session:${animeId}`);
+  cacheInvalidatePrefix(`stream:${animeId}`);
+}
 
 type AnimeKaiResolvedMeta = {
   detail: JsonValue;
@@ -1783,6 +1814,46 @@ export async function warmAnimeWatchWindow(input: {
 
       const results = await Promise.allSettled(tasks);
       const warmed = results.filter((result) => result.status === "fulfilled").length;
+
+      const animeKaiProviderId =
+        detail.anime.providerIds.animekai ||
+        (decodeAnimeId(resolvedAnimeId).provider === "animekai" ? decodeAnimeId(resolvedAnimeId).providerId : null);
+
+      if (animeKaiProviderId) {
+        const animeKaiEpisodeIds = detail.episodes
+          .filter((episode) => episodeNumbers.includes(episode.number))
+          .map((episode) => episode.idByProvider.animekai)
+          .filter((episodeId): episodeId is string => Boolean(episodeId))
+          .slice(0, 3);
+
+        const sampledDubbedMode = dubbedModes[0] ?? false;
+        const sampledLinkIds = (
+          await Promise.all(
+            animeKaiEpisodeIds.map(async (episodeId) => {
+              try {
+                const entries = await fetchAnimeKaiServerEntries(episodeId, sampledDubbedMode);
+                return entries[0]?.linkId || null;
+              } catch {
+                return null;
+              }
+            }),
+          )
+        ).filter((linkId): linkId is string => Boolean(linkId));
+
+        if (animeKaiEpisodeIds.length > 0 || sampledLinkIds.length > 0) {
+          void postBackendJson("/api/cache/warm", {
+            slug: animeKaiProviderId,
+            episode_ids: animeKaiEpisodeIds,
+            link_ids: sampledLinkIds,
+          }).catch(() => undefined);
+
+          recordCounter("anime.warm.backend_requested", 1, {
+            provider: "animekai",
+            episodes: animeKaiEpisodeIds.length,
+            links: sampledLinkIds.length,
+          });
+        }
+      }
 
       recordCounter("anime.warm.attempted", tasks.length, {
         provider: input.provider || detail.activeProvider,
@@ -2552,6 +2623,7 @@ async function fetchAnimeKaiServerEntries(
       freshMs: WATCH_SESSION_FRESH_MS,
       staleMs: WATCH_SESSION_STALE_MS,
       expireMs: WATCH_SESSION_EXPIRE_MS,
+      shouldCache: (entries) => Array.isArray(entries) && entries.length > 0,
     },
   );
 }
@@ -2564,6 +2636,7 @@ async function fetchAnimeKaiEmbedSource(linkId: string): Promise<JsonValue> {
       freshMs: WATCH_SESSION_FRESH_MS,
       staleMs: WATCH_SESSION_STALE_MS,
       expireMs: WATCH_SESSION_EXPIRE_MS,
+      shouldCache: (payload) => Boolean((payload as JsonValue)?.embed_url),
     },
   );
 }
@@ -2823,7 +2896,7 @@ export async function getWatchSession(input: {
         }
       }
 
-      cacheInvalidatePrefix(`detail-model:${input.animeId}`);
+      invalidateAnimeRuntimeCaches(input.animeId);
       recordCounter("anime.watch_session.failure", 1, { mode: "full", reason: "all_providers_failed" });
       recordLog(
         "warn",
@@ -2974,7 +3047,7 @@ export async function getFastWatchSession(input: {
             }
           }
 
-          cacheInvalidatePrefix(`detail-model:${input.animeId}`);
+          invalidateAnimeRuntimeCaches(input.animeId);
           recordCounter("anime.watch_session.failure", 1, { mode: "fast", reason: "all_providers_failed" });
           return {
             anime: detail.anime,
@@ -2998,6 +3071,7 @@ export async function getFastWatchSession(input: {
       freshMs: WATCH_SESSION_FRESH_MS,
       staleMs: WATCH_SESSION_STALE_MS,
       expireMs: WATCH_SESSION_EXPIRE_MS,
+      shouldCache: (value) => shouldCacheWatchShell(value as WatchSessionModel),
     },
   );
 }
@@ -3122,7 +3196,7 @@ export async function resolveStreamSource(input: {
         }
       }
 
-      cacheInvalidatePrefix(`detail-model:${input.animeId}`);
+      invalidateAnimeRuntimeCaches(input.animeId);
       recordCounter("anime.stream.failure", 1, { reason: "all_providers_failed" });
       recordLog(
         "warn",
@@ -3142,5 +3216,6 @@ export async function resolveStreamSource(input: {
     freshMs: 5 * 60 * 1000,      // 5 min fresh
     staleMs: 15 * 60 * 1000,     // 15 min stale-while-revalidate
     expireMs: 30 * 60 * 1000,    // 30 min hard expire
+    shouldCache: (value) => shouldCacheStreamResolution(value as { source: StreamSource | null }),
   });
 }

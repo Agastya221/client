@@ -2,6 +2,13 @@
 
 import { useState, useEffect } from "react";
 import { Bookmark, BookmarkCheck, Loader2 } from "lucide-react";
+import {
+  ensureBookmarksHydrated,
+  isBookmarked as getBookmarkState,
+  removeBookmark,
+  saveBookmark,
+  subscribeToBookmarks,
+} from "@/lib/anime/bookmarks";
 
 interface AddToListButtonProps {
   animeId: string;
@@ -15,17 +22,16 @@ export default function AddToListButton({ animeId, title, poster, href }: AddToL
   const [loading, setLoading] = useState(false);
   const [checked, setChecked] = useState(false);
 
-  // Check if already bookmarked on mount
   useEffect(() => {
-    fetch("/api/bookmarks")
-      .then(async (res) => {
-        if (!res.ok) return;
-        const bookmarks = await res.json();
-        const exists = bookmarks.some((b: { animeId: string }) => b.animeId === animeId);
-        setIsBookmarked(exists);
-      })
-      .catch(() => null)
-      .finally(() => setChecked(true));
+    const syncState = () => {
+      setIsBookmarked(getBookmarkState(animeId));
+      setChecked(true);
+    };
+
+    syncState();
+    void ensureBookmarksHydrated().finally(syncState);
+
+    return subscribeToBookmarks(syncState);
   }, [animeId]);
 
   const toggleBookmark = async () => {
@@ -34,19 +40,18 @@ export default function AddToListButton({ animeId, title, poster, href }: AddToL
 
     try {
       if (isBookmarked) {
-        await fetch(`/api/bookmarks?animeId=${encodeURIComponent(animeId)}`, { method: "DELETE" });
+        removeBookmark(animeId);
         setIsBookmarked(false);
       } else {
-        await fetch("/api/bookmarks", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ animeId, title, poster, href, status: "PLAN_TO_WATCH" }),
+        saveBookmark({
+          animeId,
+          title,
+          poster,
+          href,
+          status: "PLAN_TO_WATCH",
         });
         setIsBookmarked(true);
       }
-    } catch {
-      // If 401, redirect to sign in
-      window.location.href = "/auth/signin";
     } finally {
       setLoading(false);
     }

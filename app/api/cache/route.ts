@@ -21,6 +21,8 @@ export async function POST(request: NextRequest) {
     }
 
     cacheInvalidatePrefix(`detail-model:${animeId}`);
+    cacheInvalidatePrefix(`watch-session:${animeId}`);
+    cacheInvalidatePrefix(`stream:${animeId}`);
     return NextResponse.json({ ok: true, invalidated: animeId });
   } catch {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });

@@ -2,18 +2,17 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Bookmark, Trash2, ChevronRight, Library as BookOpen } from "lucide-react";
+import { Bookmark, Trash2, ChevronRight } from "lucide-react";
+import {
+  clearBookmarks,
+  ensureBookmarksHydrated,
+  getBookmarks,
+  removeBookmark as removeStoredBookmark,
+  subscribeToBookmarks,
+  type BookmarkEntry,
+} from "@/lib/anime/bookmarks";
 
-type BookmarkItem = {
-  id: string;
-  animeId: string;
-  title: string;
-  poster: string | null;
-  href: string;
-  status: string;
-  createdAt: string;
-  updatedAt: string;
-};
+type BookmarkItem = BookmarkEntry;
 
 const STATUS_TABS = [
   { key: "ALL", label: "All" },
@@ -28,26 +27,22 @@ export default function MyListPage() {
   const [bookmarks, setBookmarks] = useState<BookmarkItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("ALL");
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/bookmarks")
-      .then(async (res) => {
-        if (res.status === 401) {
-          setError("login");
-          return;
-        }
-        if (!res.ok) throw new Error("Failed to fetch");
-        const data = await res.json();
-        setBookmarks(data);
-      })
-      .catch(() => setError("error"))
-      .finally(() => setLoading(false));
+    const syncBookmarks = () => {
+      setBookmarks(getBookmarks());
+      setLoading(false);
+    };
+
+    syncBookmarks();
+    void ensureBookmarksHydrated().finally(syncBookmarks);
+
+    return subscribeToBookmarks(syncBookmarks);
   }, []);
 
-  const removeBookmark = async (animeId: string) => {
+  const removeBookmark = (animeId: string) => {
+    removeStoredBookmark(animeId);
     setBookmarks((prev) => prev.filter((b) => b.animeId !== animeId));
-    await fetch(`/api/bookmarks?animeId=${encodeURIComponent(animeId)}`, { method: "DELETE" }).catch(() => null);
   };
 
   const filtered = activeTab === "ALL"
@@ -65,7 +60,7 @@ export default function MyListPage() {
             <p className="text-[10px] font-black uppercase tracking-widest text-amber-400">My Collection</p>
           </div>
           <h1 className="text-4xl font-black text-white mb-2">My List</h1>
-          <p className="text-white/40 text-sm">Your personal anime watchlist. Sign in to save across devices.</p>
+          <p className="text-white/40 text-sm">Your personal anime watchlist. Stored locally and synced when you sign in.</p>
         </div>
 
         {/* Status tabs */}
@@ -99,26 +94,6 @@ export default function MyListPage() {
               </div>
             ))}
           </div>
-        ) : error === "login" ? (
-          <div className="text-center py-24">
-            <p className="text-6xl mb-4">🔐</p>
-            <p className="text-white/50 text-lg font-semibold">Sign in to view your list</p>
-            <p className="text-white/25 text-sm mt-2 mb-6">Your bookmarks are saved to your account.</p>
-            <Link
-              href="/auth/signin"
-              className="inline-flex items-center gap-2 rounded-full bg-[#ff5500] px-6 py-3 text-sm font-bold text-white hover:bg-[#e64d00] transition-colors"
-            >
-              Sign In
-            </Link>
-          </div>
-        ) : error ? (
-          <div className="text-center py-24">
-            <p className="text-6xl mb-4">⚠️</p>
-            <p className="text-white/50 text-lg font-semibold">Something went wrong</p>
-            <button type="button" onClick={() => window.location.reload()} className="mt-4 text-[#ff5500] text-sm font-bold hover:underline">
-              Try again
-            </button>
-          </div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-24">
             <p className="text-6xl mb-4">📚</p>
@@ -133,7 +108,7 @@ export default function MyListPage() {
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-4 gap-y-8">
             {filtered.map((bm) => (
-              <div key={bm.id} className="group relative">
+              <div key={bm.animeId} className="group relative">
                 <Link href={bm.href}>
                   <div className="relative aspect-[3/4] rounded-xl overflow-hidden bg-white/5 border border-white/5 group-hover:border-white/15 transition-all">
                     {bm.poster ? (
@@ -161,6 +136,22 @@ export default function MyListPage() {
                 </button>
               </div>
             ))}
+          </div>
+        )}
+
+        {bookmarks.length > 0 && (
+          <div className="mt-10 flex justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                clearBookmarks();
+                setBookmarks([]);
+              }}
+              className="inline-flex items-center gap-2 rounded-full border border-red-500/20 bg-red-500/10 px-4 py-2 text-xs font-bold text-red-400 hover:bg-red-500/20 transition-colors"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Clear List
+            </button>
           </div>
         )}
       </section>
