@@ -83,6 +83,130 @@ export interface AnilistPageInfo {
   perPage: number;
 }
 
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function asString(value: unknown, fallback = ""): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+function asNullableString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function asNumber(value: unknown, fallback = 0): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function asNullableNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0) : [];
+}
+
+export function normalizeAnilistMediaEntry(value: unknown): AnilistMedia | null {
+  const media = asObject(value);
+  if (!media) return null;
+
+  const id = asNumber(media.id, 0);
+  if (id <= 0) return null;
+
+  const title = asObject(media.title);
+  const coverImage = asObject(media.coverImage);
+  const startDate = asObject(media.startDate);
+  const nextAiringEpisode = asObject(media.nextAiringEpisode);
+  const trailer = asObject(media.trailer);
+  const studios = asObject(media.studios);
+  const studioNodes = Array.isArray(studios?.nodes) ? studios.nodes : [];
+
+  const romaji = asString(title?.romaji, "") || asString(title?.english, "") || asString(title?.native, "") || `AniList ${id}`;
+  const english = asNullableString(title?.english);
+  const nativeTitle = asString(title?.native, "") || romaji;
+
+  return {
+    id,
+    idMal: asNullableNumber(media.idMal),
+    title: {
+      romaji,
+      english,
+      native: nativeTitle,
+    },
+    synonyms: asStringArray(media.synonyms),
+    coverImage: {
+      extraLarge: asString(coverImage?.extraLarge),
+      large: asString(coverImage?.large),
+      medium: asString(coverImage?.medium),
+      color: asNullableString(coverImage?.color),
+    },
+    bannerImage: asNullableString(media.bannerImage),
+    description: asNullableString(media.description),
+    genres: asStringArray(media.genres),
+    averageScore: asNullableNumber(media.averageScore),
+    meanScore: asNullableNumber(media.meanScore),
+    popularity: asNumber(media.popularity, 0),
+    trending: asNumber(media.trending, 0),
+    episodes: asNullableNumber(media.episodes),
+    status: asString(media.status, "UNKNOWN"),
+    format: asString(media.format, "UNKNOWN"),
+    season: asNullableString(media.season),
+    seasonYear: asNullableNumber(media.seasonYear),
+    startDate: {
+      year: asNullableNumber(startDate?.year),
+    },
+    studios: {
+      nodes: studioNodes
+        .map((node) => asObject(node))
+        .filter((node): node is Record<string, unknown> => Boolean(node))
+        .map((node) => ({ name: asString(node.name, "Unknown Studio") })),
+    },
+    nextAiringEpisode:
+      nextAiringEpisode && asNumber(nextAiringEpisode.episode, 0) > 0
+        ? {
+            episode: asNumber(nextAiringEpisode.episode, 0),
+            airingAt: asNumber(nextAiringEpisode.airingAt, 0),
+          }
+        : null,
+    trailer:
+      trailer && asString(trailer.id) && asString(trailer.site)
+        ? {
+            id: asString(trailer.id),
+            site: asString(trailer.site),
+          }
+        : null,
+    isAdult: Boolean(media.isAdult),
+  };
+}
+
+export function normalizeAnilistMediaCollection(value: unknown): AnilistMedia[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(normalizeAnilistMediaEntry)
+    .filter((entry): entry is AnilistMedia => Boolean(entry));
+}
+
+export function normalizeAnilistPageInfo(
+  value: unknown,
+  fallbackPage = 1,
+  fallbackPerPage = 24,
+): AnilistPageInfo {
+  const pageInfo = asObject(value);
+  const currentPage = Math.max(1, asNumber(pageInfo?.currentPage, fallbackPage));
+  const perPage = Math.max(1, asNumber(pageInfo?.perPage, fallbackPerPage));
+  const lastPage = Math.max(currentPage, asNumber(pageInfo?.lastPage, currentPage));
+  const total = Math.max(0, asNumber(pageInfo?.total, 0));
+
+  return {
+    total,
+    currentPage,
+    lastPage,
+    hasNextPage: Boolean(pageInfo?.hasNextPage) && currentPage < lastPage,
+    perPage,
+  };
+}
+
 // ─── Normalize to CatalogAnime ─────────────────────────────────────────────
 
 export function anilistTitle(media: AnilistMedia): string {
@@ -226,7 +350,7 @@ export async function getAnilistTrending(perPage = 10): Promise<AnilistMedia[]> 
     page: 1,
     perPage,
   });
-  return data.trending.media;
+  return normalizeAnilistMediaCollection(data?.trending?.media);
 }
 
 export async function getAnilistSeasonal(perPage = 20): Promise<AnilistMedia[]> {
@@ -237,7 +361,7 @@ export async function getAnilistSeasonal(perPage = 20): Promise<AnilistMedia[]> 
     page: 1,
     perPage,
   });
-  return data.seasonal.media;
+  return normalizeAnilistMediaCollection(data?.seasonal?.media);
 }
 
 export async function getAnilistPopular(perPage = 20): Promise<AnilistMedia[]> {
@@ -245,7 +369,7 @@ export async function getAnilistPopular(perPage = 20): Promise<AnilistMedia[]> {
     page: 1,
     perPage,
   });
-  return data.popular.media;
+  return normalizeAnilistMediaCollection(data?.popular?.media);
 }
 
 export async function searchAnilist(options: {
@@ -268,7 +392,10 @@ export async function searchAnilist(options: {
     status: options.status || undefined,
     format: options.format || undefined,
   });
-  return { media: data.Page.media, pageInfo: data.Page.pageInfo };
+  return {
+    media: normalizeAnilistMediaCollection(data?.Page?.media),
+    pageInfo: normalizeAnilistPageInfo(data?.Page?.pageInfo, options.page || 1, options.perPage || 24),
+  };
 }
 
 export async function getAnilistGenres(): Promise<string[]> {

@@ -12,6 +12,7 @@
  * - local updates are mirrored back to the account in the background
  */
 
+import { hasAuthSessionCookie } from "@/lib/auth-client";
 import {
   mergeWatchHistories,
   normalizeEpisodeProgress,
@@ -150,6 +151,10 @@ function queueAnimeRemoval(animeId: string): void {
 
 async function flushRemoteSync(): Promise<void> {
   if (typeof window === "undefined") return;
+  if (authState === "unknown" && !hasAuthSessionCookie()) {
+    authState = "guest";
+    return;
+  }
   if (authState === "guest") return;
 
   try {
@@ -204,6 +209,10 @@ export async function ensureWatchHistoryHydrated(): Promise<void> {
   if (typeof window === "undefined") return;
   if (hasHydratedFromAccount || authState === "guest") return;
   if (hydrationPromise) return hydrationPromise;
+  if (!hasAuthSessionCookie()) {
+    authState = "guest";
+    return;
+  }
 
   hydrationPromise = (async () => {
     try {

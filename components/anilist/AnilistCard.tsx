@@ -11,11 +11,11 @@ interface AnilistCardProps {
 }
 
 export default function AnilistCard({ media, rank, size = "md", availability = null }: AnilistCardProps) {
-  const title = anilistTitle(media);
+  const title = anilistTitle(media) || "Untitled Anime";
   const rating = anilistRating(media);
   const format = anilistFormat(media);
   const href = `/anime/${encodeAnilistRouteId(media.id)}`;
-  const image = media.coverImage.extraLarge || media.coverImage.large;
+  const image = media.coverImage.extraLarge || media.coverImage.large || media.coverImage.medium || "";
   const accentColor = media.coverImage.color || "#ff5500";
   const isAiring = media.status === "RELEASING";
   const availabilityTone =
@@ -35,13 +35,19 @@ export default function AnilistCard({ media, rank, size = "md", availability = n
         className="relative overflow-hidden rounded-xl bg-[#1a1c22]"
         style={{ aspectRatio: "2/3" }}
       >
-        <img
-          src={image}
-          alt={title}
-          className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-          loading="lazy"
-          decoding="async"
-        />
+        {image ? (
+          <img
+            src={image}
+            alt={title}
+            className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+            loading="lazy"
+            decoding="async"
+          />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center bg-[#15171d] text-xs font-bold text-white/25">
+            No Image
+          </div>
+        )}
 
         {/* Gradient overlay at bottom */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
