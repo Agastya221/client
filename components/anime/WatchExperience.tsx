@@ -77,6 +77,7 @@ function hasDirectPlaybackSource(session: WatchSessionModel): boolean {
    Going back to a previously visited episode is instant. */
 const SESSION_CACHE_MAX = 20;
 const sessionCache = new Map<string, { data: WatchSessionModel; ts: number }>();
+const inflightSessionRequests = new Map<string, Promise<WatchSessionModel>>();
 
 function getCachedSession(url: string): WatchSessionModel | null {
   const entry = sessionCache.get(url);
@@ -98,19 +99,49 @@ function setCachedSession(url: string, data: WatchSessionModel): void {
   sessionCache.set(url, { data, ts: Date.now() });
 }
 
-function prefetchWatchSession(animeId: string, request: SessionRequest): void {
+function loadWatchSession(
+  animeId: string,
+  request: SessionRequest,
+  options?: { priority?: RequestPriority }
+): Promise<WatchSessionModel> {
   const url = buildWatchSessionUrl(animeId, request);
-  if (getCachedSession(url)) return;
+  const cached = getCachedSession(url);
+  if (cached) {
+    return Promise.resolve(cached);
+  }
 
-  void fetch(url, { priority: "low" as RequestPriority })
+  const inflight = inflightSessionRequests.get(url);
+  if (inflight) {
+    return inflight;
+  }
+
+  const requestPromise = fetch(url, options?.priority ? { priority: options.priority } : undefined)
     .then(async (response) => {
-      if (!response.ok) return;
-      const payload = (await response.json().catch(() => null)) as WatchSessionModel | null;
-      if (payload) {
-        setCachedSession(url, payload);
+      const payload = (await response.json().catch(() => null)) as WatchSessionModel | { message?: string } | null;
+      if (!response.ok) {
+        throw new Error(
+          payload && "message" in payload && payload.message
+            ? payload.message
+            : `Watch session failed with ${response.status}`
+        );
       }
+
+      const result = payload as WatchSessionModel;
+      setCachedSession(url, result);
+      return result;
     })
-    .catch(() => undefined);
+    .finally(() => {
+      inflightSessionRequests.delete(url);
+    });
+
+  inflightSessionRequests.set(url, requestPromise);
+  return requestPromise;
+}
+
+function prefetchWatchSession(animeId: string, request: SessionRequest): void {
+  void loadWatchSession(animeId, request, {
+    priority: "low" as RequestPriority,
+  }).catch(() => undefined);
 }
 
 function sessionViewKey(session: WatchSessionModel): string {
@@ -274,6 +305,8 @@ export default function WatchExperience({ initialSession, recommendations = null
   const [focusMode, setFocusMode] = useState(false);
   const [loadedSurfaceKey, setLoadedSurfaceKey] = useState<string | null>(null);
   const pendingCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hoverPrefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hoverPrefetchKeyRef = useRef<string | null>(null);
   const pendingSessionKeyRef = useRef<string | null>(null);
   const [deferredRecommendations, setDeferredRecommendations] = useState<AnilistMedia[] | null>(initialRecommendations);
   const [resolvedCurrentUserId, setResolvedCurrentUserId] = useState<string | null>(currentUserId ?? null);
@@ -306,6 +339,7 @@ export default function WatchExperience({ initialSession, recommendations = null
   useEffect(() => {
     return () => {
       if (pendingCommitTimerRef.current) clearTimeout(pendingCommitTimerRef.current);
+      if (hoverPrefetchTimerRef.current) clearTimeout(hoverPrefetchTimerRef.current);
     };
   }, []);
 
@@ -354,57 +388,6 @@ export default function WatchExperience({ initialSession, recommendations = null
     });
   }, [session.anime.id, session.anime.title, session.anime.poster, session.anime.href, session.provider, session.episode.number]);
 
-  /* ── Prefetch nearby episodes + opposite dub/sub (cache warming) ─── */
-  useEffect(() => {
-    const currentIdx = session.episodes.findIndex((ep) => ep.number === session.episode.number);
-    if (currentIdx < 0) return;
-
-    const nearbyEpisodes = new Set<number>();
-    for (const offset of [-1, 1, 2, 3]) {
-      const episode = session.episodes[currentIdx + offset];
-      if (episode) nearbyEpisodes.add(episode.number);
-    }
-
-    const timer = setTimeout(() => {
-      for (const episodeNumber of nearbyEpisodes) {
-        prefetchWatchSession(session.anime.id, {
-          episodeNumber,
-          provider: session.provider,
-          dubbed: session.dubbed,
-          server: null,
-        });
-      }
-      prefetchWatchSession(session.anime.id, {
-        episodeNumber: session.episode.number,
-        provider: session.provider,
-        dubbed: !session.dubbed,
-        server: null,
-      });
-    }, 2000);
-
-    return () => clearTimeout(timer);
-  }, [session.anime.id, session.dubbed, session.episode.number, session.episodes, session.provider]);
-
-  /* ── Prefetch other available servers ──────── */
-  useEffect(() => {
-    if (session.serverOptions.length <= 1) return;
-
-    // Wait 4 seconds, then prefetch non-active servers
-    const timer = setTimeout(() => {
-      for (const srv of session.serverOptions) {
-        if (srv.id === session.activeServerId) continue; // Skip the current one
-        prefetchWatchSession(session.anime.id, {
-          episodeNumber: session.episode.number,
-          provider: session.provider,
-          dubbed: srv.category === "dub" || srv.category === "raw",
-          server: srv.id,
-        });
-      }
-    }, 4000);
-
-    return () => clearTimeout(timer);
-  }, [session.anime.id, session.activeServerId, session.episode.number, session.provider, session.serverOptions]);
-
   /* ── Focus mode ────────────────────────────── */
   useEffect(() => {
     if (focusMode) {
@@ -423,25 +406,7 @@ export default function WatchExperience({ initialSession, recommendations = null
   }, [focusMode]);
 
   const fetchSession = async (request: SessionRequest): Promise<WatchSessionModel> => {
-    const url = buildWatchSessionUrl(session.anime.id, request);
-
-    // Check client-side cache first (instant!)
-    const cached = getCachedSession(url);
-    if (cached) return cached;
-
-    const response = await fetch(url);
-    const payload = (await response.json().catch(() => null)) as WatchSessionModel | { message?: string } | null;
-    if (!response.ok) {
-      throw new Error(
-        payload && "message" in payload && payload.message
-          ? payload.message
-          : `Watch session failed with ${response.status}`
-      );
-    }
-
-    const result = payload as WatchSessionModel;
-    setCachedSession(url, result); // Store for future use
-    return result;
+    return loadWatchSession(session.anime.id, request);
   };
 
   const clearPendingCommit = () => {
@@ -515,6 +480,11 @@ export default function WatchExperience({ initialSession, recommendations = null
     }
 
     clearPendingCommit();
+    if (hoverPrefetchTimerRef.current) {
+      clearTimeout(hoverPrefetchTimerRef.current);
+      hoverPrefetchTimerRef.current = null;
+    }
+    hoverPrefetchKeyRef.current = null;
     pendingSessionKeyRef.current = null;
     setPendingSession(null);
     setIsSessionLoading(true);
@@ -528,12 +498,24 @@ export default function WatchExperience({ initialSession, recommendations = null
 
   const prefetchEpisode = (episodeNumber: number) => {
     if (episodeNumber === session.episode.number) return;
-    prefetchWatchSession(session.anime.id, {
-      episodeNumber,
-      provider: session.provider,
-      dubbed: session.dubbed,
-      server: null,
-    });
+    const prefetchKey = [session.anime.id, session.provider, session.dubbed ? "dub" : "sub", episodeNumber].join("|");
+    if (hoverPrefetchKeyRef.current === prefetchKey) return;
+
+    if (hoverPrefetchTimerRef.current) {
+      clearTimeout(hoverPrefetchTimerRef.current);
+    }
+
+    hoverPrefetchKeyRef.current = prefetchKey;
+    hoverPrefetchTimerRef.current = setTimeout(() => {
+      hoverPrefetchTimerRef.current = null;
+      hoverPrefetchKeyRef.current = null;
+      prefetchWatchSession(session.anime.id, {
+        episodeNumber,
+        provider: session.provider,
+        dubbed: session.dubbed,
+        server: null,
+      });
+    }, 220);
   };
 
   /* ── Episode navigation ──────────────────────── */
@@ -543,6 +525,32 @@ export default function WatchExperience({ initialSession, recommendations = null
     currentEpisodeIndex >= 0 && currentEpisodeIndex < session.episodes.length - 1
       ? session.episodes[currentEpisodeIndex + 1]
       : null;
+  const nextEpisodeNumber = nextEpisode?.number ?? null;
+
+  useEffect(() => {
+    if (!activeEmbedLoaded || isSessionLoading || isPending || nextEpisodeNumber === null) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      prefetchWatchSession(session.anime.id, {
+        episodeNumber: nextEpisodeNumber,
+        provider: session.provider,
+        dubbed: session.dubbed,
+        server: null,
+      });
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [
+    activeEmbedLoaded,
+    isPending,
+    isSessionLoading,
+    nextEpisodeNumber,
+    session.anime.id,
+    session.dubbed,
+    session.provider,
+  ]);
 
   const heroImage =
     session.anime.banner ||

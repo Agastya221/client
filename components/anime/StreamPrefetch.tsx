@@ -23,7 +23,7 @@ export default function StreamPrefetch({
       body: JSON.stringify({
         animeId,
         provider,
-        episodeNumbers: [1, 2, 3],
+        episodeNumbers: [1, 2],
       }),
       signal: controller.signal,
     }).catch(() => {
