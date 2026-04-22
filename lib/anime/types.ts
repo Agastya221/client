@@ -1,4 +1,4 @@
-export const PROVIDERS = ["animekai", "desidub"] as const;
+export const PROVIDERS = ["gogoanime", "animekai", "desidub"] as const;
 
 export type ProviderId = (typeof PROVIDERS)[number] | "hianime";
 

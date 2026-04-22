@@ -2507,6 +2507,10 @@ async function fetchHianimeWatchSession(
   };
 }
 
+function isAnimeKaiWrapperUrl(value: string | null | undefined): boolean {
+  return String(value || "").includes("anikai.to/iframe/");
+}
+
 async function fetchAnimeKaiWatchSession(
   episodeId: string,
   dubbed: boolean,
@@ -2552,16 +2556,18 @@ async function fetchAnimeKaiWatchSession(
   const stream = ensureArray(selected.sources)[0] || {};
   const streamUrl = stream.file || stream.url || null;
   const embedUrl = selected.url || null;
+  // Treat the provider's Cloudflare wrapper as non-playable so fallback can kick in.
+  const playableEmbedUrl = isAnimeKaiWrapperUrl(embedUrl) ? null : embedUrl;
 
   const source = normalizeStreamSourceFromUrl({
     label: selected.name || "AnimeKai",
     url: streamUrl,
-    iframeUrl: embedUrl || null,
-    referer: embedUrl || null,
+    iframeUrl: playableEmbedUrl || null,
+    referer: playableEmbedUrl || null,
     // Prefer direct M3U8 stream over iframe — embed sites use Cloudflare bot
     // protection which blocks streams in cross-origin iframes. Only use iframe
     // when there is no direct stream URL available.
-    preferEmbed: !streamUrl && Boolean(embedUrl),
+    preferEmbed: !streamUrl && Boolean(playableEmbedUrl),
   });
 
   // Normalize subtitles — Python returns tracks with .file field
@@ -2662,6 +2668,8 @@ async function fetchAnimeKaiEmbedWatchSession(
 
   const embed = await fetchAnimeKaiEmbedSource(selected.linkId);
   const embedUrl = String(embed.embed_url || "");
+  // Fast watch sessions should only expose embeds the browser can actually load.
+  const playableEmbedUrl = isAnimeKaiWrapperUrl(embedUrl) ? "" : embedUrl;
   const skip = embed.skip || {};
 
   // Pre-warm embed cache for sibling servers (fire-and-forget)
@@ -2673,9 +2681,9 @@ async function fetchAnimeKaiEmbedWatchSession(
   const source = normalizeStreamSourceFromUrl({
     label: selected.name || "AnimeKai",
     url: null,
-    iframeUrl: embedUrl || null,
-    referer: embedUrl || null,
-    preferEmbed: Boolean(embedUrl),
+    iframeUrl: playableEmbedUrl || null,
+    referer: playableEmbedUrl || null,
+    preferEmbed: Boolean(playableEmbedUrl),
   });
 
   return {
@@ -2732,6 +2740,66 @@ async function fetchDesidubWatchSession(
   };
 }
 
+
+async function fetchGogoAnimeWatchSession(
+  compositeId: string,
+  dubbed: boolean,
+  requestedServer?: string | null,
+): Promise<ProviderWatchPayload> {
+  // compositeId format: "title|subtitle::episodeNumber"
+  const [titlesPart, episodeStr] = compositeId.split("::");
+  if (!titlesPart || !episodeStr) {
+    return {
+      source: null,
+      subtitles: [],
+      serverOptions: [],
+      activeServerId: null,
+    };
+  }
+
+  const [title, subtitle] = titlesPart.split("|");
+
+  const response = await apiJson<JsonValue>(
+    `/api/gogoanime/watch?title=${encodeURIComponent(title)}&subtitle=${encodeURIComponent(subtitle || "")}&episode=${encodeURIComponent(episodeStr)}`,
+    { noStore: true },
+  );
+
+  const results = ensureArray(response.results);
+  const selected = results[0] || {};
+  const embedUrl = String(selected.url || "");
+
+  if (!embedUrl) {
+    return {
+      source: null,
+      subtitles: [],
+      serverOptions: [],
+      activeServerId: null,
+    };
+  }
+
+  const source = normalizeStreamSourceFromUrl({
+    label: "GogoAnime",
+    url: null,
+    iframeUrl: embedUrl,
+    referer: null,
+    preferEmbed: true,
+  });
+
+  return {
+    source: source.iframeUrl ? source : null,
+    subtitles: [],
+    serverOptions: [
+      {
+        id: "gogoanime-default",
+        label: "GogoAnime",
+        provider: "gogoanime" as any,
+        category: "sub",
+      },
+    ],
+    activeServerId: "gogoanime-default",
+  };
+}
+
 async function fetchProviderWatch(
   provider: ProviderId,
   episodeId: string,
@@ -2751,6 +2819,8 @@ async function fetchProviderWatch(
           return fetchAnimeKaiWatchSession(episodeId, dubbed, requestedServer);
         case "desidub":
           return fetchDesidubWatchSession(episodeId, requestedServer);
+        case "gogoanime":
+          return fetchGogoAnimeWatchSession(episodeId, dubbed, requestedServer);
         default:
           throw new Error(`Provider ${provider} is not supported for streaming`);
       }
@@ -2777,6 +2847,8 @@ async function fetchProviderFastWatch(
           return fetchAnimeKaiEmbedWatchSession(episodeId, dubbed, requestedServer);
         case "desidub":
           return fetchDesidubWatchSession(episodeId, requestedServer);
+        case "gogoanime":
+          return fetchGogoAnimeWatchSession(episodeId, dubbed, requestedServer);
         default:
           throw new Error(`Provider ${provider} is not supported for streaming`);
       }
@@ -2840,7 +2912,9 @@ export async function getWatchSession(input: {
 
       for (const provider of order) {
         const providerEpisodeId =
-          (provider === preferredProvider && input.episodeId) || targetEpisode.idByProvider[provider];
+          (provider === preferredProvider && input.episodeId) ||
+          targetEpisode.idByProvider[provider] ||
+          (provider === "gogoanime" ? `${detail.anime.title}|${detail.anime.subtitle || ""}::${targetEpisode.number}` : null);
         if (!providerEpisodeId) {
           watchAttempts.push({ provider, ok: false, reason: "Episode unavailable in provider" });
           recordCounter("anime.provider.failure", 1, { mode: "full", provider, reason: "episode_unavailable" });
@@ -2990,8 +3064,11 @@ export async function getFastWatchSession(input: {
           }
 
           for (const provider of order) {
+            // GogoAnime uses title::episodeNumber composite key (no pre-mapping needed)
             const providerEpisodeId =
-              (provider === preferredProvider && input.episodeId) || targetEpisode.idByProvider[provider];
+              (provider === preferredProvider && input.episodeId) ||
+              targetEpisode.idByProvider[provider] ||
+              (provider === "gogoanime" ? `${detail.anime.title}|${detail.anime.subtitle || ""}::${targetEpisode.number}` : null);
             if (!providerEpisodeId) {
               watchAttempts.push({ provider, ok: false, reason: "Episode unavailable in provider" });
               recordCounter("anime.provider.failure", 1, { mode: "fast", provider, reason: "episode_unavailable" });
@@ -3158,7 +3235,9 @@ export async function resolveStreamSource(input: {
       const watchAttempts: WatchAttempt[] = [];
       for (const provider of order) {
         const providerEpisodeId =
-          (provider === preferredProvider && input.episodeId) || targetEpisode.idByProvider[provider];
+          (provider === preferredProvider && input.episodeId) ||
+          targetEpisode.idByProvider[provider] ||
+          (provider === "gogoanime" ? `${detail.anime.title}|${detail.anime.subtitle || ""}::${targetEpisode.number}` : null);
         if (!providerEpisodeId) {
           watchAttempts.push({ provider, ok: false, reason: "Episode unavailable in provider" });
           recordCounter("anime.provider.failure", 1, { mode: "resolve", provider, reason: "episode_unavailable" });
