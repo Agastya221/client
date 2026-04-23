@@ -173,4 +173,7 @@ export interface WatchSessionModel {
   intro?: { start: number; end: number } | null;
   outro?: { start: number; end: number } | null;
   fallbackHistory: string[];
+  stale?: boolean;
+  fallback?: boolean;
+  message?: string | null;
 }

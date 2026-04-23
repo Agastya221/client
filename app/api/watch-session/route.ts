@@ -1,4 +1,4 @@
-import { getFastWatchSession } from "@/lib/anime/api";
+import { getQuickWatchSession } from "@/lib/anime/api";
 import { normalizeProviderParam } from "@/lib/anime/fallback";
 import { measureAsync, recordLog } from "@/lib/observability";
 import { NextResponse } from "next/server";
@@ -34,7 +34,7 @@ export async function GET(request: Request) {
         provider: normalizeProviderParam(searchParams.get("provider")) || "auto",
       },
       async () =>
-        getFastWatchSession({
+        getQuickWatchSession({
           animeId,
           episodeNumber: parseEpisodeNumber(searchParams.get("episodeNumber")),
           provider: normalizeProviderParam(searchParams.get("provider")),

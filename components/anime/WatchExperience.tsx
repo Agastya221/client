@@ -650,6 +650,45 @@ export default function WatchExperience({ initialSession, recommendations = null
     nearEndPrefetchedRef.current = null;
   }, [session.episode.number]);
 
+  /* ── Background Resolve Polling ──────────────── */
+  useEffect(() => {
+    if (!session.stale) return;
+
+    let timeoutId: ReturnType<typeof setTimeout>;
+    let attempts = 0;
+    const delays = [1000, 2000, 3000, 5000, 5000];
+
+    const poll = async () => {
+      const delay = delays[Math.min(attempts, delays.length - 1)];
+      attempts++;
+      
+      timeoutId = setTimeout(async () => {
+        try {
+          const nextSession = await fetchSession({
+            episodeNumber: session.episode.number,
+            provider: session.provider,
+            dubbed: session.dubbed,
+            server: session.activeServerId,
+          });
+          
+          if (nextSession.stale) {
+            poll();
+          } else {
+            // Re-merge session to clear stale state and show video
+            commitSession(nextSession);
+          }
+        } catch (error) {
+          setPlaybackMessage(error instanceof Error ? error.message : "Failed to poll watch session");
+        }
+      }, delay);
+    };
+
+    poll();
+
+    return () => clearTimeout(timeoutId);
+  }, [session.stale, session.anime.id, session.episode.number, session.provider, session.dubbed, session.activeServerId]);
+
+
   const heroImage =
     session.anime.banner ||
     session.anime.poster ||
@@ -724,7 +763,21 @@ export default function WatchExperience({ initialSession, recommendations = null
             </div>
           )}
 
-          {!embedAvailable && (
+          {!embedAvailable && session.stale && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-[#0a0a0c]/95 px-8 text-center">
+              <div className="rounded-full border border-white/10 bg-white/6 p-4">
+                <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-[#ff5500]" />
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-xl font-bold text-white">Resolving stream...</h2>
+                <p className="max-w-md text-sm text-white/60">
+                  Please wait while we locate the best source for this episode.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {!embedAvailable && !session.stale && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-[#0a0a0c]/95 px-8 text-center">
               <div className="rounded-full border border-white/10 bg-white/6 p-4 text-[#ff5500]">
                 <Tv2 className="h-8 w-8" />

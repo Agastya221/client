@@ -3165,19 +3165,77 @@ export async function getQuickWatchSession(input: {
   provider?: ProviderId | null;
   episodeId?: string | null;
   dubbed?: boolean;
+  server?: string | null;
 }): Promise<WatchSessionModel> {
-  const session = await getFastWatchSession({
-    ...input,
-    server: null,
+  const detail = await getAnimeDetailModel(input.animeId, input.provider || null, {
+    resolveProviderFallbacks: true,
+    mergeEpisodeProviders: true,
   });
+  const preferredProvider = input.provider || detail.activeProvider;
+  const targetEpisode =
+    detail.episodes.find((episode) => episode.number === Number(input.episodeNumber || 1)) ||
+    detail.episodes[0];
+  const episodeAvailableProviders = resolveEpisodeAvailableProviders(targetEpisode, detail.availableProviders);
 
-  if (session.source) {
-    return session;
+  if (!targetEpisode) {
+    return {
+      anime: detail.anime,
+      episode: {
+        number: Number(input.episodeNumber || 1),
+        title: `Episode ${input.episodeNumber || 1}`,
+        idByProvider: {},
+        availableProviders: [],
+      },
+      episodes: detail.episodes,
+      seasons: detail.seasons,
+      provider: preferredProvider,
+      availableProviders: episodeAvailableProviders,
+      attempts: detail.attempts,
+      watchAttempts: [{ provider: preferredProvider, ok: false, reason: "Episode not found" }],
+      source: null,
+      subtitles: [],
+      serverOptions: [],
+      activeServerId: null,
+      dubbed: Boolean(input.dubbed),
+      fallbackHistory: ["Episode not found in current provider map"],
+    };
   }
 
+  const providerEpisodeId = input.episodeId || targetEpisode.idByProvider[preferredProvider] || "";
+  const params = new URLSearchParams({
+    animeId: input.animeId,
+    title: detail.anime.title,
+    episode: String(targetEpisode.number),
+    provider: preferredProvider,
+    dubbed: input.dubbed ? "1" : "0",
+    server: input.server || "auto",
+    episodeId: providerEpisodeId,
+  });
+
+  const statusRes = await apiJson<{ status: string; payload?: any }>(
+    `/api/watch-session-status?${params.toString()}`
+  ).catch(() => ({ status: "stale" }));
+
+  const payload = statusRes.payload || {};
+
   return {
-    ...session,
-    fallbackHistory: session.fallbackHistory.length > 0 ? session.fallbackHistory : ["Stream pending — resolving on client"],
+    anime: detail.anime,
+    episode: targetEpisode,
+    episodes: detail.episodes,
+    seasons: detail.seasons,
+    provider: payload.provider || preferredProvider,
+    availableProviders: episodeAvailableProviders,
+    attempts: detail.attempts,
+    watchAttempts: payload.watchAttempts || [],
+    source: payload.source || null,
+    subtitles: payload.subtitles || [],
+    serverOptions: payload.serverOptions || [],
+    activeServerId: payload.activeServerId || null,
+    dubbed: Boolean(input.dubbed),
+    fallbackHistory: payload.fallbackHistory || ["Stream pending — resolving on client"],
+    stale: statusRes.status === "stale",
+    fallback: statusRes.status === "fallback",
+    message: statusRes.status === "stale" ? "Resolving stream..." : null,
   };
 }
 
