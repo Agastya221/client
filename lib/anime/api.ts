@@ -3214,7 +3214,7 @@ export async function getQuickWatchSession(input: {
 
   const statusRes = await apiJson<{ status: string; payload?: any }>(
     `/api/watch-session-status?${params.toString()}`
-  ).catch(() => ({ status: "stale" }));
+  ).catch(() => ({ status: "stale", payload: undefined }));
 
   const payload = statusRes.payload || {};
 
