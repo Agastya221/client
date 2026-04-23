@@ -29,6 +29,7 @@ import {
 import {
   AlertTriangle,
   Bookmark,
+  BookmarkCheck,
   Captions,
   ChevronDown,
   ChevronLeft,
@@ -364,6 +365,39 @@ export default function WatchExperience({ initialSession, recommendations = null
   const nearEndPrefetchedRef = useRef<string | null>(null);
   const [deferredRecommendations, setDeferredRecommendations] = useState<AnilistMedia[] | null>(initialRecommendations);
   const [resolvedCurrentUserId, setResolvedCurrentUserId] = useState<string | null>(currentUserId ?? null);
+
+  const [isBookmarked, setIsBookmarked] = useState(false);
+  const [bookmarkChecked, setBookmarkChecked] = useState(false);
+
+  useEffect(() => {
+    import("@/lib/anime/bookmarks").then(({ isBookmarked: getBookmarkState, ensureBookmarksHydrated, subscribeToBookmarks }) => {
+      const syncState = () => {
+        setIsBookmarked(getBookmarkState(session.anime.id));
+        setBookmarkChecked(true);
+      };
+
+      syncState();
+      ensureBookmarksHydrated().finally(syncState);
+      return subscribeToBookmarks(syncState);
+    });
+  }, [session.anime.id]);
+
+  const toggleBookmark = async () => {
+    const { isBookmarked: getBookmarkState, saveBookmark, removeBookmark } = await import("@/lib/anime/bookmarks");
+    if (getBookmarkState(session.anime.id)) {
+      removeBookmark(session.anime.id);
+      setIsBookmarked(false);
+    } else {
+      saveBookmark({
+        animeId: session.anime.id,
+        title: session.anime.title,
+        poster: session.anime.poster || "",
+        href: session.anime.href,
+        status: "PLAN_TO_WATCH",
+      });
+      setIsBookmarked(true);
+    }
+  };
 
   const embedAvailable = Boolean(session.source?.iframeUrl);
   const directAvailable = hasDirectPlaybackSource(session);
@@ -899,7 +933,13 @@ export default function WatchExperience({ initialSession, recommendations = null
               onClick={() => nextEpisode && goToEpisode(nextEpisode.number)}
             />
             <div className="w-px h-5 bg-white/8 mx-1 hidden sm:block" />
-            <ControlBtn icon={Bookmark} label="Bookmark" />
+            <ControlBtn
+              icon={isBookmarked ? BookmarkCheck : Bookmark}
+              label={isBookmarked ? "Bookmarked" : "Bookmark"}
+              active={isBookmarked}
+              onClick={toggleBookmark}
+              disabled={!bookmarkChecked}
+            />
             {session.source?.iframeUrl && (
               <a
                 href={session.source.iframeUrl}
@@ -938,15 +978,17 @@ export default function WatchExperience({ initialSession, recommendations = null
             {/* Sub/Dub mode toggle buttons */}
             <button
               type="button"
+              disabled={!session.dubbed}
+              aria-pressed={!session.dubbed}
               onClick={() => {
                 if (session.dubbed) {
                   queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: null, dubbed: false });
                 }
               }}
-              className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 transition-colors cursor-pointer ${
+              className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 transition-colors ${
                 !session.dubbed
-                  ? "bg-[#ff5500]/15 text-[#ff5500] border border-[#ff5500]/25 shadow-[0_0_8px_rgba(255,85,0,0.15)]"
-                  : "bg-white/5 text-white/50 border border-white/8 hover:bg-white/10 hover:text-white/70"
+                  ? "bg-[#ff5500]/15 text-[#ff5500] border border-[#ff5500]/25 shadow-[0_0_8px_rgba(255,85,0,0.15)] cursor-default"
+                  : "bg-white/5 text-white/50 border border-white/8 hover:bg-white/10 hover:text-white/70 cursor-pointer"
               }`}
             >
               <Captions className="w-3 h-3" />
@@ -954,15 +996,19 @@ export default function WatchExperience({ initialSession, recommendations = null
             </button>
             <button
               type="button"
+              disabled={session.dubbed || !session.episode.isDubbed}
+              aria-pressed={session.dubbed}
               onClick={() => {
                 if (!session.dubbed) {
                   queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: null, dubbed: true });
                 }
               }}
-              className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 transition-colors cursor-pointer ${
+              className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 transition-colors ${
                 session.dubbed
-                  ? "bg-[#4ade80]/15 text-[#4ade80] border border-[#4ade80]/25 shadow-[0_0_8px_rgba(74,222,128,0.15)]"
-                  : "bg-white/5 text-white/50 border border-white/8 hover:bg-white/10 hover:text-white/70"
+                  ? "bg-[#4ade80]/15 text-[#4ade80] border border-[#4ade80]/25 shadow-[0_0_8px_rgba(74,222,128,0.15)] cursor-default"
+                  : !session.episode.isDubbed
+                  ? "bg-white/5 text-white/20 border border-white/5 cursor-not-allowed"
+                  : "bg-white/5 text-white/50 border border-white/8 hover:bg-white/10 hover:text-white/70 cursor-pointer"
               }`}
             >
               <Captions className="w-3 h-3" />
@@ -1093,13 +1139,19 @@ export default function WatchExperience({ initialSession, recommendations = null
 
         {/* Number grid */}
         <div className="px-4 py-3">
-          <EpisodeNumberGrid
-            episodes={filteredEpisodes}
-            activeNumber={session.episode.number}
-            onSelect={goToEpisode}
-            onHover={prefetchEpisode}
-            watchedSet={watchedEpisodes}
-          />
+          {filteredEpisodes.length === 0 ? (
+            <p className="text-white/40 text-sm text-center py-4">
+              No episodes match "{episodeQuery}"
+            </p>
+          ) : (
+            <EpisodeNumberGrid
+              episodes={filteredEpisodes}
+              activeNumber={session.episode.number}
+              onSelect={goToEpisode}
+              onHover={prefetchEpisode}
+              watchedSet={watchedEpisodes}
+            />
+          )}
         </div>
 
         {/* Expandable list view */}

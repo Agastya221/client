@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { AlertTriangle, RefreshCcw, Home, ArrowLeft } from "lucide-react";
 
+import { useEffect, useState } from "react";
+
 export default function WatchError({
   error,
   reset,
@@ -10,6 +12,17 @@ export default function WatchError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const [detailsUrl, setDetailsUrl] = useState("/");
+
+  useEffect(() => {
+    // Extract the /anime/[id] part from /anime/[id]/watch
+    const path = window.location.pathname;
+    const match = path.match(/^\/anime\/[^/]+/);
+    if (match) {
+      setDetailsUrl(match[0]);
+    }
+  }, []);
+
   return (
     <main className="min-h-screen bg-[#0a0b0c] text-white flex items-center justify-center p-4">
       <div className="text-center max-w-lg">
@@ -34,6 +47,13 @@ export default function WatchError({
             <RefreshCcw className="w-4 h-4" />
             Retry
           </button>
+          <Link
+            href={detailsUrl}
+            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-6 py-3 text-sm font-semibold text-white/70 hover:bg-white/10 transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to Details
+          </Link>
           <Link
             href="/"
             className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-6 py-3 text-sm font-semibold text-white/70 hover:bg-white/10 transition-colors"

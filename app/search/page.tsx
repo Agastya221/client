@@ -193,7 +193,7 @@ export default async function SearchPage({
                     ].map(({ label, value }) => (
                       <Link
                         key={value}
-                        href={`/search${genre ? `?genre=${encodeURIComponent(genre)}&sort=${value}` : `?sort=${value}`}`}
+                        href={`/search?${new URLSearchParams({ ...(genre && { genre }), ...(value && { sort: value }) }).toString()}`.replace(/\?$/, "")}
                         className={`px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
                           sortParam === value
                             ? "bg-white/10 text-white border border-white/20"

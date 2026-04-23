@@ -15,9 +15,10 @@ interface AddToListButtonProps {
   title: string;
   poster: string;
   href: string;
+  variant?: "default" | "compact";
 }
 
-export default function AddToListButton({ animeId, title, poster, href }: AddToListButtonProps) {
+export default function AddToListButton({ animeId, title, poster, href, variant = "default" }: AddToListButtonProps) {
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [loading, setLoading] = useState(false);
   const [checked, setChecked] = useState(false);
@@ -58,6 +59,18 @@ export default function AddToListButton({ animeId, title, poster, href }: AddToL
   };
 
   if (!checked) {
+    if (variant === "compact") {
+      return (
+        <button
+          type="button"
+          disabled
+          className="flex items-center justify-center w-12 h-12 rounded-lg bg-[#0e0f11] border border-white/5 text-white/40"
+        >
+          <Loader2 className="w-5 h-5 animate-spin" />
+          <span className="sr-only">Loading bookmark</span>
+        </button>
+      );
+    }
     return (
       <button
         type="button"
@@ -66,6 +79,31 @@ export default function AddToListButton({ animeId, title, poster, href }: AddToL
       >
         <Loader2 className="w-4 h-4 animate-spin" />
         Loading...
+      </button>
+    );
+  }
+
+  if (variant === "compact") {
+    return (
+      <button
+        type="button"
+        onClick={toggleBookmark}
+        disabled={loading}
+        className={`flex items-center justify-center w-12 h-12 rounded-lg border transition-colors active:scale-95 ${
+          isBookmarked
+            ? "bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/25"
+            : "bg-[#0e0f11] text-white/70 hover:text-white border-white/5 hover:bg-white/5 hover:border-white/10"
+        }`}
+        title={isBookmarked ? "Remove from List" : "Add to List"}
+      >
+        <span className="sr-only">{isBookmarked ? "Remove from List" : "Add to List"}</span>
+        {loading ? (
+          <Loader2 className="w-5 h-5 animate-spin" />
+        ) : isBookmarked ? (
+          <BookmarkCheck className="w-5 h-5 fill-current" />
+        ) : (
+          <Bookmark className="w-5 h-5" />
+        )}
       </button>
     );
   }

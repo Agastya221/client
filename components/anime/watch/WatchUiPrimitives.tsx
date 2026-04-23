@@ -3,7 +3,7 @@
 import type { AnimeSeasonEntry, EpisodeModel, ServerOption } from "@/lib/anime/types";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 
 export function ControlBtn({
   icon: Icon,
@@ -63,6 +63,8 @@ export function ServerButton({
 }
 
 export function SeasonRail({ seasons, activeHref }: { seasons: AnimeSeasonEntry[]; activeHref: string }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
   if (seasons.length === 0) return null;
 
   return (
@@ -75,16 +77,24 @@ export function SeasonRail({ seasons, activeHref }: { seasons: AnimeSeasonEntry[
           </span>
         </h2>
         <div className="flex gap-2">
-          <button type="button" className="w-7 h-7 rounded-full border border-white/10 bg-white/5 flex items-center justify-center text-white/60 hover:text-white transition-colors">
-            <ChevronLeft className="w-3.5 h-3.5" />
+          <button
+            type="button"
+            onClick={() => scrollRef.current?.scrollBy({ left: -200, behavior: "smooth" })}
+            className="w-8 h-8 md:w-7 md:h-7 rounded-full border border-white/10 bg-white/5 flex items-center justify-center text-white/80 hover:text-white transition-colors"
+          >
+            <ChevronLeft className="w-4 h-4 md:w-3.5 md:h-3.5" />
           </button>
-          <button type="button" className="w-7 h-7 rounded-full border border-white/10 bg-white/5 flex items-center justify-center text-white/60 hover:text-white transition-colors">
-            <ChevronRight className="w-3.5 h-3.5" />
+          <button
+            type="button"
+            onClick={() => scrollRef.current?.scrollBy({ left: 200, behavior: "smooth" })}
+            className="w-8 h-8 md:w-7 md:h-7 rounded-full border border-white/10 bg-white/5 flex items-center justify-center text-white/80 hover:text-white transition-colors"
+          >
+            <ChevronRight className="w-4 h-4 md:w-3.5 md:h-3.5" />
           </button>
         </div>
       </div>
 
-      <div className="flex gap-3 overflow-x-auto pb-2 hide-scrollbar">
+      <div ref={scrollRef} className="flex gap-3 overflow-x-auto pb-2 hide-scrollbar">
         {seasons.map((season) => {
           const active = season.isActive || season.href === activeHref;
           return (
@@ -193,7 +203,7 @@ export function EpisodeNumberGrid({
               onFocus={() => onHover?.(ep.number)}
               title={`${ep.title}${isWatched ? " ✓ Watched" : ""}`}
               className={`
-                relative w-10 h-9 rounded-md text-xs font-bold transition-colors
+                relative w-11 h-10 md:w-10 md:h-9 rounded-md text-xs font-bold transition-colors
                 ${isActive
                   ? "bg-[#ff5500] text-white shadow-[0_0_12px_rgba(255,85,0,0.4)]"
                   : isWatched

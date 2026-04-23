@@ -76,6 +76,7 @@ export default function CommentSection({
   const [newComment, setNewComment] = useState("");
   const [isSpoiler, setIsSpoiler] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [timestamp, setTimestamp] = useState<number | null>(null);
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [replyContent, setReplyContent] = useState("");
 
@@ -113,12 +114,14 @@ export default function CommentSection({
           episodeNumber: episodeNumber || null,
           content: newComment.trim(),
           isSpoiler,
+          timestamp,
         }),
       });
 
       if (res.ok) {
         setNewComment("");
         setIsSpoiler(false);
+        setTimestamp(null);
         await fetchComments();
       }
     } finally {
@@ -126,8 +129,8 @@ export default function CommentSection({
     }
   };
 
-  const handleReply = async (parentId: string) => {
-    if (!replyContent.trim() || submitting) return;
+  const handleReply = async (parentId: string, content: string) => {
+    if (!content.trim() || submitting) return;
 
     setSubmitting(true);
     try {
@@ -137,7 +140,7 @@ export default function CommentSection({
         body: JSON.stringify({
           animeId,
           episodeNumber: episodeNumber || null,
-          content: replyContent.trim(),
+          content: content.trim(),
           parentId,
         }),
       });
@@ -248,18 +251,48 @@ export default function CommentSection({
             </div>
 
             <div className="flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => setIsSpoiler((v) => !v)}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
-                  isSpoiler
-                    ? "bg-yellow-500/15 text-yellow-400 border border-yellow-500/20"
-                    : "bg-white/5 text-white/40 border border-white/5 hover:text-white/60"
-                }`}
-              >
-                <AlertTriangle className="w-3 h-3" />
-                Spoiler
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsSpoiler((v) => !v)}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                    isSpoiler
+                      ? "bg-yellow-500/15 text-yellow-400 border border-yellow-500/20"
+                      : "bg-white/5 text-white/40 border border-white/5 hover:text-white/60"
+                  }`}
+                >
+                  <AlertTriangle className="w-3 h-3" />
+                  Spoiler
+                </button>
+                {episodeNumber && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (timestamp !== null) {
+                        setTimestamp(null);
+                        return;
+                      }
+                      const t = prompt("Enter timestamp (MM:SS):");
+                      if (t) {
+                        const parts = t.split(":");
+                        if (parts.length === 2) {
+                          setTimestamp(parseInt(parts[0]) * 60 + parseInt(parts[1]));
+                        } else if (parts.length === 1 && !isNaN(parseInt(parts[0]))) {
+                          setTimestamp(parseInt(parts[0]));
+                        }
+                      }
+                    }}
+                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                      timestamp !== null
+                        ? "bg-[#ff5500]/15 text-[#ff5500] border border-[#ff5500]/20"
+                        : "bg-white/5 text-white/40 border border-white/5 hover:text-white/60"
+                    }`}
+                  >
+                    <Clock className="w-3 h-3" />
+                    {timestamp !== null ? `${Math.floor(timestamp / 60)}:${(timestamp % 60).toString().padStart(2, '0')}` : "Timestamp"}
+                  </button>
+                )}
+              </div>
 
               <button
                 type="submit"
@@ -308,8 +341,6 @@ export default function CommentSection({
                 setReplyContent("");
               }}
               replyTo={replyTo}
-              replyContent={replyContent}
-              onReplyContentChange={setReplyContent}
               onReplySubmit={handleReply}
               submitting={submitting}
               onTimestampClick={onTimestampClick}
@@ -329,8 +360,6 @@ function CommentItem({
   onDelete,
   onReply,
   replyTo,
-  replyContent,
-  onReplyContentChange,
   onReplySubmit,
   submitting,
   onTimestampClick,
@@ -342,14 +371,13 @@ function CommentItem({
   onDelete: (id: string) => void;
   onReply: (id: string) => void;
   replyTo: string | null;
-  replyContent: string;
-  onReplyContentChange: (val: string) => void;
-  onReplySubmit: (parentId: string) => void;
+  onReplySubmit: (parentId: string, content: string) => void;
   submitting: boolean;
   onTimestampClick?: (time: number) => void;
   isReply?: boolean;
 }) {
   const [spoilerRevealed, setSpoilerRevealed] = useState(false);
+  const [localReplyContent, setLocalReplyContent] = useState("");
   const liked = currentUserId ? comment.likes.some((l) => l.userId === currentUserId) : false;
   const isOwn = currentUserId === comment.userId;
 
@@ -463,22 +491,26 @@ function CommentItem({
               <div className="mt-3 flex gap-2">
                 <input
                   type="text"
-                  value={replyContent}
-                  onChange={(e) => onReplyContentChange(e.target.value)}
+                  value={localReplyContent}
+                  onChange={(e) => setLocalReplyContent(e.target.value)}
                   placeholder="Write a reply..."
                   maxLength={2000}
                   className="flex-1 bg-white/[0.04] border border-white/8 rounded-lg px-3 py-2 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-[#ff5500]/40 transition-all"
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
-                      onReplySubmit(comment.id);
+                      onReplySubmit(comment.id, localReplyContent);
+                      setLocalReplyContent("");
                     }
                   }}
                 />
                 <button
                   type="button"
-                  onClick={() => onReplySubmit(comment.id)}
-                  disabled={!replyContent.trim() || submitting}
+                  onClick={() => {
+                    onReplySubmit(comment.id, localReplyContent);
+                    setLocalReplyContent("");
+                  }}
+                  disabled={!localReplyContent.trim() || submitting}
                   className="px-3 py-2 rounded-lg bg-[#ff5500] text-white text-xs font-bold hover:bg-[#e64d00] disabled:opacity-40 transition-all"
                 >
                   <Send className="w-3.5 h-3.5" />
@@ -501,8 +533,6 @@ function CommentItem({
               onDelete={onDelete}
               onReply={onReply}
               replyTo={replyTo}
-              replyContent={replyContent}
-              onReplyContentChange={onReplyContentChange}
               onReplySubmit={onReplySubmit}
               submitting={submitting}
               onTimestampClick={onTimestampClick}

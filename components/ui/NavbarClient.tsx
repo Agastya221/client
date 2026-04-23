@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Search, Shuffle, X, Menu, TrendingUp, Calendar, Radio, Sparkles, Film, Home } from "lucide-react";
+import { Search, Shuffle, X, Menu, TrendingUp, Calendar, Radio, Sparkles, Film, Home, Bell, Tag, Library } from "lucide-react";
 import { useRouter, usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 import UserMenu from "@/components/ui/UserMenu";
@@ -18,11 +18,11 @@ const NAV_LINKS = [
   { href: "/search?sort=trending", label: "Trending", icon: TrendingUp },
   { href: "/search?sort=season", label: "This Season", icon: Sparkles },
   { href: "/ongoing", label: "Ongoing", icon: Radio },
-  { href: "/new", label: "New", icon: Sparkles },
+  { href: "/new", label: "New", icon: Bell },
   { href: "/updates", label: "Schedule", icon: Calendar },
   { href: "/search", label: "Browse", icon: Search },
-  { href: "/genres", label: "Genres", icon: Film },
-  { href: "/types", label: "Types", icon: Film },
+  { href: "/genres", label: "Genres", icon: Tag },
+  { href: "/types", label: "Types", icon: Library },
 ];
 
 export default function NavbarClient({ user }: NavbarClientProps) {
@@ -91,9 +91,11 @@ export default function NavbarClient({ user }: NavbarClientProps) {
           {/* Nav links (desktop) */}
           <div className="hidden lg:flex items-center gap-5 text-xs font-bold uppercase tracking-wider text-white/50">
             <Link href="/search?sort=trending" className="hover:text-white transition-colors">Trending</Link>
+            <Link href="/new" className="hover:text-white transition-colors text-emerald-400">New</Link>
             <Link href="/search?sort=season" className="hover:text-white transition-colors">This Season</Link>
             <Link href="/search" className="hover:text-white transition-colors">Browse</Link>
             <Link href="/genres" className="hover:text-white transition-colors">Genres</Link>
+            <Link href="/types" className="hover:text-white transition-colors">Types</Link>
             <Link href="/updates" className="hover:text-white transition-colors">Schedule</Link>
 
             <div className="flex items-center gap-3 ml-2 border-l border-white/10 pl-5">
