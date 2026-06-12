@@ -180,25 +180,28 @@ export default function AnimePlayer({
     );
   }
 
-  // ── HLS Mode — custom premium player ────────────────────────────────────
-  const hlsUrl = source.proxiedUrl || source.url;
-  const isHls = source.isM3U8 || source.kind === "hls" || Boolean(hlsUrl?.includes(".m3u8"));
-
-  if (isHls && hlsUrl) {
-    return (
-      <HlsPlayer
-        source={source}
-        subtitles={subtitles}
-        malId={malId}
-        episodeNumber={episodeNumber}
-        intro={intro}
-        outro={outro}
-        onEpisodeEnd={onEpisodeEnd}
-        onTimeUpdate={onTimeUpdate}
-        onReady={onReady}
-      />
-    );
-  }
+  // ── HLS Mode — DISABLED for now ──────────────────────────────────────────
+  // The custom HLS player is not production-ready yet. When it's ready,
+  // uncomment this block to re-enable it. For now, always use iframe embeds.
+  //
+  // const hlsUrl = source.proxiedUrl || source.url;
+  // const isHls = source.isM3U8 || source.kind === "hls" || Boolean(hlsUrl?.includes(".m3u8"));
+  //
+  // if (isHls && hlsUrl) {
+  //   return (
+  //     <HlsPlayer
+  //       source={source}
+  //       subtitles={subtitles}
+  //       malId={malId}
+  //       episodeNumber={episodeNumber}
+  //       intro={intro}
+  //       outro={outro}
+  //       onEpisodeEnd={onEpisodeEnd}
+  //       onTimeUpdate={onTimeUpdate}
+  //       onReady={onReady}
+  //     />
+  //   );
+  // }
 
   // ── Iframe Mode — auto-cycles servers on error ───────────────────────────
   if (iframeUrl) {
@@ -214,22 +217,22 @@ export default function AnimePlayer({
     );
   }
 
-  // ── Direct video URL (rare — e.g. .mp4) ────────────────────────────────
-  if (hlsUrl) {
-    return (
-      <HlsPlayer
-        source={source}
-        subtitles={subtitles}
-        malId={malId}
-        episodeNumber={episodeNumber}
-        intro={intro}
-        outro={outro}
-        onEpisodeEnd={onEpisodeEnd}
-        onTimeUpdate={onTimeUpdate}
-        onReady={onReady}
-      />
-    );
-  }
+  // ── Direct video URL (rare — e.g. .mp4) — DISABLED with HLS ───────────
+  // if (hlsUrl) {
+  //   return (
+  //     <HlsPlayer
+  //       source={source}
+  //       subtitles={subtitles}
+  //       malId={malId}
+  //       episodeNumber={episodeNumber}
+  //       intro={intro}
+  //       outro={outro}
+  //       onEpisodeEnd={onEpisodeEnd}
+  //       onTimeUpdate={onTimeUpdate}
+  //       onReady={onReady}
+  //     />
+  //   );
+  // }
 
   return null;
 }

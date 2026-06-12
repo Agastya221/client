@@ -134,7 +134,7 @@ export default async function Home() {
       <AnilistHeroCarousel slides={heroSlidesForCarousel} watchHrefs={watchHrefs} availabilityHints={availabilityHints} />
 
       {/* Main Content */}
-      <div className="w-full px-4 lg:px-12 xl:px-16 py-12">
+      <div className="w-full px-3 sm:px-4 lg:px-12 xl:px-16 py-8 sm:py-12">
 
         {/* Continue Watching (client-side, reads localStorage) */}
         <div className="mb-12">

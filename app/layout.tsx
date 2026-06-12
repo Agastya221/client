@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
 import { Inter, Geist_Mono } from "next/font/google";
 import WatchHistorySyncClient from "@/components/anime/WatchHistorySyncClient";
+import ScrollToTop from "@/components/ui/ScrollToTop";
 import "./globals.css";
 
 const inter = Inter({
@@ -49,6 +51,7 @@ export default function RootLayout({
         className={`${inter.variable} ${geistMono.variable} antialiased bg-surface text-on-surface`}
         suppressHydrationWarning
       >
+        <Suspense><ScrollToTop /></Suspense>
         <WatchHistorySyncClient />
         {children}
       </body>

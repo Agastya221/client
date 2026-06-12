@@ -74,6 +74,101 @@ function hasDirectPlaybackSource(session: WatchSessionModel): boolean {
   return Boolean(session.source?.proxiedUrl || session.source?.url);
 }
 
+/* ── Client-side instant episode switching for custom embeds ──────────────
+   When the user switches episodes on a custom embed server (megaplay,
+   animeplay, etc.) we can build the new session entirely client-side:
+   just swap the episode number in the iframe URL and update the episode
+   metadata. This avoids the full /api/watch-session round-trip (500-2000ms)
+   making episode switching feel instant. */
+
+const CUSTOM_EMBED_BASES = ["megaplay", "animeplay", "tryembed", "mostream"] as const;
+
+function isCustomEmbedServer(serverId: string | null): boolean {
+  if (!serverId) return false;
+  const base = serverId.split("-")[0];
+  return CUSTOM_EMBED_BASES.some((b) => base === b);
+}
+
+function buildCustomEmbedUrl(
+  serverId: string,
+  anime: { anilistId?: number | null; malId?: number | null },
+  episodeNumber: number,
+): string | null {
+  const [base, cat] = serverId.split("-");
+  const lang = cat === "dub" ? "dub" : "sub";
+  const { anilistId, malId } = anime;
+
+  if (base === "megaplay") {
+    if (anilistId) return `https://megaplay.buzz/stream/ani/${anilistId}/${episodeNumber}/${lang}`;
+    if (malId) return `https://megaplay.buzz/stream/mal/${malId}/${episodeNumber}/${lang}`;
+  } else if (base === "animeplay") {
+    if (anilistId) return `https://animeplay.cfd/stream/ani/${anilistId}/${episodeNumber}/${lang}`;
+    if (malId) return `https://animeplay.cfd/stream/mal/${malId}/${episodeNumber}/${lang}`;
+  } else if (base === "tryembed") {
+    if (malId) return `https://tryembed.us.cc/embed/anime/${malId}/${episodeNumber}/${lang}`;
+    if (anilistId) return `https://tryembed.us.cc/embed/anime/${anilistId}/${episodeNumber}/${lang}`;
+  } else if (base === "mostream") {
+    if (malId) return `https://mostream.us/anime.php?mal=${malId}&e=${episodeNumber}&lang=${lang}`;
+    if (anilistId) return `https://mostream.us/anime.php?mal=${anilistId}&e=${episodeNumber}&lang=${lang}`;
+  }
+  return null;
+}
+
+/**
+ * Try to resolve an episode switch entirely on the client.
+ * Returns null if the request can't be handled locally (e.g. provider change,
+ * non-embed server, missing anime IDs).
+ */
+function tryBuildLocalSession(
+  current: WatchSessionModel,
+  request: SessionRequest,
+): WatchSessionModel | null {
+  // Only handle pure episode switches (same provider, same server, same dub mode)
+  const sameProvider = !request.provider || request.provider === current.provider;
+  const sameDub = request.dubbed === undefined || request.dubbed === current.dubbed;
+  const sameServer = request.server === undefined || request.server === null;
+  if (!sameProvider || !sameDub || !sameServer) return null;
+
+  // Must be on a custom embed server
+  if (!isCustomEmbedServer(current.activeServerId)) return null;
+
+  // Must have anime IDs available
+  if (!current.anime.anilistId && !current.anime.malId) return null;
+
+  // Find the target episode in the already-loaded episode list
+  const targetEpisode = current.episodes.find((ep) => ep.number === request.episodeNumber);
+  if (!targetEpisode) return null;
+
+  // Build the new iframe URL
+  const newIframeUrl = buildCustomEmbedUrl(
+    current.activeServerId!,
+    current.anime,
+    request.episodeNumber,
+  );
+  if (!newIframeUrl) return null;
+
+  return {
+    ...current,
+    episode: targetEpisode,
+    source: {
+      kind: "iframe",
+      label: current.source?.label || "Embed",
+      url: null,
+      proxiedUrl: null,
+      iframeUrl: newIframeUrl,
+      isM3U8: false,
+      requiresProxy: false,
+    },
+    subtitles: [],
+    watchAttempts: [{ provider: current.provider, server: current.activeServerId!, ok: true, reason: "Playback ready (embed)" }],
+    fallbackHistory: [],
+    stale: false,
+    fallback: false,
+    message: null,
+  };
+}
+
+
 /* ── Client-side session cache ─────────────────────
    Keeps up to 20 recently fetched sessions in memory.
    Going back to a previously visited episode is instant. */
@@ -424,7 +519,10 @@ export default function WatchExperience({ initialSession, recommendations = null
   const embedOnlyBlocked = !embedAvailable && directAvailable;
   const activeEmbedLoaded = loadedSurfaceKey === activePlayerSurfaceKey;
   const watchedEpisodes = getWatchedEpisodes(session.anime.id);
-  const showPlayerFeedback = embedAvailable && (!activeEmbedLoaded || isSessionLoading || isPending);
+
+  // Only show the feedback overlay while actively loading a new session (not during initial embed load)
+  // This prevents the "OPENING PLAYER" overlay from blocking the iframe while it loads
+  const showPlayerFeedback = isSessionLoading || isPending;
 
   useEffect(() => {
     return () => {
@@ -536,6 +634,16 @@ export default function WatchExperience({ initialSession, recommendations = null
   };
 
   const applySession = async (request: SessionRequest): Promise<WatchSessionModel> => {
+    // ⚡ Try instant client-side switching for custom embed servers
+    const localSession = tryBuildLocalSession(session, request);
+    if (localSession) {
+      // Commit immediately — no staging delay needed for local switches.
+      // The iframe URL is known-valid so skip the hidden preload.
+      commitSession(localSession);
+      return localSession;
+    }
+
+    // Fall back to server fetch
     const nextSession = await fetchSession(request);
     stageOrCommitSession(nextSession);
     return nextSession;

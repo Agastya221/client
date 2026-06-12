@@ -114,7 +114,7 @@ export default function WatchPage({
 
       <section className="relative overflow-hidden px-3 pb-12 pt-6 sm:px-4 md:px-6 flex-1">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_center,rgba(255,85,0,0.04),transparent_50%)]" />
-        <div className="relative mx-auto max-w-7xl">
+        <div className="relative mx-auto max-w-[96rem]">
           <WatchContent idPromise={params} searchParamsPromise={searchParams} />
         </div>
       </section>
