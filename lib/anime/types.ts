@@ -133,7 +133,7 @@ export interface SubtitleTrack {
 }
 
 export interface StreamSource {
-  kind: "video" | "iframe";
+  kind: "video" | "iframe" | "hls";
   label: string;
   url: string | null;
   proxiedUrl: string | null;
@@ -156,6 +156,16 @@ export interface WatchAttempt {
   reason: string;
 }
 
+export interface PlaybackIssue {
+  provider: ProviderId;
+  code?: string | null;
+  stage?: string | null;
+  message: string;
+  statusCode?: number | null;
+  timestamp?: string | null;
+  retryable?: boolean;
+}
+
 export interface WatchSessionModel {
   anime: CatalogAnime;
   episode: EpisodeModel;
@@ -176,4 +186,5 @@ export interface WatchSessionModel {
   stale?: boolean;
   fallback?: boolean;
   message?: string | null;
+  playbackIssue?: PlaybackIssue | null;
 }

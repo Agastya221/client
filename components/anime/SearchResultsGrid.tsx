@@ -94,7 +94,7 @@ export default function SearchResultsGrid({ initialModel }: SearchResultsGridPro
         <Search className="h-12 w-12 text-on-surface-variant" />
         <h2 className="mt-5 text-2xl font-black text-on-surface">No anime matched this filter set</h2>
         <p className="mt-2 max-w-xl text-sm leading-relaxed text-on-surface-variant">
-          Try a broader title search, remove the dubbed-only filter, or unlock the provider so AnimeKAI can keep
+          Try a broader title search, remove the dubbed-only filter, or unlock the provider so AnimePlay can keep
           falling back automatically.
         </p>
       </div>

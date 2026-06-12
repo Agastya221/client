@@ -62,7 +62,7 @@ export default function NavbarClient({ user }: NavbarClientProps) {
           <div className="flex items-center gap-8 shrink-0">
             <Link href="/" className="flex items-center text-2xl font-black tracking-tight">
               <span className="text-white">Anime</span>
-              <span className="text-[#52ff7f]">KAI</span>
+              <span className="text-[#52ff7f]">PLAY</span>
             </Link>
 
             {/* Search bar (desktop) */}
@@ -137,7 +137,7 @@ export default function NavbarClient({ user }: NavbarClientProps) {
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
               <span className="text-lg font-black text-white">
-                Anime<span className="text-[#52ff7f]">KAI</span>
+                Anime<span className="text-[#52ff7f]">PLAY</span>
               </span>
               <button
                 type="button"

@@ -231,6 +231,28 @@ function parseAnilistPassthroughId(providerId: string): number | null {
   return numberOrNull(providerId.slice("anilist:".length));
 }
 
+/**
+ * Returns true if this routeId is an anilist~ passthrough route
+ * and the anime has an anilistId or malId we can use for embed URLs.
+ */
+function canUseDirectEmbed(anime: CatalogAnime): boolean {
+  return Boolean(anime.anilistId || anime.malId);
+}
+
+/**
+ * Build a synthetic episode for anilist passthrough routes where
+ * no scraped episode list exists. Allows custom embed (MegaPlay etc.)
+ * to serve via AniList ID + episode number.
+ */
+function makeSyntheticEpisode(episodeNumber: number): EpisodeModel {
+  return {
+    number: episodeNumber,
+    title: `Episode ${episodeNumber}`,
+    idByProvider: {},
+    availableProviders: [],
+  };
+}
+
 function isResolvedProviderId(provider: ProviderId, providerId: string | null | undefined): boolean {
   if (!providerId) return false;
   if (provider === "animekai" && providerId.startsWith("anilist:")) return false;
@@ -2215,6 +2237,43 @@ export async function getAnimeDetailOverviewModel(
   options: AnimeDetailModelOptions = {},
 ): Promise<AnimeDetailOverviewModel> {
   const decoded = decodeAnimeId(routeId);
+
+  // ── FAST PATH for anilist~ routes ──────────────────────────────────────────
+  // When the route is `anilist~{id}`, the Python backend will never have this
+  // ID in its database. Skip all scraper calls entirely and fetch from AniList
+  // directly — this is instant vs. the 2–5s backend timeout.
+  const anilistPassthroughId = decoded.provider === "animekai"
+    ? parseAnilistPassthroughId(decoded.providerId)
+    : null;
+
+  if (anilistPassthroughId !== null) {
+    const anilistSeedFast = await getAnilistSeedAnime(anilistPassthroughId);
+    const seedAnime = anilistSeedFast?.anime || normalizeBaseAnime({
+      provider: "animekai",
+      providerId: decoded.providerId,
+      title: humanizeProviderId(decoded.providerId),
+      description: null,
+      genres: [],
+    });
+    const attempts: ProviderAttemptStatus[] = [
+      anilistSeedFast
+        ? providerSuccess("animekai", "AniList direct lookup — no scraper needed")
+        : providerFailure("animekai", "AniList lookup failed"),
+    ];
+    return {
+      anime: withProviderIds(seedAnime, seedAnime.providerIds, routeId),
+      synopsis: seedAnime.description || "No synopsis available right now.",
+      metadata: [],
+      seasons: [],
+      related: [],
+      recommended: [],
+      activeProvider: "animekai",
+      availableProviders: [],
+      attempts,
+    };
+  }
+  // ── END FAST PATH ──────────────────────────────────────────────────────────
+
   const attempts: ProviderAttemptStatus[] = [];
   const baseDetail = await tryBaseProviderDetailMeta(routeId);
   const baseBundle = baseDetail.bundle;
@@ -2311,6 +2370,53 @@ export async function getAnimeDetailOverviewModel(
   };
 }
 
+/**
+ * Generates synthetic episode stubs for AniList passthrough anime.
+ *
+ * For a RELEASING (currently airing) anime:
+ *   - AniList provides nextAiringEpisode.episode = the NEXT episode to air
+ *   - Episodes aired so far = nextAiringEpisode.episode - 1
+ *   - e.g. nextAiringEpisode.episode = 5 → episodes 1, 2, 3, 4 have aired
+ *
+ * For a FINISHED anime:
+ *   - Use media.episodes (total episode count)
+ *
+ * This allows the episode list to show correctly for new/current-season anime
+ * that aren't yet in the scraper's database.
+ */
+async function buildSyntheticEpisodesFromAnilist(anilistId: number): Promise<EpisodeModel[]> {
+  try {
+    const media = await getAnilistDetail(anilistId);
+    let episodeCount: number | null = null;
+
+    if (media.status === "RELEASING" && media.nextAiringEpisode) {
+      // nextAiringEpisode.episode is the NEXT episode — subtract 1 for aired count
+      const nextEp = media.nextAiringEpisode.episode;
+      if (nextEp > 1) {
+        episodeCount = nextEp - 1;
+      }
+    }
+
+    // Fall back to total episode count for finished/upcoming anime
+    if (episodeCount === null && media.episodes && media.episodes > 0) {
+      episodeCount = media.episodes;
+    }
+
+    // Still unknown — show at least episode 1 so the player can work
+    if (episodeCount === null || episodeCount <= 0) {
+      episodeCount = 1;
+    }
+
+    // Cap at 2000 for safety
+    episodeCount = Math.min(episodeCount, 2000);
+
+    return Array.from({ length: episodeCount }, (_, i) => makeSyntheticEpisode(i + 1));
+  } catch {
+    // If AniList lookup fails, show episode 1 as a fallback
+    return [makeSyntheticEpisode(1)];
+  }
+}
+
 export async function getAnimeEpisodeListModel(
   routeId: string,
   preferredProvider?: ProviderId | null,
@@ -2325,6 +2431,20 @@ export async function getAnimeEpisodeListModel(
     return {
       anime: detail.anime,
       episodes: [],
+      episodeCoverageMode: "active-provider",
+      activeProvider: detail.activeProvider,
+      availableProviders: detail.availableProviders,
+    };
+  }
+
+  // For anilist: passthrough IDs, the scraper has no episode data.
+  // Build synthetic episodes from AniList metadata instead.
+  const anilistPassId = parseAnilistPassthroughId(providerId);
+  if (anilistPassId !== null) {
+    const syntheticEpisodes = await buildSyntheticEpisodesFromAnilist(anilistPassId);
+    return {
+      anime: detail.anime,
+      episodes: syntheticEpisodes,
       episodeCoverageMode: "active-provider",
       activeProvider: detail.activeProvider,
       availableProviders: detail.availableProviders,
@@ -2377,9 +2497,14 @@ async function _getAnimeDetailModelRaw(
   if (!shouldMergeEpisodeProviders) {
     const activeProviderId =
       detail.anime.providerIds[detail.activeProvider] || detail.anime.providerId;
-    const episodes = activeProviderId
-      ? await fetchProviderEpisodes(detail.activeProvider, activeProviderId).catch(() => [])
-      : [];
+
+    // For anilist: passthrough IDs, use synthetic episodes from AniList data
+    const anilistPassId = activeProviderId ? parseAnilistPassthroughId(activeProviderId) : null;
+    const episodes = anilistPassId !== null
+      ? await buildSyntheticEpisodesFromAnilist(anilistPassId)
+      : activeProviderId
+        ? await fetchProviderEpisodes(detail.activeProvider, activeProviderId).catch(() => [])
+        : [];
 
     return {
       ...detail,
@@ -2411,9 +2536,31 @@ async function _getAnimeDetailModelRaw(
     }
   }
 
+  const mergedEpisodes = Array.from(episodeMap.values()).sort((a, b) => a.number - b.number);
+
+  // For anilist passthrough routes: if no scraped episodes, generate synthetic episodes.
+  // Use nextAiringEpisode data so RELEASING anime only shows episodes that have actually aired.
+  let finalEpisodes = mergedEpisodes;
+  if (mergedEpisodes.length === 0) {
+    const activeProviderId = detail.anime.providerIds[detail.activeProvider] || detail.anime.providerId;
+    const anilistPassId = activeProviderId ? parseAnilistPassthroughId(activeProviderId) : null;
+
+    if (anilistPassId !== null) {
+      finalEpisodes = await buildSyntheticEpisodesFromAnilist(anilistPassId);
+    } else if (detail.anime.episodeCount && detail.anime.episodeCount > 0) {
+      // Fallback for non-passthrough anime with known episode count
+      finalEpisodes = Array.from({ length: detail.anime.episodeCount }, (_, i) => ({
+        number: i + 1,
+        title: `Episode ${i + 1}`,
+        idByProvider: {} as Partial<Record<ProviderId, string>>,
+        availableProviders: [] as ProviderId[],
+      }));
+    }
+  }
+
   return {
     ...detail,
-    episodes: Array.from(episodeMap.values()).sort((a, b) => a.number - b.number),
+    episodes: finalEpisodes,
     episodeCoverageMode: "merged-providers",
   };
 }
@@ -2856,6 +3003,145 @@ async function fetchProviderFastWatch(
   );
 }
 
+const CUSTOM_SERVERS = [
+  "megaplay-sub", "megaplay-dub",
+  "animeplay-sub", "animeplay-dub",
+  "tryembed-sub", "tryembed-dub",
+  "mostream-sub", "mostream-dub"
+] as const;
+
+function isCustomEmbed(server: string | null | undefined): boolean {
+  if (!server) return false;
+  return (CUSTOM_SERVERS as readonly string[]).includes(server);
+}
+
+/** When no server is specified, default to MegaPlay (sub or dub). */
+function defaultCustomServer(server: string | null | undefined, dubbed: boolean | undefined): string {
+  if (server && server !== "auto") return server;
+  return dubbed ? "megaplay-dub" : "megaplay-sub";
+}
+
+function appendCustomEmbedServers(
+  serverOptions: ServerOption[],
+  anime: CatalogAnime,
+  activeProvider: ProviderId,
+): ServerOption[] {
+  if (!anime.malId && !anime.anilistId) {
+    return serverOptions;
+  }
+
+  const customOptions: ServerOption[] = [
+    {
+      id: "megaplay-sub",
+      label: "MegaPlay",
+      provider: activeProvider,
+      category: "sub",
+    },
+    {
+      id: "megaplay-dub",
+      label: "MegaPlay",
+      provider: activeProvider,
+      category: "dub",
+    },
+    {
+      id: "animeplay-sub",
+      label: "AnimePlay",
+      provider: activeProvider,
+      category: "sub",
+    },
+    {
+      id: "animeplay-dub",
+      label: "AnimePlay",
+      provider: activeProvider,
+      category: "dub",
+    },
+    {
+      id: "tryembed-sub",
+      label: "TryEmbed",
+      provider: activeProvider,
+      category: "sub",
+    },
+    {
+      id: "tryembed-dub",
+      label: "TryEmbed",
+      provider: activeProvider,
+      category: "dub",
+    },
+    {
+      id: "mostream-sub",
+      label: "MoStream",
+      provider: activeProvider,
+      category: "sub",
+    },
+    {
+      id: "mostream-dub",
+      label: "MoStream",
+      provider: activeProvider,
+      category: "dub",
+    },
+  ];
+
+  const filtered = serverOptions.filter(
+    (opt) => !customOptions.some((custom) => custom.id === opt.id)
+  );
+
+  return [...filtered, ...customOptions];
+}
+
+function resolveCustomEmbedSource(
+  server: string,
+  anime: CatalogAnime,
+  episodeNumber: number,
+): StreamSource | null {
+  const malId = anime.malId;
+  const anilistId = anime.anilistId;
+  const [base, cat] = server.split("-");
+  const isDub = cat === "dub";
+  const lang = isDub ? "dub" : "sub";
+
+  let iframeUrl = "";
+
+  if (base === "megaplay") {
+    // MegaPlay works better with AniList IDs for most content.
+    // Use mal/ as fallback only when anilistId is missing.
+    if (anilistId) {
+      iframeUrl = `https://megaplay.buzz/stream/ani/${anilistId}/${episodeNumber}/${lang}`;
+    } else if (malId) {
+      iframeUrl = `https://megaplay.buzz/stream/mal/${malId}/${episodeNumber}/${lang}`;
+    }
+  } else if (base === "animeplay") {
+    if (anilistId) {
+      iframeUrl = `https://animeplay.cfd/stream/ani/${anilistId}/${episodeNumber}/${lang}`;
+    } else if (malId) {
+      iframeUrl = `https://animeplay.cfd/stream/mal/${malId}/${episodeNumber}/${lang}`;
+    }
+  } else if (base === "tryembed") {
+    if (malId) {
+      iframeUrl = `https://tryembed.us.cc/embed/anime/${malId}/${episodeNumber}/${lang}`;
+    } else if (anilistId) {
+      iframeUrl = `https://tryembed.us.cc/embed/anime/${anilistId}/${episodeNumber}/${lang}`;
+    }
+  } else if (base === "mostream") {
+    if (malId) {
+      iframeUrl = `https://mostream.us/anime.php?mal=${malId}&e=${episodeNumber}&lang=${lang}`;
+    } else if (anilistId) {
+      iframeUrl = `https://mostream.us/anime.php?mal=${anilistId}&e=${episodeNumber}&lang=${lang}`;
+    }
+  }
+
+  if (!iframeUrl) return null;
+
+  return {
+    kind: "iframe",
+    label: base.charAt(0).toUpperCase() + base.slice(1),
+    url: null,
+    proxiedUrl: null,
+    iframeUrl,
+    isM3U8: false,
+    requiresProxy: false,
+  };
+}
+
 export async function getWatchSession(input: {
   animeId: string;
   episodeNumber?: number;
@@ -2886,6 +3172,29 @@ export async function getWatchSession(input: {
       const watchAttempts: WatchAttempt[] = [];
 
       if (!targetEpisode) {
+        // For anilist passthrough routes: synthesize episode if we have anilistId/malId
+        if (canUseDirectEmbed(detail.anime)) {
+          const epNum = Number(input.episodeNumber || 1);
+          const synEp = makeSyntheticEpisode(epNum);
+          const effectiveServer = defaultCustomServer(input.server, input.dubbed);
+          const source = resolveCustomEmbedSource(effectiveServer, detail.anime, epNum);
+          return {
+            anime: detail.anime,
+            episode: synEp,
+            episodes: detail.episodes,
+            seasons: detail.seasons,
+            provider: preferredProvider,
+            availableProviders: [],
+            attempts: detail.attempts,
+            watchAttempts: [{ provider: preferredProvider, server: effectiveServer, ok: Boolean(source), reason: source ? "Playback ready (embed)" : "No embed source" }],
+            source,
+            subtitles: [],
+            serverOptions: appendCustomEmbedServers([], detail.anime, preferredProvider),
+            activeServerId: source ? effectiveServer : null,
+            dubbed: Boolean(input.dubbed),
+            fallbackHistory: [],
+          };
+        }
         recordCounter("anime.watch_session.failure", 1, { mode: "full", reason: "episode_missing" });
         return {
           anime: detail.anime,
@@ -2908,6 +3217,44 @@ export async function getWatchSession(input: {
           dubbed: Boolean(input.dubbed),
           fallbackHistory: ["Episode not found in current provider map"],
         };
+      }
+
+      const effectiveServer = defaultCustomServer(input.server, input.dubbed);
+
+      if (isCustomEmbed(effectiveServer)) {
+        const source = resolveCustomEmbedSource(effectiveServer, detail.anime, targetEpisode.number);
+        if (source) {
+          let originalServerOptions: ServerOption[] = [];
+          try {
+            const firstProvider = order.find((p) => targetEpisode.idByProvider[p]);
+            if (firstProvider) {
+              const providerEpisodeId = targetEpisode.idByProvider[firstProvider];
+              if (providerEpisodeId) {
+                const session = await fetchProviderFastWatch(firstProvider, providerEpisodeId, Boolean(input.dubbed), null);
+                originalServerOptions = session.serverOptions;
+              }
+            }
+          } catch {
+            // Ignore
+          }
+
+          return {
+            anime: detail.anime,
+            episode: targetEpisode,
+            episodes: detail.episodes,
+            seasons: detail.seasons,
+            provider: preferredProvider,
+            availableProviders: episodeAvailableProviders,
+            attempts: detail.attempts,
+            watchAttempts: [{ provider: preferredProvider, server: effectiveServer, ok: true, reason: "Playback ready (custom embed)" }],
+            source,
+            subtitles: [],
+            serverOptions: appendCustomEmbedServers(originalServerOptions, detail.anime, preferredProvider),
+            activeServerId: effectiveServer,
+            dubbed: Boolean(input.dubbed),
+            fallbackHistory: [],
+          };
+        }
       }
 
       for (const provider of order) {
@@ -2953,7 +3300,7 @@ export async function getWatchSession(input: {
             watchAttempts: [...watchAttempts, { provider, server: input.server || undefined, ok: true, reason: "Playback ready" }],
             source: session.source,
             subtitles: session.subtitles,
-            serverOptions: session.serverOptions,
+            serverOptions: appendCustomEmbedServers(session.serverOptions, detail.anime, provider),
             activeServerId: session.activeServerId,
             dubbed: Boolean(input.dubbed),
             intro: session.intro || null,
@@ -2995,7 +3342,7 @@ export async function getWatchSession(input: {
         watchAttempts,
         source: null,
         subtitles: [],
-        serverOptions: [],
+        serverOptions: appendCustomEmbedServers([], detail.anime, preferredProvider),
         activeServerId: null,
         dubbed: Boolean(input.dubbed),
         fallbackHistory: watchAttempts.map((attempt) => `${attempt.provider}: ${attempt.reason}`),
@@ -3039,6 +3386,29 @@ export async function getFastWatchSession(input: {
           const watchAttempts: WatchAttempt[] = [];
 
           if (!targetEpisode) {
+            // For anilist passthrough routes: synthesize episode if we have anilistId/malId
+            if (canUseDirectEmbed(detail.anime)) {
+              const epNum = Number(input.episodeNumber || 1);
+              const synEp = makeSyntheticEpisode(epNum);
+              const effectiveServer2 = defaultCustomServer(input.server, input.dubbed);
+              const source2 = resolveCustomEmbedSource(effectiveServer2, detail.anime, epNum);
+              return {
+                anime: detail.anime,
+                episode: synEp,
+                episodes: detail.episodes,
+                seasons: detail.seasons,
+                provider: preferredProvider,
+                availableProviders: [],
+                attempts: detail.attempts,
+                watchAttempts: [{ provider: preferredProvider, server: effectiveServer2, ok: Boolean(source2), reason: source2 ? "Playback ready (embed)" : "No embed source" }],
+                source: source2,
+                subtitles: [],
+                serverOptions: appendCustomEmbedServers([], detail.anime, preferredProvider),
+                activeServerId: source2 ? effectiveServer2 : null,
+                dubbed: Boolean(input.dubbed),
+                fallbackHistory: [],
+              };
+            }
             recordCounter("anime.watch_session.failure", 1, { mode: "fast", reason: "episode_missing" });
             return {
               anime: detail.anime,
@@ -3061,6 +3431,44 @@ export async function getFastWatchSession(input: {
               dubbed: Boolean(input.dubbed),
               fallbackHistory: ["Episode not found in current provider map"],
             };
+          }
+
+          const effectiveServer = defaultCustomServer(input.server, input.dubbed);
+
+          if (isCustomEmbed(effectiveServer)) {
+            const source = resolveCustomEmbedSource(effectiveServer, detail.anime, targetEpisode.number);
+            if (source) {
+              let originalServerOptions: ServerOption[] = [];
+              try {
+                const firstProvider = order.find((p) => targetEpisode.idByProvider[p]);
+                if (firstProvider) {
+                  const providerEpisodeId = targetEpisode.idByProvider[firstProvider];
+                  if (providerEpisodeId) {
+                    const session = await fetchProviderFastWatch(firstProvider, providerEpisodeId, Boolean(input.dubbed), null);
+                    originalServerOptions = session.serverOptions;
+                  }
+                }
+              } catch {
+                // Ignore
+              }
+
+              return {
+                anime: detail.anime,
+                episode: targetEpisode,
+                episodes: detail.episodes,
+                seasons: detail.seasons,
+                provider: preferredProvider,
+                availableProviders: episodeAvailableProviders,
+                attempts: detail.attempts,
+                watchAttempts: [{ provider: preferredProvider, server: effectiveServer, ok: true, reason: "Playback ready (custom embed)" }],
+                source,
+                subtitles: [],
+                serverOptions: appendCustomEmbedServers(originalServerOptions, detail.anime, preferredProvider),
+                activeServerId: effectiveServer,
+                dubbed: Boolean(input.dubbed),
+                fallbackHistory: [],
+              };
+            }
           }
 
           for (const provider of order) {
@@ -3107,7 +3515,7 @@ export async function getFastWatchSession(input: {
                 watchAttempts: [...watchAttempts, { provider, server: input.server || undefined, ok: true, reason: "Embed session ready" }],
                 source: session.source,
                 subtitles: session.subtitles,
-                serverOptions: session.serverOptions,
+                serverOptions: appendCustomEmbedServers(session.serverOptions, detail.anime, provider),
                 activeServerId: session.activeServerId,
                 dubbed: Boolean(input.dubbed),
                 intro: session.intro || null,
@@ -3138,7 +3546,7 @@ export async function getFastWatchSession(input: {
             watchAttempts,
             source: null,
             subtitles: [],
-            serverOptions: [],
+            serverOptions: appendCustomEmbedServers([], detail.anime, preferredProvider),
             activeServerId: null,
             dubbed: Boolean(input.dubbed),
             fallbackHistory: watchAttempts.map((attempt) => `${attempt.provider}: ${attempt.reason}`),
@@ -3177,12 +3585,20 @@ export async function getQuickWatchSession(input: {
     detail.episodes[0];
   const episodeAvailableProviders = resolveEpisodeAvailableProviders(targetEpisode, detail.availableProviders);
 
-  if (!targetEpisode) {
+  // For anilist~ passthrough routes: if no scraped episode list exists but we have
+  // an anilistId/malId, use a synthetic episode and serve the custom embed directly.
+  const effectiveEpNumber = Number(input.episodeNumber || 1);
+  const syntheticEpisode = !targetEpisode && canUseDirectEmbed(detail.anime)
+    ? makeSyntheticEpisode(effectiveEpNumber)
+    : null;
+  const resolvedTargetEpisode = targetEpisode || syntheticEpisode;
+
+  if (!resolvedTargetEpisode) {
     return {
       anime: detail.anime,
       episode: {
-        number: Number(input.episodeNumber || 1),
-        title: `Episode ${input.episodeNumber || 1}`,
+        number: effectiveEpNumber,
+        title: `Episode ${effectiveEpNumber}`,
         idByProvider: {},
         availableProviders: [],
       },
@@ -3194,18 +3610,58 @@ export async function getQuickWatchSession(input: {
       watchAttempts: [{ provider: preferredProvider, ok: false, reason: "Episode not found" }],
       source: null,
       subtitles: [],
-      serverOptions: [],
+      serverOptions: appendCustomEmbedServers([], detail.anime, preferredProvider),
       activeServerId: null,
       dubbed: Boolean(input.dubbed),
       fallbackHistory: ["Episode not found in current provider map"],
     };
   }
+  const targetEpisode2 = resolvedTargetEpisode;
 
-  const providerEpisodeId = input.episodeId || targetEpisode.idByProvider[preferredProvider] || "";
+  // ─── INSTANT EMBED PATH ───────────────────────────────────────────────────
+  // For any anime where the active server is a custom embed (MegaPlay, AnimePlay,
+  // TryEmbed, MoStream) AND the anime has an anilistId or malId:
+  // → Skip the /api/watch-session-status roundtrip entirely.
+  // → Return the iframe URL immediately — no Python backend required.
+  //
+  // This means the watch page loads INSTANTLY for ~99% of anime.
+  // The backend is only needed for DesiDub (Hindi) or legacy provider HLS streams.
+  const effectiveServerForEmbed = defaultCustomServer(input.server, input.dubbed);
+  const isDirectEmbedRoute =
+    isCustomEmbed(effectiveServerForEmbed) &&
+    canUseDirectEmbed(detail.anime) &&
+    // Only bypass status API if the user isn't forcing a specific non-embed server
+    (input.server == null || input.server === "auto" || isCustomEmbed(input.server));
+
+  if (isDirectEmbedRoute) {
+    const source = resolveCustomEmbedSource(effectiveServerForEmbed, detail.anime, targetEpisode2.number);
+    return {
+      anime: detail.anime,
+      episode: targetEpisode2,
+      episodes: detail.episodes,
+      seasons: detail.seasons,
+      provider: preferredProvider,
+      availableProviders: episodeAvailableProviders,
+      attempts: detail.attempts,
+      watchAttempts: [{ provider: preferredProvider, server: effectiveServerForEmbed, ok: Boolean(source), reason: source ? "Playback ready (embed)" : "No embed source" }],
+      source,
+      subtitles: [],
+      serverOptions: appendCustomEmbedServers([], detail.anime, preferredProvider),
+      activeServerId: source ? effectiveServerForEmbed : null,
+      dubbed: Boolean(input.dubbed),
+      fallbackHistory: [],
+      stale: false,
+      fallback: false,
+      message: null,
+    };
+  }
+  // ─── END INSTANT EMBED PATH ───────────────────────────────────────────────
+
+  const providerEpisodeId = input.episodeId || targetEpisode2.idByProvider[preferredProvider] || "";
   const params = new URLSearchParams({
     animeId: input.animeId,
     title: detail.anime.title,
-    episode: String(targetEpisode.number),
+    episode: String(targetEpisode2.number),
     provider: preferredProvider,
     dubbed: input.dubbed ? "1" : "0",
     server: input.server || "auto",
@@ -3220,7 +3676,7 @@ export async function getQuickWatchSession(input: {
 
   return {
     anime: detail.anime,
-    episode: targetEpisode,
+    episode: targetEpisode2,
     episodes: detail.episodes,
     seasons: detail.seasons,
     provider: payload.provider || preferredProvider,
@@ -3229,7 +3685,7 @@ export async function getQuickWatchSession(input: {
     watchAttempts: payload.watchAttempts || [],
     source: payload.source || null,
     subtitles: payload.subtitles || [],
-    serverOptions: payload.serverOptions || [],
+    serverOptions: appendCustomEmbedServers(payload.serverOptions || [], detail.anime, preferredProvider),
     activeServerId: payload.activeServerId || null,
     dubbed: Boolean(input.dubbed),
     fallbackHistory: payload.fallbackHistory || ["Stream pending — resolving on client"],
@@ -3281,21 +3737,58 @@ export async function resolveStreamSource(input: {
         detail.episodes.find((ep) => ep.number === Number(input.episodeNumber || 1)) ||
         detail.episodes[0];
 
-      if (!targetEpisode) {
+      // For anilist passthrough routes with no scraped episodes, build a synthetic episode
+      const synEpisodeNum = Number(input.episodeNumber || 1);
+      const resolvedEp = targetEpisode || (canUseDirectEmbed(detail.anime) ? makeSyntheticEpisode(synEpisodeNum) : null);
+
+      if (!resolvedEp) {
         recordCounter("anime.stream.failure", 1, { reason: "episode_missing" });
         return {
-          source: null, subtitles: [], serverOptions: [], activeServerId: null,
+          source: null, subtitles: [], serverOptions: appendCustomEmbedServers([], detail.anime, preferredProvider), activeServerId: null,
           provider: preferredProvider,
           watchAttempts: [{ provider: preferredProvider, ok: false, reason: "Episode not found" }],
         };
+      }
+      // Use resolvedEp instead of targetEpisode below
+      // (rename to avoid redeclaration in same scope)
+      const resolvedTargetEp = resolvedEp;
+
+      const effectiveServer = defaultCustomServer(input.server, input.dubbed);
+
+      if (isCustomEmbed(effectiveServer)) {
+        const source = resolveCustomEmbedSource(effectiveServer, detail.anime, resolvedTargetEp.number);
+        if (source) {
+          let originalServerOptions: ServerOption[] = [];
+          try {
+            const firstProvider = order.find((p) => resolvedTargetEp.idByProvider[p]);
+            if (firstProvider) {
+              const providerEpisodeId = resolvedTargetEp.idByProvider[firstProvider];
+              if (providerEpisodeId) {
+                const session = await fetchProviderFastWatch(firstProvider, providerEpisodeId, Boolean(input.dubbed), null);
+                originalServerOptions = session.serverOptions;
+              }
+            }
+          } catch {
+            // Ignore
+          }
+
+          return {
+            source,
+            subtitles: [],
+            serverOptions: appendCustomEmbedServers(originalServerOptions, detail.anime, preferredProvider),
+            activeServerId: effectiveServer,
+            provider: preferredProvider,
+            watchAttempts: [{ provider: preferredProvider, server: effectiveServer, ok: true, reason: "Playback ready (custom embed)" }],
+          };
+        }
       }
 
       const watchAttempts: WatchAttempt[] = [];
       for (const provider of order) {
         const providerEpisodeId =
           (provider === preferredProvider && input.episodeId) ||
-          targetEpisode.idByProvider[provider] ||
-          (provider === "gogoanime" ? `${detail.anime.title}|${detail.anime.subtitle || ""}::${targetEpisode.number}` : null);
+          resolvedTargetEp.idByProvider[provider] ||
+          (provider === "gogoanime" ? `${detail.anime.title}|${detail.anime.subtitle || ""}::${resolvedTargetEp.number}` : null);
         if (!providerEpisodeId) {
           watchAttempts.push({ provider, ok: false, reason: "Episode unavailable in provider" });
           recordCounter("anime.provider.failure", 1, { mode: "resolve", provider, reason: "episode_unavailable" });
@@ -3321,7 +3814,7 @@ export async function resolveStreamSource(input: {
           return {
             source: session.source,
             subtitles: session.subtitles,
-            serverOptions: session.serverOptions,
+            serverOptions: appendCustomEmbedServers(session.serverOptions, detail.anime, provider),
             activeServerId: session.activeServerId,
             provider,
             intro: session.intro || null,
@@ -3346,7 +3839,7 @@ export async function resolveStreamSource(input: {
         watchAttempts.map((attempt) => `${attempt.provider}:${attempt.reason}`).join(" | "),
       );
       return {
-        source: null, subtitles: [], serverOptions: [], activeServerId: null,
+        source: null, subtitles: [], serverOptions: appendCustomEmbedServers([], detail.anime, preferredProvider), activeServerId: null,
         provider: preferredProvider, watchAttempts,
       };
     },

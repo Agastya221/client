@@ -1,5 +1,6 @@
 "use client";
 
+import VideoPlayer from "@/components/anime/watch/VideoPlayer";
 import CommentSection from "@/components/anime/CommentSection";
 import {
   WatchAnimeDetailsPanel,
@@ -399,7 +400,8 @@ export default function WatchExperience({ initialSession, recommendations = null
     }
   };
 
-  const embedAvailable = Boolean(session.source?.iframeUrl);
+  // A playable source exists — either an iframe embed or (in future) a direct HLS stream
+  const embedAvailable = Boolean(session.source);
   const directAvailable = hasDirectPlaybackSource(session);
   const cameFromAnilistCatalog =
     session.anime.id.startsWith("anilist~") || session.anime.href.includes("/anime/anilist~");
@@ -753,10 +755,9 @@ export default function WatchExperience({ initialSession, recommendations = null
   const showHindi = session.availableProviders.includes("desidub") || session.provider === "desidub";
   const floatingStatus = isSessionTransitioning ? "Refreshing session..." : null;
   const playerFeedbackTitle = activeEmbedLoaded ? "Player ready" : "Opening player";
-  const playerFeedbackHint =
-    isSessionTransitioning
-      ? "Loading the next embedded session."
-      : "Opening the embedded player.";
+  const playerFeedbackHint = isSessionTransitioning
+    ? "Loading the next session..."
+    : "Opening the player...";
 
   /* ════════════════════════════════════════════════
      RENDER
@@ -782,20 +783,32 @@ export default function WatchExperience({ initialSession, recommendations = null
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_20%,rgba(0,0,0,0.78)_100%)]" />
           <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/15 to-black/45" />
 
-          {session.source?.iframeUrl && (
+          {/* Custom AnimePlayer — handles both HLS and iframe modes */}
+          {session.source && (
             <div className="absolute inset-0 transition-opacity duration-300 opacity-100">
-              <iframe
+              <VideoPlayer
                 key={activePlayerSurfaceKey}
-                src={session.source.iframeUrl}
-                className="h-full w-full"
-                allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-                allowFullScreen
-                loading="eager"
-                title={`${session.anime.title} embedded player`}
-                onLoad={() => setLoadedSurfaceKey(activePlayerSurfaceKey)}
+                source={session.source}
+                subtitles={session.subtitles}
+                malId={session.anime.malId}
+                episodeNumber={session.episode.number}
+                intro={session.intro}
+                outro={session.outro}
+                onReady={() => setLoadedSurfaceKey(activePlayerSurfaceKey)}
+                onEpisodeEnd={() => {
+                  if (nextEpisode) {
+                    queueSession({
+                      episodeNumber: nextEpisode.number,
+                      provider: session.provider,
+                      dubbed: session.dubbed,
+                      server: null,
+                    });
+                  }
+                }}
               />
             </div>
           )}
+
 
           {!embedAvailable && session.stale && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-[#0a0a0c]/95 px-8 text-center">

@@ -6,8 +6,8 @@ import { Calendar, Clock, ChevronRight } from "lucide-react";
 import Link from "next/link";
 
 export const metadata = {
-  title: "Schedule & Updates | AnimeKAI",
-  description: "See the weekly airing schedule and latest episode updates on AnimeKAI.",
+  title: "Schedule & Updates | AnimePlay",
+  description: "See the weekly airing schedule and latest episode updates on AnimePlay.",
 };
 
 // Group airing anime by day of week

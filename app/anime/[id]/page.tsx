@@ -17,8 +17,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import AddToListButton from "@/components/anime/AddToListButton";
-import StreamPrefetch from "@/components/anime/StreamPrefetch";
-import { getAnimeKaiWatchAvailability } from "@/lib/anime/api";
+
+
 
 export async function generateMetadata({
   params,
@@ -27,26 +27,26 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { id } = await params;
   if (!id.startsWith("anilist~")) {
-    return { title: "Anime Details | AnimeKAI" };
+    return { title: "Anime Details | AnimePlay" };
   }
   const anilistId = parseInt(id.replace("anilist~", ""), 10);
-  if (isNaN(anilistId)) return { title: "Not Found | AnimeKAI" };
+  if (isNaN(anilistId)) return { title: "Not Found | AnimePlay" };
 
   try {
     const media = await getAnilistDetail(anilistId);
     const title = anilistTitle(media);
-    const desc = media.description?.replace(/<[^>]*>/g, "").slice(0, 160) || `Watch ${title} on AnimeKAI`;
+    const desc = media.description?.replace(/<[^>]*>/g, "").slice(0, 160) || `Watch ${title} on AnimePlay`;
     return {
-      title: `${title} | AnimeKAI`,
+      title: `${title} | AnimePlay`,
       description: desc,
       openGraph: {
-        title: `${title} | AnimeKAI`,
+        title: `${title} | AnimePlay`,
         description: desc,
         images: [media.coverImage.extraLarge || media.coverImage.large],
       },
     };
   } catch {
-    return { title: "Anime Details | AnimeKAI" };
+    return { title: "Anime Details | AnimePlay" };
   }
 }
 
@@ -88,13 +88,8 @@ async function AnilistDetailContent({ anilistId }: { anilistId: number }) {
   const accentColor = media.coverImage.color || "#ff5500";
   const routeId = encodeAnilistRouteId(anilistId);
   const selfHref = `/anime/${routeId}`;
-  const watchAvailability = await getAnimeKaiWatchAvailability(routeId, [
-    media.title.english,
-    media.title.romaji,
-    media.title.native,
-    ...(media.synonyms || []),
-  ]);
-  const watchHref = watchAvailability.watchHref;
+  // All anime are watchable via MegaPlay using the AniList ID directly — no scraper needed
+  const watchHref = `/anime/${routeId}/watch?ep=1`;
 
   const relations = media.relations.edges.filter(
     (e) => e.relationType === "SEQUEL" || e.relationType === "PREQUEL" || e.relationType === "SIDE_STORY"
@@ -107,8 +102,7 @@ async function AnilistDetailContent({ anilistId }: { anilistId: number }) {
 
   return (
     <>
-      {/* Prefetch stream for the resolved provider route while user browses detail page */}
-      {watchAvailability.routeId ? <StreamPrefetch animeId={watchAvailability.routeId} /> : null}
+
       {/* Hero Section */}
       <section className="relative overflow-hidden">
         {/* Banner bg */}
@@ -204,22 +198,15 @@ async function AnilistDetailContent({ anilistId }: { anilistId: number }) {
 
               {/* CTAs */}
               <div className="flex flex-wrap items-center gap-3 pt-2">
-                {watchHref ? (
-                  <Link
-                    href={watchHref}
-                    prefetch
-                    className="flex items-center gap-2.5 text-white font-black text-sm px-8 py-4 rounded-full transition-all hover:scale-105 shadow-xl"
-                    style={{ backgroundColor: accentColor, boxShadow: `0 12px 32px ${accentColor}50` }}
-                  >
-                    <Play className="w-4 h-4 fill-current" />
-                    WATCH NOW
-                  </Link>
-                ) : (
-                  <div className="flex items-center gap-2.5 text-white/65 font-black text-sm px-8 py-4 rounded-full border border-white/10 bg-white/5 cursor-not-allowed">
-                    <Play className="w-4 h-4" />
-                    NOT AVAILABLE YET
-                  </div>
-                )}
+                <Link
+                  href={watchHref}
+                  prefetch
+                  className="flex items-center gap-2.5 text-white font-black text-sm px-8 py-4 rounded-full transition-all hover:scale-105 shadow-xl"
+                  style={{ backgroundColor: accentColor, boxShadow: `0 12px 32px ${accentColor}50` }}
+                >
+                  <Play className="w-4 h-4 fill-current" />
+                  WATCH NOW
+                </Link>
                 <AddToListButton
                   animeId={`anilist~${anilistId}`}
                   title={title}
@@ -227,11 +214,7 @@ async function AnilistDetailContent({ anilistId }: { anilistId: number }) {
                   href={selfHref}
                 />
               </div>
-              {!watchHref && (
-                <p className="text-sm text-white/45">
-                  {watchAvailability.message} We’ll enable playback automatically once a provider mapping exists.
-                </p>
-              )}
+
             </div>
           </div>
         </div>

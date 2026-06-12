@@ -4,8 +4,8 @@ import { MessageSquare, Heart, TrendingUp, Users } from "lucide-react";
 import Link from "next/link";
 
 export const metadata = {
-  title: "Community | AnimeKAI",
-  description: "Join the AnimeKAI community — discuss episodes, share recommendations, and connect with fellow anime fans.",
+  title: "Community | AnimePlay",
+  description: "Join the AnimePlay community — discuss episodes, share recommendations, and connect with fellow anime fans.",
 };
 
 const FEATURES = [
@@ -56,7 +56,7 @@ export default function SocialPage() {
             </div>
             <h1 className="text-4xl font-black text-white mb-3">Community</h1>
             <p className="text-white/40 text-sm max-w-lg mx-auto">
-              AnimeKAI's social features are built right into the watch experience. Every episode has its own comment thread.
+              AnimePlay's social features are built right into the watch experience. Every episode has its own comment thread.
             </p>
           </div>
 

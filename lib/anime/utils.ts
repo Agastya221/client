@@ -31,7 +31,8 @@ export function decodeAnimeId(value: string): { provider: ProviderId; providerId
 }
 
 export function buildProviderOrder(preferred?: ProviderId | null, seeded?: ProviderId | null): ProviderId[] {
-  const ordered = [preferred, seeded, "gogoanime", ...PROVIDERS].filter(Boolean) as ProviderId[];
+  const fallbackOrder: ProviderId[] = ["hianime", "animekai", "desidub"];
+  const ordered = [preferred, seeded, ...fallbackOrder].filter(Boolean) as ProviderId[];
   return Array.from(new Set(ordered));
 }
 

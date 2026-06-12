@@ -195,7 +195,7 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
 
           {availability ? (
             <p className="mt-4 text-[11px] font-bold uppercase tracking-[0.18em] text-white/45">
-              {watchHref ? "Mapped on AnimeKai" : availability.message}
+              {watchHref ? "Mapped on AnimePlay" : availability.message}
             </p>
           ) : null}
         </div>

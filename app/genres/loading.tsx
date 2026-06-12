@@ -1,21 +1,55 @@
+import Navbar from "@/components/ui/Navbar";
+
 export default function Loading() {
   return (
-    <main className="min-h-screen bg-[#0a0b0c] text-white pt-24 pb-16 px-4 lg:px-12 xl:px-16">
-      <div className="mb-10 animate-pulse">
-        <div className="h-3 w-20 rounded bg-white/5 mb-3" />
-        <div className="h-9 w-64 rounded-lg bg-white/5 mb-2" />
-        <div className="h-4 w-48 rounded bg-white/5" />
-      </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-4 gap-y-8">
-        {Array.from({ length: 24 }).map((_, i) => (
-          <div key={i} className="animate-pulse">
-            <div className="aspect-[2/3] rounded-xl bg-white/5" />
-            <div className="mt-2 h-4 w-3/4 rounded bg-white/5" />
-            <div className="mt-1 h-3 w-1/2 rounded bg-white/5" />
+    <main className="min-h-screen bg-[#0a0b0c] text-white">
+      <Navbar />
+
+      {/* Hero skeleton */}
+      <section className="border-b border-white/5 px-6 pb-14 pt-28">
+        <div className="mx-auto max-w-7xl animate-pulse space-y-6">
+          <div className="flex gap-3">
+            <div className="h-6 w-28 rounded-full bg-white/5" />
+            <div className="h-6 w-16 rounded-full bg-white/5" />
           </div>
-        ))}
-      </div>
+          <div className="h-16 w-2/3 rounded-xl bg-white/[0.07]" />
+          <div className="h-5 w-96 rounded bg-white/5" />
+        </div>
+      </section>
+
+      {/* Featured genre cards skeleton */}
+      <section className="px-6 py-12">
+        <div className="mx-auto max-w-7xl">
+          <div className="mb-8 animate-pulse space-y-2">
+            <div className="h-3 w-28 rounded bg-white/5" />
+            <div className="h-8 w-64 rounded-lg bg-white/[0.07]" />
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="h-44 animate-pulse rounded-2xl bg-white/[0.04]" style={{ animationDelay: `${i * 50}ms` }} />
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Tag cloud skeleton */}
+      <section className="px-6 pb-16">
+        <div className="mx-auto max-w-7xl rounded-2xl border border-white/5 bg-white/[0.02] p-6">
+          <div className="mb-6 animate-pulse space-y-2">
+            <div className="h-3 w-20 rounded bg-white/5" />
+            <div className="h-7 w-48 rounded-lg bg-white/[0.07]" />
+          </div>
+          <div className="flex flex-wrap gap-2.5">
+            {Array.from({ length: 30 }).map((_, i) => (
+              <div
+                key={i}
+                className="h-9 animate-pulse rounded-full bg-white/[0.04]"
+                style={{ width: `${60 + (i % 5) * 20}px`, animationDelay: `${i * 20}ms` }}
+              />
+            ))}
+          </div>
+        </div>
+      </section>
     </main>
   );
 }
-

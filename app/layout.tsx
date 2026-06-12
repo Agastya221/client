@@ -19,18 +19,18 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "AnimeKAI | The Ultimate Anime Experience",
+  title: "AnimePlay | The Ultimate Anime Experience",
   description: "Watch your favorite anime online in high quality. Multi-provider streaming with sub, dub, and server fallback.",
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://animekai.app"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://animeplay.app"),
   openGraph: {
-    title: "AnimeKAI | The Ultimate Anime Experience",
+    title: "AnimePlay | The Ultimate Anime Experience",
     description: "Watch your favorite anime online in high quality with multi-provider streaming.",
-    siteName: "AnimeKAI",
+    siteName: "AnimePlay",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "AnimeKAI | The Ultimate Anime Experience",
+    title: "AnimePlay | The Ultimate Anime Experience",
     description: "Watch your favorite anime online in high quality.",
   },
   icons: {

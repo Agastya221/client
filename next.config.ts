@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 const nextConfig: NextConfig = {
   images: {
@@ -13,6 +14,15 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "gogocdn.net" },
     ],
   },
+  turbopack: {
+    root: path.resolve(__dirname),
+  },
+  experimental: {
+    webpackMemoryOptimizations: true,
+  },
+  // Suppress hydration warnings from browser extensions that inject attributes
+  // like bis_skin_checked="1" (Honey, CouponFollow, etc.) into the DOM.
+  reactStrictMode: true,
 };
 
 export default nextConfig;

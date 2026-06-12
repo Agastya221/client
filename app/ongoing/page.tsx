@@ -7,8 +7,8 @@ import { Radio, ChevronRight } from "lucide-react";
 import Link from "next/link";
 
 export const metadata = {
-  title: "Ongoing Series | AnimeKAI",
-  description: "Watch currently airing anime series on AnimeKAI. Updated daily.",
+  title: "Ongoing Series | AnimePlay",
+  description: "Watch currently airing anime series on AnimePlay. Updated daily.",
 };
 
 export default async function OngoingPage() {
