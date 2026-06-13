@@ -2,7 +2,8 @@
 
 import { type AnilistMedia, anilistTitle, anilistRating, encodeAnilistRouteId } from "@/lib/anilist/api";
 import type { CatalogAvailabilityHint } from "@/lib/anime/api";
-import { Play, Bookmark, ChevronLeft, ChevronRight, Star, Calendar, Tv } from "lucide-react";
+import { isBookmarked, saveBookmark, removeBookmark, subscribeToBookmarks } from "@/lib/anime/bookmarks";
+import { Play, Bookmark, BookmarkCheck, ChevronLeft, ChevronRight, Star, Calendar, Tv } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState, useCallback, useRef } from "react";
 
@@ -68,6 +69,29 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
   const studios = slide.studios.nodes.map((s) => s.name).join(", ");
   const accentColor = slide.coverImage.color || "#ff5500";
   const isAiring = slide.status === "RELEASING";
+  const animeId = `anilist~${slide.id}`;
+  const [bookmarked, setBookmarked] = useState(false);
+
+  // Sync bookmark state
+  useEffect(() => {
+    const sync = () => setBookmarked(isBookmarked(animeId));
+    sync();
+    return subscribeToBookmarks(sync);
+  }, [animeId]);
+
+  const toggleBookmark = () => {
+    if (bookmarked) {
+      removeBookmark(animeId);
+    } else {
+      saveBookmark({
+        animeId,
+        title,
+        poster: slide.coverImage.large || slide.coverImage.extraLarge || null,
+        href,
+      });
+    }
+    setBookmarked((v) => !v);
+  };
 
   return (
     <section
@@ -111,7 +135,7 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
             {/* Badges */}
             <div className="flex items-center gap-2 mb-5 flex-wrap">
               {isAiring && (
-                <span className="flex items-center gap-1.5 bg-[#ff5500] text-white text-[10px] font-black px-3 py-1.5 rounded-full uppercase tracking-wider">
+                <span className="flex items-center gap-1.5 text-white text-[10px] font-black px-3 py-1.5 rounded-full uppercase tracking-wider" style={{ backgroundColor: accentColor }}>
                   <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
                   NOW AIRING
                 </span>
@@ -133,8 +157,8 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
               )}
             </div>
 
-            {/* Title */}
-            <h1 className="text-5xl xl:text-6xl font-black text-white leading-tight tracking-tight mb-4 line-clamp-2" style={{ textShadow: "0 2px 20px rgba(0,0,0,0.8)" }}>
+            {/* Title — full on desktop, no clamp needed */}
+            <h1 className="text-5xl xl:text-6xl font-black text-white leading-tight tracking-tight mb-4" style={{ textShadow: "0 2px 20px rgba(0,0,0,0.8)" }}>
               {title}
             </h1>
 
@@ -152,9 +176,9 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
               </div>
             )}
 
-            {/* Description */}
+            {/* Description — more lines on desktop */}
             {description && (
-              <p className="text-white/60 text-sm leading-relaxed mb-8 line-clamp-3">{description}</p>
+              <p className="text-white/60 text-sm leading-relaxed mb-8 line-clamp-4">{description}</p>
             )}
 
             {/* CTAs */}
@@ -178,16 +202,23 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
                   More Info
                 </Link>
               )}
-              <button className="w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center border border-white/10 transition-all duration-200">
-                <Bookmark className="w-4 h-4 text-white/70" />
+              <button
+                onClick={toggleBookmark}
+                className={`w-12 h-12 rounded-full flex items-center justify-center border transition-all duration-200 ${
+                  bookmarked
+                    ? "border-yellow-400/50 bg-yellow-400/15 hover:bg-yellow-400/25"
+                    : "bg-white/10 hover:bg-white/20 border-white/10"
+                }`}
+                title={bookmarked ? "Remove bookmark" : "Bookmark"}
+              >
+                {bookmarked
+                  ? <BookmarkCheck className="w-4 h-4 text-yellow-400 fill-yellow-400" />
+                  : <Bookmark className="w-4 h-4 text-white/70" />
+                }
               </button>
             </div>
 
-            {availability && (
-              <p className="mt-4 text-[11px] font-bold uppercase tracking-[0.18em] text-white/45">
-                {watchHref ? "Mapped on AnimePlay" : availability.message}
-              </p>
-            )}
+
           </div>
         </div>
 
@@ -242,7 +273,7 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
             {/* Badges row */}
             <div className="flex items-center gap-1.5 mb-3 flex-wrap">
               {isAiring && (
-                <span className="flex items-center gap-1 bg-[#ff5500] text-white text-[9px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider">
+                <span className="flex items-center gap-1 text-white text-[9px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider" style={{ backgroundColor: accentColor }}>
                   <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
                   NOW AIRING
                 </span>
@@ -311,14 +342,25 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
                   More Info
                 </Link>
               )}
-              <button className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center border border-white/10">
-                <Bookmark className="w-3.5 h-3.5 text-white/60" />
+              <button
+                onClick={toggleBookmark}
+                className={`w-9 h-9 rounded-full flex items-center justify-center border transition-all ${
+                  bookmarked
+                    ? "border-yellow-400/50 bg-yellow-400/15"
+                    : "bg-white/10 border-white/10"
+                }`}
+                title={bookmarked ? "Remove bookmark" : "Bookmark"}
+              >
+                {bookmarked
+                  ? <BookmarkCheck className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
+                  : <Bookmark className="w-3.5 h-3.5 text-white/60" />
+                }
               </button>
             </div>
 
-            {availability && (
+            {availability && !watchHref && (
               <p className="mt-3 text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">
-                {watchHref ? "Mapped on AnimePlay" : availability.message}
+                {availability.message}
               </p>
             )}
           </div>

@@ -52,8 +52,8 @@ export default function ContinueWatchingRail() {
     <section className="relative">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-[#ff5500]/10 flex items-center justify-center">
-            <Clock className="w-4 h-4 text-[#ff5500]" />
+          <div className="w-8 h-8 rounded-lg bg-white/8 flex items-center justify-center">
+            <Clock className="w-4 h-4 text-white/60" />
           </div>
           <div>
             <h2 className="text-lg font-bold text-white tracking-tight">Continue Watching</h2>
@@ -167,7 +167,7 @@ export default function ContinueWatchingRail() {
                   <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent" />
 
                   <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                    <div className="w-12 h-12 rounded-full bg-[#ff5500]/90 backdrop-blur-sm flex items-center justify-center shadow-[0_0_20px_rgba(255,85,0,0.4)]">
+                    <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center shadow-[0_0_20px_rgba(255,255,255,0.15)] ring-1 ring-white/20">
                       <Play className="w-5 h-5 text-white fill-white ml-0.5" />
                     </div>
                   </div>
@@ -183,7 +183,7 @@ export default function ContinueWatchingRail() {
                     {progressPercent > 0 && progressPercent < 100 && (
                       <div className="mt-2 h-1 rounded-full bg-white/10 overflow-hidden">
                         <div
-                          className="h-full rounded-full bg-[#ff5500] transition-all"
+                          className="h-full rounded-full bg-white/50 transition-all"
                           style={{ width: `${progressPercent}%` }}
                         />
                       </div>
