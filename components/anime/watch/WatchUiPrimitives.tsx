@@ -12,6 +12,7 @@ export function ControlBtn({
   accent,
   disabled,
   onClick,
+  accentColor,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
@@ -19,6 +20,7 @@ export function ControlBtn({
   accent?: boolean;
   disabled?: boolean;
   onClick?: () => void;
+  accentColor?: string;
 }) {
   return (
     <button
@@ -29,8 +31,9 @@ export function ControlBtn({
         flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold tracking-wide transition-colors
         rounded-md select-none whitespace-nowrap
         ${disabled ? "opacity-30 cursor-not-allowed" : "cursor-pointer hover:bg-white/8"}
-        ${active && accent ? "text-[#ff5500]" : active ? "text-white" : "text-white/60"}
+        ${active && !accent ? "text-white" : !active ? "text-white/60" : ""}
       `}
+      style={active && accent && accentColor ? { color: accentColor } : undefined}
     >
       <Icon className="w-3.5 h-3.5" />
       <span className="hidden sm:inline">{label}</span>
@@ -62,8 +65,15 @@ export function ServerButton({
   );
 }
 
-export function SeasonRail({ seasons, activeHref }: { seasons: AnimeSeasonEntry[]; activeHref: string }) {
+export function SeasonRail({ seasons, activeHref, accentColor = "#ff5500" }: { seasons: AnimeSeasonEntry[]; activeHref: string; accentColor?: string }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const accentRgb = (() => {
+    const hex = accentColor.replace("#", "");
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    return `${r},${g},${b}`;
+  })();
 
   if (seasons.length === 0) return null;
 
@@ -103,9 +113,10 @@ export function SeasonRail({ seasons, activeHref }: { seasons: AnimeSeasonEntry[
               href={season.href}
               className={`group relative block min-w-[11rem] overflow-hidden rounded-xl border transition-all shrink-0 ${
                 active
-                  ? "border-[#ff5500]/50 bg-[#ff5500]/10"
+                  ? ""
                   : "border-white/8 bg-white/[0.03] hover:border-white/15"
               }`}
+              style={active ? { borderColor: `rgba(${accentRgb},0.5)`, background: `rgba(${accentRgb},0.1)` } : undefined}
             >
               {season.poster ? (
                 <div className="absolute inset-0">
@@ -121,8 +132,8 @@ export function SeasonRail({ seasons, activeHref }: { seasons: AnimeSeasonEntry[
                 <p className="text-sm font-bold text-white">{season.title}</p>
                 <div className="mt-1.5 flex items-center gap-2">
                   <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
-                    active ? "bg-[#ff5500] text-white" : "bg-white/10 text-white/60"
-                  }`}>
+                    active ? "text-white" : "bg-white/10 text-white/60"
+                  }`} style={active ? { backgroundColor: accentColor } : undefined}>
                     {season.episodeCount ? `${season.episodeCount} EPS` : season.episodeLabel || "Open"}
                   </span>
                 </div>
@@ -141,12 +152,14 @@ export function EpisodeNumberGrid({
   onSelect,
   onHover,
   watchedSet = new Set(),
+  accentColor = "#ff5500",
 }: {
   episodes: Pick<EpisodeModel, "number" | "title" | "isSubbed" | "isDubbed">[];
   activeNumber: number;
   onSelect: (num: number) => void;
   onHover?: (num: number) => void;
   watchedSet?: Set<number>;
+  accentColor?: string;
 }) {
   const [rangeStart, setRangeStart] = useState(0);
   const CHUNK_SIZE = 100;
@@ -205,12 +218,13 @@ export function EpisodeNumberGrid({
               className={`
                 relative w-11 h-10 md:w-10 md:h-9 rounded-md text-xs font-bold transition-colors
                 ${isActive
-                  ? "bg-[#ff5500] text-white shadow-[0_0_12px_rgba(255,85,0,0.4)]"
+                  ? "text-white"
                   : isWatched
                     ? "bg-emerald-500/10 text-emerald-400/60 border border-emerald-500/15 opacity-40 hover:opacity-100 hover:bg-emerald-500/20 hover:text-emerald-400 transition-all duration-200"
                     : "bg-white/[0.06] text-white/60 hover:bg-white/12 hover:text-white border border-white/[0.06]"
                 }
               `}
+              style={isActive ? { backgroundColor: accentColor, boxShadow: `0 0 12px ${accentColor}66` } : undefined}
             >
               {ep.number}
               {isWatched && !isActive && (

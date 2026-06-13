@@ -552,6 +552,18 @@ export default function WatchExperience({ initialSession, recommendations = null
   const activeEmbedLoaded = loadedSurfaceKey === activePlayerSurfaceKey;
   const watchedEpisodes = getWatchedEpisodes(session.anime.id);
 
+  // ── Dynamic theme accent from AniList coverImage.color ───────────────────
+  const accentColor = session.anime.color || "#ff5500";
+  // Pre-compute CSS-friendly opacity variants for inline styles
+  const accentRgb = (() => {
+    const hex = accentColor.replace("#", "");
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    return `${r},${g},${b}`;
+  })();
+  const accentStyle = (opacity: number) => `rgba(${accentRgb},${opacity})`;
+
   const hasLanguageInfo = session.episodes.some(
     (ep) => ep.isSubbed !== undefined || ep.isDubbed !== undefined
   );
@@ -1039,7 +1051,7 @@ export default function WatchExperience({ initialSession, recommendations = null
           {!embedAvailable && session.stale && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-[#0a0a0c]/95 px-8 text-center">
               <div className="rounded-full border border-white/10 bg-white/6 p-4">
-                <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-[#ff5500]" />
+                <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20" style={{ borderTopColor: accentColor }} />
               </div>
               <div className="space-y-2">
                 <h2 className="text-xl font-bold text-white">Resolving stream...</h2>
@@ -1052,7 +1064,7 @@ export default function WatchExperience({ initialSession, recommendations = null
 
           {!embedAvailable && !session.stale && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-[#0a0a0c]/95 px-8 text-center">
-              <div className="rounded-full border border-white/10 bg-white/6 p-4 text-[#ff5500]">
+              <div className="rounded-full border border-white/10 bg-white/6 p-4" style={{ color: accentColor }}>
                 <Tv2 className="h-8 w-8" />
               </div>
               <div className="space-y-2">
@@ -1071,7 +1083,8 @@ export default function WatchExperience({ initialSession, recommendations = null
                 {mappingUnavailable ? (
                   <Link
                     href={session.anime.href}
-                    className="inline-flex items-center gap-2 rounded-full bg-[#ff5500] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#e64d00] transition-colors"
+                    className="inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-bold text-white transition-colors hover:brightness-110"
+                    style={{ backgroundColor: accentColor }}
                   >
                     <Info className="h-4 w-4" />
                     Back to details
@@ -1080,7 +1093,8 @@ export default function WatchExperience({ initialSession, recommendations = null
                   <button
                     type="button"
                     onClick={() => queueSession({ episodeNumber: session.episode.number, provider: session.provider, dubbed: session.dubbed, server: null })}
-                    className="inline-flex items-center gap-2 rounded-full bg-[#ff5500] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#e64d00] transition-colors"
+                    className="inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-bold text-white transition-colors hover:brightness-110"
+                    style={{ backgroundColor: accentColor }}
                   >
                     <RefreshCcw className="h-4 w-4" />
                     Refresh source
@@ -1098,7 +1112,7 @@ export default function WatchExperience({ initialSession, recommendations = null
               <div className="absolute inset-x-4 bottom-4 md:inset-x-6 md:bottom-6 flex items-end justify-between gap-4">
                 <div className="max-w-md space-y-2">
                   <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/45 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.24em] text-white/70">
-                    <span className="h-2 w-2 rounded-full bg-[#ff5500] animate-pulse" />
+                    <span className="h-2 w-2 rounded-full animate-pulse" style={{ backgroundColor: accentColor }} />
                     {playerFeedbackTitle}
                   </div>
                   <div>
@@ -1112,7 +1126,7 @@ export default function WatchExperience({ initialSession, recommendations = null
                 </div>
                 <div className="hidden md:flex flex-col items-end gap-2">
                   <div className="h-2 w-24 rounded-full bg-white/10 overflow-hidden">
-                    <div className="h-full w-full bg-gradient-to-r from-[#ff5500] via-[#ff7733] to-[#ff5500] animate-[bufferBar_1.8s_ease-in-out_infinite]" />
+                    <div className="h-full w-full animate-[bufferBar_1.8s_ease-in-out_infinite]" style={{ background: `linear-gradient(to right, ${accentColor}, ${accentStyle(0.7)}, ${accentColor})` }} />
                   </div>
                   <span className="text-[10px] font-bold uppercase tracking-[0.24em] text-white/35">
                     AnimeKAI
@@ -1150,6 +1164,7 @@ export default function WatchExperience({ initialSession, recommendations = null
               label={focusMode ? "Exit Focus" : "Focus"}
               active={focusMode}
               accent={focusMode}
+              accentColor={accentColor}
               onClick={() => {
                 setFocusMode((v) => !v);
                 const el = document.querySelector("iframe");
@@ -1210,11 +1225,12 @@ export default function WatchExperience({ initialSession, recommendations = null
               }}
               className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 transition-colors ${
                 !session.dubbed
-                  ? "bg-[#ff5500]/15 text-[#ff5500] border border-[#ff5500]/25 shadow-[0_0_8px_rgba(255,85,0,0.15)] cursor-default"
+                  ? "cursor-default"
                   : !hasSub
                     ? "opacity-30 cursor-not-allowed bg-white/5 text-white/30 border border-white/5"
                     : "bg-white/5 text-white/50 border border-white/8 hover:bg-white/10 hover:text-white/70 cursor-pointer"
               }`}
+              style={!session.dubbed ? { background: accentStyle(0.15), color: accentColor, border: `1px solid ${accentStyle(0.25)}`, boxShadow: `0 0 8px ${accentStyle(0.15)}` } : undefined}
             >
               <Captions className="w-3 h-3" />
               Sub
@@ -1358,15 +1374,17 @@ export default function WatchExperience({ initialSession, recommendations = null
                 placeholder="Find..."
                 value={episodeQuery}
                 onChange={(e) => setEpisodeQuery(e.target.value)}
-                className="bg-white/[0.04] border border-white/8 rounded-lg text-xs text-white/80 pl-7 pr-3 py-1.5 w-28 focus:w-40 transition-all outline-none focus:border-[#ff5500]/40"
+                className="bg-white/[0.04] border border-white/8 rounded-lg text-xs text-white/80 pl-7 pr-3 py-1.5 w-28 focus:w-40 transition-all outline-none"
+                style={{ '--tw-ring-color': accentStyle(0.4) } as React.CSSProperties}
               />
             </div>
             <button
               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-colors border ${
                 showEpisodeList
-                  ? "bg-[#ff5500]/10 text-[#ff5500] border-[#ff5500]/25"
+                  ? ""
                   : "bg-white/[0.04] text-white/50 border-white/8 hover:text-white"
               }`}
+              style={showEpisodeList ? { background: accentStyle(0.1), color: accentColor, borderColor: accentStyle(0.25) } : undefined}
               onClick={() => setShowEpisodeList(!showEpisodeList)}
             >
               <ChevronDown className={`w-3 h-3 transition-transform ${showEpisodeList ? "rotate-180" : ""}`} />
@@ -1389,6 +1407,7 @@ export default function WatchExperience({ initialSession, recommendations = null
               onSelect={goToEpisode}
               onHover={prefetchEpisode}
               watchedSet={watchedEpisodes}
+              accentColor={accentColor}
             />
           )}
         </div>
@@ -1417,36 +1436,37 @@ export default function WatchExperience({ initialSession, recommendations = null
                   data-active-episode={active ? "true" : undefined}
                   className={`group/ep w-full flex items-center gap-3 px-4 py-2.5 text-left transition-all border-b border-white/[0.03] last:border-0 ${
                     active
-                      ? "bg-[#ff5500]/8 border-l-2 border-l-[#ff5500]"
+                      ? "border-l-2"
                       : watched
-                        ? "opacity-45 hover:opacity-100 hover:bg-white/[0.03]"
+                        ? "border-l-2 border-l-emerald-500/30 hover:bg-white/[0.03]"
                         : "hover:bg-white/[0.03]"
                   }`}
+                  style={active ? { background: accentStyle(0.08), borderLeftColor: accentColor } : undefined}
                 >
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 ${
-                    active ? "bg-[#ff5500] text-white" : watched ? "bg-emerald-500/20 text-emerald-400" : "bg-white/5 text-white/50"
-                  }`}>
+                    active ? "text-white" : watched ? "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/20" : "bg-white/5 text-white/50"
+                  }`} style={active ? { backgroundColor: accentColor } : undefined}>
                     {watched && !active ? "✓" : episode.number}
                   </div>
                   {episode.image && (
-                    <div className="w-20 h-12 rounded-lg overflow-hidden shrink-0 border border-white/5">
+                    <div className={`w-20 h-12 rounded-lg overflow-hidden shrink-0 border border-white/5 ${watched && !active ? "opacity-60" : ""}`}>
                       <img src={episode.image} alt="" className="w-full h-full object-cover" loading="lazy" />
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
                     <p className={`text-[13px] font-semibold truncate leading-snug ${
-                      active ? "text-white" : "text-white/80 group-hover/ep:text-white"
+                      active ? "text-white" : watched ? "text-white/50 group-hover/ep:text-white/80" : "text-white/80 group-hover/ep:text-white"
                     }`}>
                       {episode.title}
                     </p>
                     <div className="flex items-center gap-1.5 mt-1">
                       {episode.isFiller && <span className="text-[9px] font-bold uppercase bg-yellow-500/10 text-yellow-500 px-1.5 py-0.5 rounded">Filler</span>}
-                      {episode.isSubbed && <span className="text-[9px] font-bold uppercase bg-[#ff5500]/10 text-[#ff5500] px-1.5 py-0.5 rounded">Sub</span>}
+                      {episode.isSubbed && <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded" style={{ background: accentStyle(0.1), color: accentColor }}>Sub</span>}
                       {episode.isDubbed && <span className="text-[9px] font-bold uppercase bg-[#4ade80]/10 text-[#4ade80] px-1.5 py-0.5 rounded">Dub</span>}
-                      {watched && <span className="text-[9px] font-bold uppercase bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded">Watched</span>}
+                      {watched && !active && <span className="text-[9px] font-bold uppercase text-emerald-400/50 flex items-center gap-0.5">✓ Watched</span>}
                     </div>
                   </div>
-                  {active && <div className="w-2 h-2 rounded-full bg-[#ff5500] animate-pulse shrink-0" />}
+                  {active && <div className="w-2 h-2 rounded-full animate-pulse shrink-0" style={{ backgroundColor: accentColor }} />}
                 </button>
               );
             })}
@@ -1455,7 +1475,7 @@ export default function WatchExperience({ initialSession, recommendations = null
       </div>
 
       {/* ── SEASONS ─────────────────────────────── */}
-      <SeasonRail seasons={session.seasons} activeHref={session.anime.href} />
+      <SeasonRail seasons={session.seasons} activeHref={session.anime.href} accentColor={accentColor} />
 
       {/* ── ANIME INFO + RECOMMENDATIONS ─────────── */}
       <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_340px]">

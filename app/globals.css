@@ -84,3 +84,8 @@ body {
   50% { transform: translateX(0%); }
   100% { transform: translateX(100%); }
 }
+
+/* Watch breadcrumb title — hover uses anime accent color via CSS custom property */
+.watch-breadcrumb-title:hover {
+  color: var(--accent, #ff5500);
+}

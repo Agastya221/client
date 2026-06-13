@@ -29,6 +29,14 @@ export function WatchAnimeDetailsPanel({
   heroImage: string;
   children?: React.ReactNode;
 }) {
+  const accentColor = session.anime.color || "#ff5500";
+  const accentRgb = (() => {
+    const hex = accentColor.replace("#", "");
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    return `${r},${g},${b}`;
+  })();
   return (
     <div className="space-y-5">
       <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-5">
@@ -52,7 +60,7 @@ export function WatchAnimeDetailsPanel({
           <div className="flex-1 min-w-0 space-y-3">
             <div>
               <Link href={session.anime.href} className="group/title">
-                <h2 className="text-lg md:text-xl font-bold text-white group-hover/title:text-[#ff5500] transition-colors leading-tight">
+                <h2 className="text-lg md:text-xl font-bold text-white transition-colors leading-tight group-hover/title:brightness-125" style={{ '--hover-color': accentColor } as React.CSSProperties}>
                   {session.anime.title}
                 </h2>
               </Link>
@@ -64,21 +72,21 @@ export function WatchAnimeDetailsPanel({
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {session.anime.type && (
                 <div className="bg-white/[0.03] border border-white/5 rounded-xl px-3 py-2 text-center">
-                  <Film className="w-3.5 h-3.5 text-[#ff5500] mx-auto mb-1" />
+                  <Film className="w-3.5 h-3.5 mx-auto mb-1" style={{ color: accentColor }} />
                   <p className="text-[9px] font-black uppercase tracking-widest text-white/30">Type</p>
                   <p className="text-xs font-bold text-white/80">{session.anime.type}</p>
                 </div>
               )}
               {session.anime.year && (
                 <div className="bg-white/[0.03] border border-white/5 rounded-xl px-3 py-2 text-center">
-                  <Calendar className="w-3.5 h-3.5 text-[#ff5500] mx-auto mb-1" />
+                  <Calendar className="w-3.5 h-3.5 mx-auto mb-1" style={{ color: accentColor }} />
                   <p className="text-[9px] font-black uppercase tracking-widest text-white/30">Year</p>
                   <p className="text-xs font-bold text-white/80">{session.anime.year}</p>
                 </div>
               )}
               {session.anime.status && (
                 <div className="bg-white/[0.03] border border-white/5 rounded-xl px-3 py-2 text-center">
-                  <Clock className="w-3.5 h-3.5 text-[#ff5500] mx-auto mb-1" />
+                  <Clock className="w-3.5 h-3.5 mx-auto mb-1" style={{ color: accentColor }} />
                   <p className="text-[9px] font-black uppercase tracking-widest text-white/30">Status</p>
                   <p
                     className={`text-xs font-bold ${
@@ -93,7 +101,7 @@ export function WatchAnimeDetailsPanel({
               )}
               {session.anime.episodeCount && (
                 <div className="bg-white/[0.03] border border-white/5 rounded-xl px-3 py-2 text-center">
-                  <Tv2 className="w-3.5 h-3.5 text-[#ff5500] mx-auto mb-1" />
+                  <Tv2 className="w-3.5 h-3.5 mx-auto mb-1" style={{ color: accentColor }} />
                   <p className="text-[9px] font-black uppercase tracking-widest text-white/30">Episodes</p>
                   <p className="text-xs font-bold text-white/80">{session.anime.episodeCount}</p>
                 </div>
@@ -107,7 +115,7 @@ export function WatchAnimeDetailsPanel({
                     key={genre}
                     href={`/search?genre=${genre}`}
                     className="text-[10px] font-bold px-2.5 py-1 rounded-full transition-all hover:opacity-80"
-                    style={{ color: "#ff5500", background: "rgba(255,85,0,0.1)", border: "1px solid rgba(255,85,0,0.15)" }}
+                    style={{ color: accentColor, background: `rgba(${accentRgb},0.1)`, border: `1px solid rgba(${accentRgb},0.15)` }}
                   >
                     {genre}
                   </Link>
@@ -116,7 +124,7 @@ export function WatchAnimeDetailsPanel({
             )}
 
             <div className="flex items-center gap-4 pt-2 border-t border-white/5">
-              <Link href={session.anime.href} className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#ff5500] hover:text-[#ff7733] transition-colors">
+              <Link href={session.anime.href} className="inline-flex items-center gap-1.5 text-[11px] font-bold transition-colors hover:brightness-125" style={{ color: accentColor }}>
                 <Info className="w-3.5 h-3.5" /> Full Details
               </Link>
               {session.anime.anilistId && (
@@ -207,7 +215,7 @@ export function WatchRecommendationsPanel({
                   </div>
                   <div className="absolute top-1.5 left-1.5 flex flex-col gap-1">
                     {isAiring && (
-                      <span className="flex items-center gap-1 bg-[#ff5500] text-white text-[8px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-wider">
+                      <span className="flex items-center gap-1 text-white text-[8px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-wider" style={{ backgroundColor: recColor }}>
                         <span className="w-1 h-1 rounded-full bg-white animate-pulse" />
                         Airing
                       </span>

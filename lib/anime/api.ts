@@ -185,6 +185,7 @@ function normalizeBaseAnime(input: {
   episodeCount?: number | null;
   anilistId?: number | null;
   malId?: number | null;
+  color?: string | null;
   providerIds?: Partial<Record<ProviderId, string>>;
 }): CatalogAnime {
   const providerIds = {
@@ -212,6 +213,7 @@ function normalizeBaseAnime(input: {
     episodeCount: input.episodeCount ?? null,
     anilistId: input.anilistId ?? null,
     malId: input.malId ?? null,
+    color: input.color ?? null,
     providerIds,
   };
 }
@@ -801,6 +803,7 @@ const getAnilistSeedAnime = cache(async function getAnilistSeedAnime(anilistId: 
         episodeCount: media.episodes ?? null,
         anilistId: media.id,
         malId: media.idMal,
+        color: media.coverImage.color,
       }),
       candidateTitles: uniqueStrings([
         media.title.english,

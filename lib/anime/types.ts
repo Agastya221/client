@@ -30,6 +30,7 @@ export interface CatalogAnime {
   episodeCount?: number | null;
   anilistId?: number | null;
   malId?: number | null;
+  color?: string | null;
   providerIds: Partial<Record<ProviderId, string>>;
 }
 

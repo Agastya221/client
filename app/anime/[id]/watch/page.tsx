@@ -72,17 +72,22 @@ async function WatchContent({
     dubbed,
   });
 
+  const accentColor = session.anime.color || "#ff5500";
+
   return (
     <>
       {/* Breadcrumb */}
-      <nav className="mb-4 flex flex-wrap items-center gap-1.5 text-[11px] uppercase tracking-[0.18em] text-white/40">
-        <Link href="/" className="transition-colors hover:text-[#ff5500]">
+      <nav
+        className="mb-4 flex flex-wrap items-center gap-1.5 text-[11px] uppercase tracking-[0.18em] text-white/40"
+        style={{ "--accent": accentColor } as React.CSSProperties}
+      >
+        <Link href="/" className="transition-colors hover:text-white/70">
           Home
         </Link>
         <ChevronRight className="h-2.5 w-2.5" />
         <span className="text-white/30">{session.anime.type || "TV"}</span>
         <ChevronRight className="h-2.5 w-2.5" />
-        <Link href={session.anime.href} className="transition-colors hover:text-[#ff5500] max-w-[16rem] truncate">
+        <Link href={session.anime.href} className="watch-breadcrumb-title transition-colors max-w-[16rem] truncate">
           {session.anime.title}
         </Link>
       </nav>
@@ -113,7 +118,7 @@ export default function WatchPage({
       <Navbar />
 
       <section className="relative overflow-hidden px-3 pb-12 pt-6 sm:px-4 md:px-6 flex-1">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_center,rgba(255,85,0,0.04),transparent_50%)]" />
+        <div className="absolute inset-0" style={{ background: 'radial-gradient(circle at top center, rgba(255,255,255,0.02), transparent 50%)' }} />
         <div className="relative mx-auto max-w-[96rem]">
           <WatchContent idPromise={params} searchParamsPromise={searchParams} />
         </div>
