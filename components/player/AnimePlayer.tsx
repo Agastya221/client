@@ -207,7 +207,7 @@ export default function AnimePlayer({
   if (iframeUrl) {
     return (
       <IframePlayer
-        key={iframeUrl} // force remount when URL changes (new server)
+        key="custom-iframe-player"
         iframeUrl={iframeUrl}
         onReady={onReady}
         onTimeUpdate={onTimeUpdate}

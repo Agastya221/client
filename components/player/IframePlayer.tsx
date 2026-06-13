@@ -25,23 +25,10 @@ const PLAY_SIGNALS = new Set([
 export default function IframePlayer({ iframeUrl, onReady, onTimeUpdate, onEpisodeEnd, onPlayerError }: IframePlayerProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [loaded, setLoaded] = useState(false);
-  const [serverName, setServerName] = useState("");
   const playSignalReceivedRef = useRef(false);
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Derive the server display name from the iframeUrl
-  useEffect(() => {
-    try {
-      const hostname = new URL(iframeUrl).hostname;
-      if (hostname.includes("megaplay")) setServerName("MegaPlay");
-      else if (hostname.includes("animeplay")) setServerName("AnimePlay");
-      else if (hostname.includes("tryembed")) setServerName("TryEmbed");
-      else if (hostname.includes("mostream")) setServerName("MoStream");
-      else setServerName(hostname);
-    } catch {
-      setServerName("");
-    }
-  }, [iframeUrl]);
+  // Server name badge removed — server identity is shown in the server selector UI only.
 
   const handleLoad = useCallback(() => {
     setLoaded(true);
@@ -64,6 +51,7 @@ export default function IframePlayer({ iframeUrl, onReady, onTimeUpdate, onEpiso
 
   // Clean up timer when URL changes (server switch) or unmount
   useEffect(() => {
+    setLoaded(false);
     playSignalReceivedRef.current = false;
     return () => {
       if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
@@ -113,14 +101,7 @@ export default function IframePlayer({ iframeUrl, onReady, onTimeUpdate, onEpiso
   }, [onTimeUpdate, onEpisodeEnd]);
 
   return (
-    <div className="anime-player" style={{ position: "relative" }}>
-      {/* Loading state */}
-      {!loaded && (
-        <div className="player-loading">
-          <div className="spinner" />
-        </div>
-      )}
-
+    <div className="anime-player" style={{ position: "relative", background: "#000" }}>
       <iframe
         ref={iframeRef}
         src={iframeUrl}
@@ -131,33 +112,12 @@ export default function IframePlayer({ iframeUrl, onReady, onTimeUpdate, onEpiso
           border: "none",
           opacity: loaded ? 1 : 0,
           transition: "opacity 0.3s ease",
+          background: "#000",
         }}
         allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
         allowFullScreen
         referrerPolicy="origin"
       />
-
-      {/* Server badge */}
-      {loaded && serverName && (
-        <div
-          style={{
-            position: "absolute",
-            top: 10,
-            right: 10,
-            padding: "4px 10px",
-            background: "rgba(0,0,0,0.6)",
-            backdropFilter: "blur(8px)",
-            borderRadius: "6px",
-            color: "rgba(255,255,255,0.5)",
-            fontSize: "11px",
-            fontWeight: 500,
-            pointerEvents: "none",
-            zIndex: 5,
-          }}
-        >
-          {serverName}
-        </div>
-      )}
     </div>
   );
 }

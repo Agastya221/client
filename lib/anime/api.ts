@@ -3015,7 +3015,7 @@ function isCustomEmbed(server: string | null | undefined): boolean {
   return (CUSTOM_SERVERS as readonly string[]).includes(server);
 }
 
-/** When no server is specified, default to MegaPlay (sub or dub). */
+/** Default to Server 1 (megaplay) on auto or no server specified. */
 function defaultCustomServer(server: string | null | undefined, dubbed: boolean | undefined): string {
   if (server && server !== "auto") return server;
   return dubbed ? "megaplay-dub" : "megaplay-sub";
@@ -3033,49 +3033,49 @@ function appendCustomEmbedServers(
   const customOptions: ServerOption[] = [
     {
       id: "megaplay-sub",
-      label: "MegaPlay",
+      label: "Server 1",
       provider: activeProvider,
       category: "sub",
     },
     {
       id: "megaplay-dub",
-      label: "MegaPlay",
+      label: "Server 1",
       provider: activeProvider,
       category: "dub",
     },
     {
       id: "animeplay-sub",
-      label: "AnimePlay",
+      label: "Server 2",
       provider: activeProvider,
       category: "sub",
     },
     {
       id: "animeplay-dub",
-      label: "AnimePlay",
+      label: "Server 2",
       provider: activeProvider,
       category: "dub",
     },
     {
       id: "tryembed-sub",
-      label: "TryEmbed",
+      label: "Server 3",
       provider: activeProvider,
       category: "sub",
     },
     {
       id: "tryembed-dub",
-      label: "TryEmbed",
+      label: "Server 3",
       provider: activeProvider,
       category: "dub",
     },
     {
       id: "mostream-sub",
-      label: "MoStream",
+      label: "Server 4",
       provider: activeProvider,
       category: "sub",
     },
     {
       id: "mostream-dub",
-      label: "MoStream",
+      label: "Server 4",
       provider: activeProvider,
       category: "dub",
     },

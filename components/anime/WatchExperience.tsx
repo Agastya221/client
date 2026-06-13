@@ -94,8 +94,8 @@ function buildCustomEmbedUrl(
   anime: { anilistId?: number | null; malId?: number | null },
   episodeNumber: number,
 ): string | null {
-  const [base, cat] = serverId.split("-");
-  const lang = cat === "dub" ? "dub" : "sub";
+  const base = serverId.split("-")[0]; // "megaplay" | "animeplay" | "tryembed" | "mostream"
+  const lang = serverId.endsWith("-dub") ? "dub" : "sub";
   const { anilistId, malId } = anime;
 
   if (base === "megaplay") {
@@ -123,14 +123,17 @@ function tryBuildLocalSession(
   current: WatchSessionModel,
   request: SessionRequest,
 ): WatchSessionModel | null {
-  // Only handle pure episode switches (same provider, same server, same dub mode)
+  // Only handle pure episode/server switches (same provider, same dub mode)
   const sameProvider = !request.provider || request.provider === current.provider;
   const sameDub = request.dubbed === undefined || request.dubbed === current.dubbed;
-  const sameServer = request.server === undefined || request.server === null;
-  if (!sameProvider || !sameDub || !sameServer) return null;
+  if (!sameProvider || !sameDub) return null;
+
+  // Determine target server
+  const targetServerId = request.server || current.activeServerId;
+  if (!targetServerId) return null;
 
   // Must be on a custom embed server
-  if (!isCustomEmbedServer(current.activeServerId)) return null;
+  if (!isCustomEmbedServer(targetServerId)) return null;
 
   // Must have anime IDs available
   if (!current.anime.anilistId && !current.anime.malId) return null;
@@ -141,7 +144,7 @@ function tryBuildLocalSession(
 
   // Build the new iframe URL
   const newIframeUrl = buildCustomEmbedUrl(
-    current.activeServerId!,
+    targetServerId,
     current.anime,
     request.episodeNumber,
   );
@@ -150,6 +153,7 @@ function tryBuildLocalSession(
   return {
     ...current,
     episode: targetEpisode,
+    activeServerId: targetServerId,
     source: {
       kind: "iframe",
       label: current.source?.label || "Embed",
@@ -160,7 +164,7 @@ function tryBuildLocalSession(
       requiresProxy: false,
     },
     subtitles: [],
-    watchAttempts: [{ provider: current.provider, server: current.activeServerId!, ok: true, reason: "Playback ready (embed)" }],
+    watchAttempts: [{ provider: current.provider, server: targetServerId, ok: true, reason: "Playback ready (embed)" }],
     fallbackHistory: [],
     stale: false,
     fallback: false,
@@ -521,8 +525,9 @@ export default function WatchExperience({ initialSession, recommendations = null
   const watchedEpisodes = getWatchedEpisodes(session.anime.id);
 
   // Only show the feedback overlay while actively loading a new session (not during initial embed load)
-  // This prevents the "OPENING PLAYER" overlay from blocking the iframe while it loads
-  const showPlayerFeedback = isSessionLoading || isPending;
+  // This prevents the "OPENING PLAYER" overlay from blocking the iframe while it loads.
+  // Also show while the new iframe hasn't called onReady yet, to hide the white flash.
+  const showPlayerFeedback = isSessionLoading || isPending || (embedAvailable && !activeEmbedLoaded);
 
   useEffect(() => {
     return () => {
@@ -634,15 +639,6 @@ export default function WatchExperience({ initialSession, recommendations = null
   };
 
   const applySession = async (request: SessionRequest): Promise<WatchSessionModel> => {
-    // ⚡ Try instant client-side switching for custom embed servers
-    const localSession = tryBuildLocalSession(session, request);
-    if (localSession) {
-      // Commit immediately — no staging delay needed for local switches.
-      // The iframe URL is known-valid so skip the hidden preload.
-      commitSession(localSession);
-      return localSession;
-    }
-
     // Fall back to server fetch
     const nextSession = await fetchSession(request);
     stageOrCommitSession(nextSession);
@@ -685,6 +681,22 @@ export default function WatchExperience({ initialSession, recommendations = null
     hoverPrefetchKeyRef.current = null;
     pendingSessionKeyRef.current = null;
     setPendingSession(null);
+
+    // ⚡ Try client-side local session first
+    const localSession = tryBuildLocalSession(session, normalizedRequest);
+    if (localSession) {
+      const serverChanged = normalizedRequest.server && normalizedRequest.server !== session.activeServerId;
+      if (serverChanged) {
+        // Preload server in background, do not set isSessionLoading to true so current video keeps playing
+        stageOrCommitSession(localSession);
+      } else {
+        // Episode switch: commit instantly
+        commitSession(localSession);
+      }
+      return;
+    }
+
+    // Otherwise, do a server-side load
     setIsSessionLoading(true);
     void applySession(normalizedRequest)
       .catch((error) => {
@@ -837,7 +849,7 @@ export default function WatchExperience({ initialSession, recommendations = null
     session.anime.banner ||
     session.anime.poster ||
     "https://placehold.co/1600x900/09090b/f5f5f5?text=AnimeKAI";
-  const isSessionTransitioning = isSessionLoading || isPending;
+  const isSessionTransitioning = isSessionLoading;
 
   const filteredEpisodes = session.episodes.filter((episode) => {
     const query = episodeQuery.trim().toLowerCase();
@@ -858,6 +870,7 @@ export default function WatchExperience({ initialSession, recommendations = null
   };
 
   /* ── Server buttons helper ───────────────────── */
+  const effectiveActiveServerId = pendingSession?.activeServerId || session.activeServerId;
   const { isDesidub, subServers, dubServers, hindiServers } = summarizeServerGroups(session.serverOptions);
   const mainFallback = session.availableProviders.find((p) => p !== "desidub") || "animekai";
   const showHindi = session.availableProviders.includes("desidub") || session.provider === "desidub";
@@ -872,6 +885,11 @@ export default function WatchExperience({ initialSession, recommendations = null
      ════════════════════════════════════════════════ */
   return (
     <>
+      <link rel="preconnect" href="https://megaplay.buzz" crossOrigin="anonymous" />
+      <link rel="preconnect" href="https://animeplay.cfd" crossOrigin="anonymous" />
+      <link rel="preconnect" href="https://tryembed.us.cc" crossOrigin="anonymous" />
+      <link rel="preconnect" href="https://mostream.us" crossOrigin="anonymous" />
+
       {/* Focus mode backdrop */}
       {focusMode && (
         <div
@@ -893,7 +911,7 @@ export default function WatchExperience({ initialSession, recommendations = null
 
           {/* Custom AnimePlayer — handles both HLS and iframe modes */}
           {session.source && (
-            <div className="absolute inset-0 transition-opacity duration-300 opacity-100">
+            <div className="absolute inset-0 transition-opacity duration-300 opacity-100 bg-black">
               <VideoPlayer
                 key={activePlayerSurfaceKey}
                 source={session.source}
@@ -1061,29 +1079,12 @@ export default function WatchExperience({ initialSession, recommendations = null
               onClick={toggleBookmark}
               disabled={!bookmarkChecked}
             />
-            {session.source?.iframeUrl && (
-              <a
-                href={session.source.iframeUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold text-white/60 hover:bg-white/8 rounded-md transition-colors"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Source</span>
-              </a>
-            )}
           </div>
         </div>
       </div>
 
       {/* ── EPISODE INFO + SERVER STRIP ─────────── */}
       <div className="relative bg-[#131315] border-x border-white/8 px-4 md:px-5 py-3 space-y-3">
-        {floatingStatus && (
-          <div className="pointer-events-none absolute right-4 top-3 z-10 hidden items-center gap-2 rounded-full border border-white/10 bg-black/45 px-2.5 py-1 text-[10px] font-medium text-white/60 backdrop-blur md:inline-flex">
-            <LoaderCircle className="h-3 w-3 animate-spin text-[#ff5500]" />
-            <span>{floatingStatus}</span>
-          </div>
-        )}
         {/* Top row: episode info + sub/dub/server */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div className="flex items-center gap-3 flex-wrap">
@@ -1117,7 +1118,7 @@ export default function WatchExperience({ initialSession, recommendations = null
             </button>
             <button
               type="button"
-              disabled={session.dubbed || !session.episode.isDubbed}
+              disabled={session.dubbed}
               aria-pressed={session.dubbed}
               onClick={() => {
                 if (!session.dubbed) {
@@ -1127,8 +1128,6 @@ export default function WatchExperience({ initialSession, recommendations = null
               className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 transition-colors ${
                 session.dubbed
                   ? "bg-[#4ade80]/15 text-[#4ade80] border border-[#4ade80]/25 shadow-[0_0_8px_rgba(74,222,128,0.15)] cursor-default"
-                  : !session.episode.isDubbed
-                  ? "bg-white/5 text-white/20 border border-white/5 cursor-not-allowed"
                   : "bg-white/5 text-white/50 border border-white/8 hover:bg-white/10 hover:text-white/70 cursor-pointer"
               }`}
             >
@@ -1149,7 +1148,7 @@ export default function WatchExperience({ initialSession, recommendations = null
                   <ServerButton
                     key={entry.id}
                     label={entry.label}
-                    active={!session.dubbed && session.activeServerId === entry.id}
+                    active={!session.dubbed && effectiveActiveServerId === entry.id}
                     onClick={() => queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: entry.id, dubbed: false })}
                   />
                 ))
@@ -1172,7 +1171,7 @@ export default function WatchExperience({ initialSession, recommendations = null
                   <ServerButton
                     key={entry.id}
                     label={entry.label}
-                    active={session.dubbed && session.activeServerId === entry.id && !isDesidub}
+                    active={session.dubbed && effectiveActiveServerId === entry.id && !isDesidub}
                     onClick={() => queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: entry.id, dubbed: true })}
                   />
                 ))
@@ -1196,7 +1195,7 @@ export default function WatchExperience({ initialSession, recommendations = null
                     <ServerButton
                       key={entry.id}
                       label={entry.label}
-                      active={isDesidub && session.activeServerId === entry.id}
+                      active={isDesidub && effectiveActiveServerId === entry.id}
                       onClick={() => queueSession({ episodeNumber: session.episode.number, provider: "desidub", server: entry.id, dubbed: true })}
                     />
                   ))
@@ -1339,22 +1338,19 @@ export default function WatchExperience({ initialSession, recommendations = null
 
       {/* ── ANIME INFO + RECOMMENDATIONS ─────────── */}
       <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_340px]">
-        <WatchAnimeDetailsPanel session={session} heroImage={heroImage} />
+        <WatchAnimeDetailsPanel session={session} heroImage={heroImage}>
+          <CommentSection
+            animeId={session.anime.id}
+            episodeNumber={session.episode.number}
+            currentUserId={resolvedCurrentUserId}
+            onTimestampClick={() => {
+              document.querySelector("iframe")?.scrollIntoView({ behavior: "smooth", block: "center" });
+            }}
+          />
+        </WatchAnimeDetailsPanel>
         <div>
           <WatchRecommendationsPanel recommendations={deferredRecommendations} />
         </div>
-      </div>
-
-      {/* ── COMMENTS ─────────────────────────────── */}
-      <div className="mt-6">
-        <CommentSection
-          animeId={session.anime.id}
-          episodeNumber={session.episode.number}
-          currentUserId={resolvedCurrentUserId}
-          onTimestampClick={() => {
-            document.querySelector("iframe")?.scrollIntoView({ behavior: "smooth", block: "center" });
-          }}
-        />
       </div>
     </div>
     </>

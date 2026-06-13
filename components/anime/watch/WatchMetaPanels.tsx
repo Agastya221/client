@@ -1,6 +1,5 @@
 "use client";
 
-import AttemptTrail from "@/components/anime/AttemptTrail";
 import type { WatchSessionModel } from "@/lib/anime/types";
 import {
   anilistFormat,
@@ -24,9 +23,11 @@ import Link from "next/link";
 export function WatchAnimeDetailsPanel({
   session,
   heroImage,
+  children,
 }: {
   session: WatchSessionModel;
   heroImage: string;
+  children?: React.ReactNode;
 }) {
   return (
     <div className="space-y-5">
@@ -141,8 +142,7 @@ export function WatchAnimeDetailsPanel({
           </div>
         )}
       </div>
-
-      <AttemptTrail attempts={session.attempts} activeProvider={session.provider} label="Catalog fallback trail" />
+      {children}
     </div>
   );
 }
