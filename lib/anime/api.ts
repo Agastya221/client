@@ -713,12 +713,76 @@ async function storeProviderMapping(
   }
 }
 
+/* ── Anikoto API: sub/dub episode counts ─────────────────────────────────────
+   Anikoto (anikotoapi.site) hosts the same library as MegaPlay and exposes
+   per-anime `is_sub` and `is_dub` counts — the exact number of episodes
+   available in each language. We use this to cap the episode list in dub mode
+   so users don't see episodes that haven't been dubbed yet.
+
+   The lookup table maps AniList ID → { subCount, dubCount } and is built by
+   fetching recent anime from Anikoto (which includes all airing titles). */
+
+const ANIKOTO_BASE = "http://anikotoapi.site";
+const ANIKOTO_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+type AnikotoLanguageCounts = { subCount: number | null; dubCount: number | null };
+
+let anikotoLookup: Map<number, AnikotoLanguageCounts> | null = null;
+let anikotoLookupBuiltAt = 0;
+
+async function buildAnikotoLookup(): Promise<Map<number, AnikotoLanguageCounts>> {
+  const map = new Map<number, AnikotoLanguageCounts>();
+  const pagesToFetch = 10; // ~1000 anime — covers all airing/recent titles
+  const perPage = 100;
+
+  const fetches = Array.from({ length: pagesToFetch }, (_, i) =>
+    fetch(`${ANIKOTO_BASE}/recent-anime?page=${i + 1}&per_page=${perPage}`, {
+      headers: { Accept: "application/json" },
+      next: { revalidate: 3600 },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null),
+  );
+
+  const results = await Promise.allSettled(fetches);
+
+  for (const result of results) {
+    if (result.status !== "fulfilled" || !result.value?.data) continue;
+    for (const item of result.value.data) {
+      const aniId = numberOrNull(item.ani_id);
+      if (!aniId) continue;
+      map.set(aniId, {
+        subCount: numberOrNull(item.is_sub),
+        dubCount: numberOrNull(item.is_dub),
+      });
+    }
+  }
+
+  return map;
+}
+
+async function getAnikotoLanguageCounts(anilistId: number): Promise<AnikotoLanguageCounts | null> {
+  try {
+    const now = Date.now();
+    if (!anikotoLookup || now - anikotoLookupBuiltAt > ANIKOTO_CACHE_TTL_MS) {
+      anikotoLookup = await buildAnikotoLookup();
+      anikotoLookupBuiltAt = now;
+    }
+    return anikotoLookup.get(anilistId) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 const getAnilistSeedAnime = cache(async function getAnilistSeedAnime(anilistId: number): Promise<{
   anime: CatalogAnime;
   candidateTitles: string[];
 } | null> {
   try {
-    const media = await getAnilistDetail(anilistId);
+    const [media, anikotoCounts] = await Promise.all([
+      getAnilistDetail(anilistId),
+      getAnikotoLanguageCounts(anilistId),
+    ]);
     const title = anilistTitle(media);
     return {
       anime: normalizeBaseAnime({
@@ -732,6 +796,8 @@ const getAnilistSeedAnime = cache(async function getAnilistSeedAnime(anilistId: 
         type: media.format || null,
         year: media.seasonYear ? String(media.seasonYear) : media.startDate?.year ? String(media.startDate.year) : null,
         status: media.status || null,
+        subCount: anikotoCounts?.subCount ?? null,
+        dubCount: anikotoCounts?.dubCount ?? null,
         episodeCount: media.episodes ?? null,
         anilistId: media.id,
         malId: media.idMal,

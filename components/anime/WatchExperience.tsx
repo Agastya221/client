@@ -115,28 +115,52 @@ function buildCustomEmbedUrl(
 }
 
 /**
- * Try to resolve an episode switch entirely on the client.
+ * Try to resolve an episode/server/language switch entirely on the client.
  * Returns null if the request can't be handled locally (e.g. provider change,
  * non-embed server, missing anime IDs).
+ *
+ * Handles three cases instantly without a network round-trip:
+ *  1. Episode switch on the same custom embed server
+ *  2. Server switch to another custom embed server
+ *  3. Sub/Dub language switch on a custom embed server (flips the -sub/-dub suffix)
  */
 function tryBuildLocalSession(
   current: WatchSessionModel,
   request: SessionRequest,
 ): WatchSessionModel | null {
-  // Only handle pure episode/server switches (same provider, same dub mode)
+  // Only handle same-provider switches
   const sameProvider = !request.provider || request.provider === current.provider;
-  const sameDub = request.dubbed === undefined || request.dubbed === current.dubbed;
-  if (!sameProvider || !sameDub) return null;
-
-  // Determine target server
-  const targetServerId = request.server || current.activeServerId;
-  if (!targetServerId) return null;
-
-  // Must be on a custom embed server
-  if (!isCustomEmbedServer(targetServerId)) return null;
+  if (!sameProvider) return null;
 
   // Must have anime IDs available
   if (!current.anime.anilistId && !current.anime.malId) return null;
+
+  const targetDubbed = request.dubbed ?? current.dubbed;
+
+  // Determine target server.
+  // If an explicit server was requested, use it (possibly adjusting suffix for language).
+  // If no explicit server, keep the current server but flip the suffix if the language changed.
+  let targetServerId: string | null = null;
+
+  if (request.server) {
+    // Explicit server requested — honour it, adjusting suffix for the target language
+    const base = request.server.split("-")[0];
+    const langSuffix = targetDubbed ? "dub" : "sub";
+    // If the server id already has a lang suffix, normalise it; otherwise keep as-is
+    const serverHasSuffix = request.server.endsWith("-sub") || request.server.endsWith("-dub");
+    targetServerId = serverHasSuffix ? `${base}-${langSuffix}` : request.server;
+  } else {
+    // No explicit server — use the current server, flipping suffix when language changes
+    const currentServer = current.activeServerId;
+    if (!currentServer) return null;
+    const base = currentServer.split("-")[0];
+    const langSuffix = targetDubbed ? "dub" : "sub";
+    const serverHasSuffix = currentServer.endsWith("-sub") || currentServer.endsWith("-dub");
+    targetServerId = serverHasSuffix ? `${base}-${langSuffix}` : currentServer;
+  }
+
+  // Must be on a custom embed server
+  if (!isCustomEmbedServer(targetServerId)) return null;
 
   // Find the target episode in the already-loaded episode list
   const targetEpisode = current.episodes.find((ep) => ep.number === request.episodeNumber);
@@ -154,6 +178,7 @@ function tryBuildLocalSession(
     ...current,
     episode: targetEpisode,
     activeServerId: targetServerId,
+    dubbed: targetDubbed,
     source: {
       kind: "iframe",
       label: current.source?.label || "Embed",
@@ -458,6 +483,9 @@ export default function WatchExperience({ initialSession, recommendations = null
   const [showEpisodeList, setShowEpisodeList] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [loadedSurfaceKey, setLoadedSurfaceKey] = useState<string | null>(null);
+  // Optimistic server selection: turns the button green immediately on click
+  // before the embed has finished loading. Cleared when the session commits.
+  const [optimisticServerId, setOptimisticServerId] = useState<string | null>(null);
   const pendingCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoverPrefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoverPrefetchKeyRef = useRef<string | null>(null);
@@ -524,27 +552,55 @@ export default function WatchExperience({ initialSession, recommendations = null
   const activeEmbedLoaded = loadedSurfaceKey === activePlayerSurfaceKey;
   const watchedEpisodes = getWatchedEpisodes(session.anime.id);
 
-  const hasDub = session.episodes.some((ep) => ep.isDubbed);
-  const hasSub = session.episodes.some((ep) => ep.isSubbed);
-
   const hasLanguageInfo = session.episodes.some(
     (ep) => ep.isSubbed !== undefined || ep.isDubbed !== undefined
   );
 
+  // ── Language availability ──────────────────────────────────────────────────
+  // Episodes are synthetic (from AniList) with no isDubbed/isSubbed flags.
+  // We get accurate sub/dub episode counts from the Anikoto API (same library
+  // as MegaPlay). When dubCount is set, we cap the episode list in dub mode
+  // so users only see episodes that actually have dub available.
+  const canUseEmbed = Boolean(session.anime.anilistId || session.anime.malId);
+  const { dubCount, subCount } = session.anime;
+  // hasDub is true if Anikoto reports at least 1 dub episode, OR if we have no
+  // Anikoto data but the anime has an AniList/MAL ID (let the embed handle it).
+  const hasDub =
+    (dubCount !== null && dubCount !== undefined ? dubCount > 0 : canUseEmbed) ||
+    session.episodes.some((ep) => ep.isDubbed);
+  const hasSub = canUseEmbed || session.episodes.some((ep) => ep.isSubbed);
+
+  // Cap episode list by dubCount when in dub mode (for synthetic episodes).
+  // If dubCount is null (anime not found in Anikoto), show all episodes.
   const languageFilteredEpisodes = session.episodes.filter((episode) => {
-    if (!hasLanguageInfo) return true;
-    if (session.dubbed) {
-      return episode.isDubbed ?? false;
-    } else {
-      return episode.isSubbed ?? true;
+    if (!hasLanguageInfo) {
+      // Synthetic episodes (embed route): use Anikoto dubCount to cap
+      if (session.dubbed && dubCount !== null && dubCount !== undefined) {
+        return episode.number <= dubCount;
+      }
+      if (!session.dubbed && subCount !== null && subCount !== undefined) {
+        return episode.number <= subCount;
+      }
+      return true; // no count data → show all
     }
+    if (session.dubbed) return episode.isDubbed ?? false;
+    return episode.isSubbed ?? true;
   });
 
+  // Whether the dub count is known (from Anikoto) or unknown
+  const dubCountKnown = dubCount !== null && dubCount !== undefined;
+
   const getFallbackEpisodeForLanguage = (targetDubbed: boolean, currentEpNum: number) => {
-    const targetEpisodes = session.episodes.filter((ep) => {
-      if (!hasLanguageInfo) return true;
-      return targetDubbed ? (ep.isDubbed ?? false) : (ep.isSubbed ?? true);
-    });
+    // For embed routes, use dubCount/subCount to determine the max available episode
+    if (!hasLanguageInfo) {
+      const maxEp = targetDubbed
+        ? (dubCountKnown ? dubCount! : Infinity)
+        : (subCount !== null && subCount !== undefined ? subCount : Infinity);
+      return currentEpNum <= maxEp ? currentEpNum : Math.min(currentEpNum, maxEp);
+    }
+    const targetEpisodes = session.episodes.filter((ep) =>
+      targetDubbed ? (ep.isDubbed ?? false) : (ep.isSubbed ?? true)
+    );
     if (targetEpisodes.length === 0) return currentEpNum;
     const exactMatch = targetEpisodes.find((ep) => ep.number === currentEpNum);
     if (exactMatch) return currentEpNum;
@@ -642,6 +698,7 @@ export default function WatchExperience({ initialSession, recommendations = null
     pendingSessionKeyRef.current = null;
     setPendingSession(null);
     setIsSessionLoading(false);
+    setOptimisticServerId(null); // real server id is now in session — clear optimistic
 
     startTransition(() => {
       setSession((previous) => mergeWatchSessions(previous, nextSession));
@@ -710,15 +767,27 @@ export default function WatchExperience({ initialSession, recommendations = null
     pendingSessionKeyRef.current = null;
     setPendingSession(null);
 
+    // ⚡ Optimistic server selection — turn the button green immediately on click
+    // so the user gets instant visual feedback that their selection was registered.
+    // The actual embed will load behind it. Cleared in commitSession.
+    if (normalizedRequest.server) {
+      setOptimisticServerId(normalizedRequest.server);
+    } else if (normalizedRequest.dubbed !== session.dubbed) {
+      // Dub/sub switch — derive the expected server id by flipping the suffix
+      const base = (session.activeServerId || "megaplay").split("-")[0];
+      setOptimisticServerId(`${base}-${normalizedRequest.dubbed ? "dub" : "sub"}`);
+    }
+
     // ⚡ Try client-side local session first
     const localSession = tryBuildLocalSession(session, normalizedRequest);
     if (localSession) {
       const serverChanged = normalizedRequest.server && normalizedRequest.server !== session.activeServerId;
-      if (serverChanged) {
-        // Preload server in background, do not set isSessionLoading to true so current video keeps playing
+      const dubChanged = normalizedRequest.dubbed !== session.dubbed;
+      if (serverChanged || dubChanged) {
+        // Preload new embed in background — keeps current video playing until ready
         stageOrCommitSession(localSession);
       } else {
-        // Episode switch: commit instantly
+        // Same server, same language, just episode switch: commit instantly
         commitSession(localSession);
       }
       return;
@@ -730,6 +799,7 @@ export default function WatchExperience({ initialSession, recommendations = null
       .catch((error) => {
         setPlaybackMessage(error instanceof Error ? error.message : "Unable to refresh watch session.");
         setIsSessionLoading(false);
+        setOptimisticServerId(null); // revert optimistic on error
       })
       .finally(() => undefined);
   };
@@ -898,7 +968,8 @@ export default function WatchExperience({ initialSession, recommendations = null
   };
 
   /* ── Server buttons helper ───────────────────── */
-  const effectiveActiveServerId = pendingSession?.activeServerId || session.activeServerId;
+  // Priority: optimistic click → pending staged session → committed session
+  const effectiveActiveServerId = optimisticServerId || pendingSession?.activeServerId || session.activeServerId;
   const { isDesidub, subServers, dubServers, hindiServers } = summarizeServerGroups(session.serverOptions);
   const mainFallback = session.availableProviders.find((p) => p !== "desidub") || "animekai";
   const showHindi = session.availableProviders.includes("desidub") || session.provider === "desidub";
@@ -1265,6 +1336,16 @@ export default function WatchExperience({ initialSession, recommendations = null
             <span className="text-[10px] font-bold text-white/30 bg-white/5 px-2 py-0.5 rounded-full">
               {languageFilteredEpisodes.length}
             </span>
+            {session.dubbed && dubCountKnown && (
+              <span className="text-[9px] font-bold text-[#4ade80]/60 bg-[#4ade80]/8 border border-[#4ade80]/15 px-2 py-0.5 rounded-full">
+                {dubCount} DUB
+              </span>
+            )}
+            {session.dubbed && !dubCountKnown && (
+              <span className="text-[9px] font-bold text-amber-400/60 bg-amber-400/8 border border-amber-400/15 px-2 py-0.5 rounded-full">
+                Dub availability varies
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <div className="relative">
@@ -1290,6 +1371,7 @@ export default function WatchExperience({ initialSession, recommendations = null
             </button>
           </div>
         </div>
+
 
         {/* Number grid */}
         <div className="px-4 py-3">
