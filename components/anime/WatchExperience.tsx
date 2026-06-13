@@ -563,11 +563,12 @@ export default function WatchExperience({ initialSession, recommendations = null
   // so users only see episodes that actually have dub available.
   const canUseEmbed = Boolean(session.anime.anilistId || session.anime.malId);
   const { dubCount, subCount } = session.anime;
-  // hasDub is true if Anikoto reports at least 1 dub episode, OR if we have no
-  // Anikoto data but the anime has an AniList/MAL ID (let the embed handle it).
-  const hasDub =
-    (dubCount !== null && dubCount !== undefined ? dubCount > 0 : canUseEmbed) ||
-    session.episodes.some((ep) => ep.isDubbed);
+  // hasDub: only true when we have CONFIRMED dub availability.
+  // - Anikoto reports dubCount > 0 → dub exists, show button
+  // - dubCount is 0 → no dub, hide button
+  // - dubCount is null (anime not in Anikoto) → don't assume dub exists, hide button
+  // - Any episode has isDubbed flag → show button (real scraped data)
+  const hasDub = (dubCount != null && dubCount > 0) || session.episodes.some((ep) => ep.isDubbed);
   const hasSub = canUseEmbed || session.episodes.some((ep) => ep.isSubbed);
 
   // Cap episode list by dubCount when in dub mode (for synthetic episodes).
@@ -1267,7 +1268,8 @@ export default function WatchExperience({ initialSession, recommendations = null
             </div>
           </div>
 
-          {/* Dub servers */}
+          {/* Dub servers — hidden entirely when no dub is available */}
+          {hasDub && (
           <div className="flex items-center gap-3 flex-wrap">
             <span className="text-[11px] font-bold text-white/40 w-12 uppercase tracking-wider shrink-0">Dub</span>
             <div className="flex flex-wrap gap-1.5">
@@ -1289,6 +1291,7 @@ export default function WatchExperience({ initialSession, recommendations = null
               )}
             </div>
           </div>
+          )}
 
           {/* Hindi servers */}
           {showHindi && (
