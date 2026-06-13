@@ -3116,10 +3116,10 @@ function resolveCustomEmbedSource(
       iframeUrl = `https://animeplay.cfd/stream/mal/${malId}/${episodeNumber}/${lang}`;
     }
   } else if (base === "tryembed") {
-    if (malId) {
-      iframeUrl = `https://tryembed.us.cc/embed/anime/${malId}/${episodeNumber}/${lang}`;
-    } else if (anilistId) {
+    if (anilistId) {
       iframeUrl = `https://tryembed.us.cc/embed/anime/${anilistId}/${episodeNumber}/${lang}`;
+    } else if (malId) {
+      iframeUrl = `https://tryembed.us.cc/embed/anime/${malId}/${episodeNumber}/${lang}`;
     }
   } else if (base === "mostream") {
     if (malId) {
