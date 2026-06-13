@@ -524,6 +524,34 @@ export default function WatchExperience({ initialSession, recommendations = null
   const activeEmbedLoaded = loadedSurfaceKey === activePlayerSurfaceKey;
   const watchedEpisodes = getWatchedEpisodes(session.anime.id);
 
+  const hasDub = session.episodes.some((ep) => ep.isDubbed);
+  const hasSub = session.episodes.some((ep) => ep.isSubbed);
+
+  const hasLanguageInfo = session.episodes.some(
+    (ep) => ep.isSubbed !== undefined || ep.isDubbed !== undefined
+  );
+
+  const languageFilteredEpisodes = session.episodes.filter((episode) => {
+    if (!hasLanguageInfo) return true;
+    if (session.dubbed) {
+      return episode.isDubbed ?? false;
+    } else {
+      return episode.isSubbed ?? true;
+    }
+  });
+
+  const getFallbackEpisodeForLanguage = (targetDubbed: boolean, currentEpNum: number) => {
+    const targetEpisodes = session.episodes.filter((ep) => {
+      if (!hasLanguageInfo) return true;
+      return targetDubbed ? (ep.isDubbed ?? false) : (ep.isSubbed ?? true);
+    });
+    if (targetEpisodes.length === 0) return currentEpNum;
+    const exactMatch = targetEpisodes.find((ep) => ep.number === currentEpNum);
+    if (exactMatch) return currentEpNum;
+    const closest = [...targetEpisodes].reverse().find((ep) => ep.number <= currentEpNum);
+    return closest ? closest.number : targetEpisodes[0].number;
+  };
+
   // Only show the feedback overlay while actively loading a new session (not during initial embed load)
   // This prevents the "OPENING PLAYER" overlay from blocking the iframe while it loads.
   // Also show while the new iframe hasn't called onReady yet, to hide the white flash.
@@ -729,11 +757,11 @@ export default function WatchExperience({ initialSession, recommendations = null
   };
 
   /* ── Episode navigation ──────────────────────── */
-  const currentEpisodeIndex = session.episodes.findIndex((episode) => episode.number === session.episode.number);
-  const previousEpisode = currentEpisodeIndex > 0 ? session.episodes[currentEpisodeIndex - 1] : null;
+  const currentEpisodeIndex = languageFilteredEpisodes.findIndex((episode) => episode.number === session.episode.number);
+  const previousEpisode = currentEpisodeIndex > 0 ? languageFilteredEpisodes[currentEpisodeIndex - 1] : null;
   const nextEpisode =
-    currentEpisodeIndex >= 0 && currentEpisodeIndex < session.episodes.length - 1
-      ? session.episodes[currentEpisodeIndex + 1]
+    currentEpisodeIndex >= 0 && currentEpisodeIndex < languageFilteredEpisodes.length - 1
+      ? languageFilteredEpisodes[currentEpisodeIndex + 1]
       : null;
   const nextEpisodeNumber = nextEpisode?.number ?? null;
 
@@ -851,7 +879,7 @@ export default function WatchExperience({ initialSession, recommendations = null
     "https://placehold.co/1600x900/09090b/f5f5f5?text=AnimeKAI";
   const isSessionTransitioning = isSessionLoading;
 
-  const filteredEpisodes = session.episodes.filter((episode) => {
+  const filteredEpisodes = languageFilteredEpisodes.filter((episode) => {
     const query = episodeQuery.trim().toLowerCase();
     if (!query) return true;
     return (
@@ -1100,17 +1128,20 @@ export default function WatchExperience({ initialSession, recommendations = null
             {/* Sub/Dub mode toggle buttons */}
             <button
               type="button"
-              disabled={!session.dubbed}
+              disabled={!session.dubbed || !hasSub}
               aria-pressed={!session.dubbed}
               onClick={() => {
-                if (session.dubbed) {
-                  queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: null, dubbed: false });
+                if (session.dubbed && hasSub) {
+                  const targetEpNum = getFallbackEpisodeForLanguage(false, session.episode.number);
+                  queueSession({ episodeNumber: targetEpNum, provider: session.provider, server: null, dubbed: false });
                 }
               }}
               className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 transition-colors ${
                 !session.dubbed
                   ? "bg-[#ff5500]/15 text-[#ff5500] border border-[#ff5500]/25 shadow-[0_0_8px_rgba(255,85,0,0.15)] cursor-default"
-                  : "bg-white/5 text-white/50 border border-white/8 hover:bg-white/10 hover:text-white/70 cursor-pointer"
+                  : !hasSub
+                    ? "opacity-30 cursor-not-allowed bg-white/5 text-white/30 border border-white/5"
+                    : "bg-white/5 text-white/50 border border-white/8 hover:bg-white/10 hover:text-white/70 cursor-pointer"
               }`}
             >
               <Captions className="w-3 h-3" />
@@ -1118,17 +1149,20 @@ export default function WatchExperience({ initialSession, recommendations = null
             </button>
             <button
               type="button"
-              disabled={session.dubbed}
+              disabled={session.dubbed || !hasDub}
               aria-pressed={session.dubbed}
               onClick={() => {
-                if (!session.dubbed) {
-                  queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: null, dubbed: true });
+                if (!session.dubbed && hasDub) {
+                  const targetEpNum = getFallbackEpisodeForLanguage(true, session.episode.number);
+                  queueSession({ episodeNumber: targetEpNum, provider: session.provider, server: null, dubbed: true });
                 }
               }}
               className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 transition-colors ${
                 session.dubbed
                   ? "bg-[#4ade80]/15 text-[#4ade80] border border-[#4ade80]/25 shadow-[0_0_8px_rgba(74,222,128,0.15)] cursor-default"
-                  : "bg-white/5 text-white/50 border border-white/8 hover:bg-white/10 hover:text-white/70 cursor-pointer"
+                  : !hasDub
+                    ? "opacity-30 cursor-not-allowed bg-white/5 text-white/30 border border-white/5"
+                    : "bg-white/5 text-white/50 border border-white/8 hover:bg-white/10 hover:text-white/70 cursor-pointer"
               }`}
             >
               <Captions className="w-3 h-3" />
@@ -1229,7 +1263,7 @@ export default function WatchExperience({ initialSession, recommendations = null
           <div className="flex items-center gap-2">
             <h2 className="text-sm font-bold text-white">Episodes</h2>
             <span className="text-[10px] font-bold text-white/30 bg-white/5 px-2 py-0.5 rounded-full">
-              {session.episodes.length}
+              {languageFilteredEpisodes.length}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -1299,7 +1333,9 @@ export default function WatchExperience({ initialSession, recommendations = null
                   className={`group/ep w-full flex items-center gap-3 px-4 py-2.5 text-left transition-all border-b border-white/[0.03] last:border-0 ${
                     active
                       ? "bg-[#ff5500]/8 border-l-2 border-l-[#ff5500]"
-                      : "hover:bg-white/[0.03]"
+                      : watched
+                        ? "opacity-45 hover:opacity-100 hover:bg-white/[0.03]"
+                        : "hover:bg-white/[0.03]"
                   }`}
                 >
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 ${

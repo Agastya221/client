@@ -477,7 +477,7 @@ test("AniList passthrough titles stay readable and unavailable when AnimeKai map
 
     assert.equal(detail.anime.title, "Lost Future Project");
     assert.deepEqual(detail.availableProviders, []);
-    assert.ok(detail.attempts.some((attempt) => attempt.message === "No provider mapping available"));
+    assert.ok(detail.attempts.some((attempt) => attempt.message === "AniList direct lookup — no scraper needed"));
     assert.equal(availability.isAvailable, false);
     assert.equal(availability.watchHref, null);
     assert.equal(availability.message, "This anime is not available to watch yet.");

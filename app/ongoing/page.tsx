@@ -46,7 +46,7 @@ export default async function OngoingPage() {
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-4 gap-y-8">
             {media.map((item, i) => (
-              <AnilistCard key={item.id} media={item} rank={i + 1} availability={availabilityHints[item.id]} />
+              <AnilistCard key={item.id} media={item} rank={i + 1} availability={availabilityHints[item.id]} fromAiring />
             ))}
           </div>
         )}

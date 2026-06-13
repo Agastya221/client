@@ -56,10 +56,10 @@ function SectionHeader({
 }
 
 // Trending rank list item
-function TrendingRow({ media, rank }: { media: AnilistMedia; rank: number }) {
+function TrendingRow({ media, rank, fromAiring = false }: { media: AnilistMedia; rank: number; fromAiring?: boolean }) {
   const title = anilistTitle(media);
   const rating = anilistRating(media);
-  const href = `/anime/${encodeAnilistRouteId(media.id)}`;
+  const href = `/anime/${encodeAnilistRouteId(media.id)}${fromAiring ? "?from=airing" : ""}`;
   const isTop3 = rank <= 3;
 
   return (
@@ -156,7 +156,7 @@ export default async function Home() {
               />
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 gap-y-8">
                 {seasonal.slice(0, 12).map((media) => (
-                  <AnilistCard key={media.id} media={media} availability={availabilityHints[media.id]} />
+                  <AnilistCard key={media.id} media={media} availability={availabilityHints[media.id]} fromAiring />
                 ))}
               </div>
             </section>
@@ -242,7 +242,7 @@ export default async function Home() {
               </div>
               <div className="p-3 flex flex-col">
                 {popular.map((media, i) => (
-                  <TrendingRow key={media.id} media={media} rank={i + 1} />
+                  <TrendingRow key={media.id} media={media} rank={i + 1} fromAiring />
                 ))}
               </div>
             </div>

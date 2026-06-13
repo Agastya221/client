@@ -76,7 +76,13 @@ function CharacterCard({ char }: { char: { name: { full: string }; image: { medi
   );
 }
 
-async function AnilistDetailContent({ anilistId }: { anilistId: number }) {
+async function AnilistDetailContent({
+  anilistId,
+  searchParams,
+}: {
+  anilistId: number;
+  searchParams: Record<string, string | string[] | undefined>;
+}) {
   const media = await getAnilistDetail(anilistId);
   const title = anilistTitle(media);
   const rating = anilistRating(media);
@@ -88,8 +94,14 @@ async function AnilistDetailContent({ anilistId }: { anilistId: number }) {
   const accentColor = media.coverImage.color || "#ff5500";
   const routeId = encodeAnilistRouteId(anilistId);
   const selfHref = `/anime/${routeId}`;
+  
+  const fromAiring = firstParam(searchParams.from) === "airing";
+  const latestEpisode = media.status === "RELEASING" && media.nextAiringEpisode
+    ? Math.max(1, media.nextAiringEpisode.episode - 1)
+    : 1;
+
   // All anime are watchable via MegaPlay using the AniList ID directly — no scraper needed
-  const watchHref = `/anime/${routeId}/watch?ep=1`;
+  const watchHref = `/anime/${routeId}/watch?ep=${fromAiring ? latestEpisode : 1}`;
 
   const relations = media.relations.edges.filter(
     (e) => e.relationType === "SEQUEL" || e.relationType === "PREQUEL" || e.relationType === "SIDE_STORY"
@@ -319,8 +331,10 @@ async function AnilistDetailContent({ anilistId }: { anilistId: number }) {
 
 export default async function AnilistDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id } = await params;
 
@@ -328,16 +342,18 @@ export default async function AnilistDetailPage({
   if (!id.startsWith("anilist~")) {
     // Delegate to the original AnimeKai detail handler
     const { default: AnimeKaiDetailPage } = await import("./animekai-detail");
-    return <AnimeKaiDetailPage params={params} searchParams={Promise.resolve({})} />;
+    return <AnimeKaiDetailPage params={params} searchParams={searchParams} />;
   }
 
   const anilistId = parseInt(id.replace("anilist~", ""), 10);
   if (isNaN(anilistId)) return notFound();
 
+  const resolvedSearchParams = await searchParams;
+
   return (
     <main className="min-h-screen bg-[#0a0b0c] text-[#eaeaea]">
       <Navbar />
-      <AnilistDetailContent anilistId={anilistId} />
+      <AnilistDetailContent anilistId={anilistId} searchParams={resolvedSearchParams} />
       <SiteFooter />
     </main>
   );

@@ -10,17 +10,24 @@ export async function getCatalogAvailabilityForMedia(
   media: AnilistMedia[],
 ): Promise<Record<number, CatalogAvailabilityHint>> {
   return Object.fromEntries(
-    media.map((entry) => [
-      entry.id,
-      {
-        anilistId: entry.id,
-        status: "FOUND" as const,
-        isAvailable: true,
-        routeId: `anilist~${entry.id}`,
-        watchHref: `/anime/anilist~${entry.id}/watch?ep=1`,
-        message: "Watch ready",
-      } satisfies CatalogAvailabilityHint,
-    ]),
+    media.map((entry) => {
+      const latestEpisode =
+        entry.status === "RELEASING" && entry.nextAiringEpisode
+          ? Math.max(1, entry.nextAiringEpisode.episode - 1)
+          : 1;
+
+      return [
+        entry.id,
+        {
+          anilistId: entry.id,
+          status: "FOUND" as const,
+          isAvailable: true,
+          routeId: `anilist~${entry.id}`,
+          watchHref: `/anime/anilist~${entry.id}/watch?ep=${latestEpisode}`,
+          message: "Watch ready",
+        } satisfies CatalogAvailabilityHint,
+      ];
+    }),
   );
 }
 

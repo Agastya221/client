@@ -8,13 +8,20 @@ interface AnilistCardProps {
   rank?: number;
   size?: "sm" | "md" | "lg";
   availability?: CatalogAvailabilityHint | null;
+  fromAiring?: boolean;
 }
 
-export default function AnilistCard({ media, rank, size = "md", availability = null }: AnilistCardProps) {
+export default function AnilistCard({
+  media,
+  rank,
+  size = "md",
+  availability = null,
+  fromAiring = false,
+}: AnilistCardProps) {
   const title = anilistTitle(media) || "Untitled Anime";
   const rating = anilistRating(media);
   const format = anilistFormat(media);
-  const href = `/anime/${encodeAnilistRouteId(media.id)}`;
+  const href = `/anime/${encodeAnilistRouteId(media.id)}${fromAiring ? "?from=airing" : ""}`;
   const image = media.coverImage.extraLarge || media.coverImage.large || media.coverImage.medium || "";
   const accentColor = media.coverImage.color || "#ff5500";
   const isAiring = media.status === "RELEASING";

@@ -207,7 +207,7 @@ export function EpisodeNumberGrid({
                 ${isActive
                   ? "bg-[#ff5500] text-white shadow-[0_0_12px_rgba(255,85,0,0.4)]"
                   : isWatched
-                    ? "bg-emerald-500/15 text-emerald-400/80 border border-emerald-500/20 hover:bg-emerald-500/25"
+                    ? "bg-emerald-500/10 text-emerald-400/60 border border-emerald-500/15 opacity-40 hover:opacity-100 hover:bg-emerald-500/20 hover:text-emerald-400 transition-all duration-200"
                     : "bg-white/[0.06] text-white/60 hover:bg-white/12 hover:text-white border border-white/[0.06]"
                 }
               `}
