@@ -216,7 +216,7 @@ export default function CommentSection({
       <div className="flex items-center justify-between p-5 border-b border-white/5">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-[#ff5500]/10 flex items-center justify-center">
-            <MessageCircle className="w-4 h-4 text-[#ff5500]" />
+            <MessageCircle className="w-4 h-4 text-[#ff5500]" aria-hidden="true" />
           </div>
           <div>
             <h3 className="text-sm font-bold text-white">
@@ -261,7 +261,7 @@ export default function CommentSection({
                       : "bg-white/5 text-white/40 border border-white/5 hover:text-white/60"
                   }`}
                 >
-                  <AlertTriangle className="w-3 h-3" />
+                  <AlertTriangle className="w-3 h-3" aria-hidden="true" />
                   Spoiler
                 </button>
                 {episodeNumber && (
@@ -299,8 +299,8 @@ export default function CommentSection({
                 disabled={!newComment.trim() || submitting}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#ff5500] text-white text-xs font-bold hover:bg-[#e64d00] disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-95"
               >
-                <Send className="w-3.5 h-3.5" />
-                {submitting ? "Posting..." : "Post"}
+                <Send className="w-3.5 h-3.5" aria-hidden="true" />
+                {submitting ? "Posting…" : "Post"}
               </button>
             </div>
           </form>
@@ -309,7 +309,7 @@ export default function CommentSection({
             href="/auth/signin"
             className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-white/8 bg-white/[0.03] text-white/50 hover:text-white/70 hover:border-white/15 transition-all"
           >
-            <LogIn className="w-4 h-4" />
+            <LogIn className="w-4 h-4" aria-hidden="true" />
             <span className="text-xs font-bold">Sign in to comment</span>
           </Link>
         )}
@@ -324,7 +324,7 @@ export default function CommentSection({
           </div>
         ) : comments.length === 0 ? (
           <div className="p-8 text-center">
-            <MessageCircle className="w-8 h-8 text-white/10 mx-auto mb-3" />
+            <MessageCircle className="w-8 h-8 text-white/10 mx-auto mb-3" aria-hidden="true" />
             <p className="text-white/40 text-sm font-medium">No comments yet</p>
             <p className="text-white/20 text-xs mt-1">Be the first to share your thoughts!</p>
           </div>
@@ -424,7 +424,7 @@ function CommentItem({
                 onClick={() => setSpoilerRevealed(true)}
                 className="mt-1.5 flex items-center gap-2 px-3 py-2 rounded-lg bg-yellow-500/8 border border-yellow-500/15 text-yellow-400 text-xs font-medium hover:bg-yellow-500/15 transition-all"
               >
-                <EyeOff className="w-3.5 h-3.5" />
+                <EyeOff className="w-3.5 h-3.5" aria-hidden="true" />
                 Spoiler — Click to reveal
               </button>
             ) : (
@@ -438,7 +438,7 @@ function CommentItem({
                     onClick={() => setSpoilerRevealed(false)}
                     className="ml-2 inline-flex items-center text-[10px] text-yellow-500/60 hover:text-yellow-400"
                   >
-                    <Eye className="w-3 h-3 mr-0.5" /> hide
+                    <Eye className="w-3 h-3 mr-0.5" aria-hidden="true" /> hide
                   </button>
                 )}
               </p>
@@ -456,7 +456,7 @@ function CommentItem({
                     : "text-white/25 hover:text-white/50"
                 } disabled:cursor-not-allowed`}
               >
-                <Heart className={`w-3.5 h-3.5 ${liked ? "fill-current" : ""}`} />
+                <Heart className={`w-3.5 h-3.5 ${liked ? "fill-current" : ""}`} aria-hidden="true" />
                 {comment.likes.length > 0 && comment.likes.length}
               </button>
 
@@ -466,7 +466,7 @@ function CommentItem({
                   onClick={() => onReply(comment.id)}
                   className="flex items-center gap-1 text-[11px] text-white/25 hover:text-white/50 font-medium transition-colors"
                 >
-                  <CornerDownRight className="w-3.5 h-3.5" />
+                  <CornerDownRight className="w-3.5 h-3.5" aria-hidden="true" />
                   Reply
                 </button>
               )}
@@ -477,7 +477,7 @@ function CommentItem({
                   onClick={() => onDelete(comment.id)}
                   className="flex items-center gap-1 text-[11px] text-white/20 hover:text-red-400 font-medium transition-colors"
                 >
-                  <Trash2 className="w-3 h-3" />
+                  <Trash2 className="w-3 h-3" aria-hidden="true" />
                 </button>
               )}
             </div>
@@ -509,7 +509,7 @@ function CommentItem({
                   disabled={!localReplyContent.trim() || submitting}
                   className="px-3 py-2 rounded-lg bg-[#ff5500] text-white text-xs font-bold hover:bg-[#e64d00] disabled:opacity-40 transition-all"
                 >
-                  <Send className="w-3.5 h-3.5" />
+                  <Send className="w-3.5 h-3.5" aria-hidden="true" />
                 </button>
               </div>
             )}

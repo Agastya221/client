@@ -31,7 +31,7 @@ export default function UserMenu({ user }: UserMenuProps) {
         href="/auth/signin"
         className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#ff5500] text-white text-xs font-bold hover:bg-[#e64d00] transition-all active:scale-95"
       >
-        <LogIn className="w-3.5 h-3.5" />
+        <LogIn className="w-3.5 h-3.5" aria-hidden="true" />
         Sign In
       </Link>
     );
@@ -42,6 +42,9 @@ export default function UserMenu({ user }: UserMenuProps) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        aria-haspopup="true"
+        aria-expanded={open}
+        aria-label="User menu"
         className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 transition-all p-0.5 pr-3"
       >
         {user.image ? (
@@ -53,7 +56,7 @@ export default function UserMenu({ user }: UserMenuProps) {
           />
         ) : (
           <div className="w-8 h-8 rounded-full bg-[#ff5500]/20 flex items-center justify-center">
-            <User className="w-4 h-4 text-[#ff5500]" />
+            <User className="w-4 h-4 text-[#ff5500]" aria-hidden="true" />
           </div>
         )}
         <span className="text-xs font-bold text-white/80 max-w-[100px] truncate hidden sm:block">
@@ -81,9 +84,9 @@ export default function UserMenu({ user }: UserMenuProps) {
             <form action="/api/auth/signout" method="POST">
               <button
                 type="submit"
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-red-400 hover:bg-red-500/10 transition-colors text-left"
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-red-400 hover:bg-red-500/10 transition-colors text-left cursor-pointer"
               >
-                <LogOut className="w-4 h-4" />
+                <LogOut className="w-4 h-4" aria-hidden="true" />
                 <span className="text-xs font-bold">Sign Out</span>
               </button>
             </form>
@@ -111,7 +114,7 @@ function MenuLink({
       onClick={onClick}
       className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-white/70 hover:bg-white/5 hover:text-white transition-colors"
     >
-      <Icon className="w-4 h-4" />
+      <Icon className="w-4 h-4" aria-hidden="true" />
       <span className="text-xs font-bold">{label}</span>
     </Link>
   );

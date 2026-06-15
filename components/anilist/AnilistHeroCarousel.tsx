@@ -79,7 +79,9 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
     return subscribeToBookmarks(sync);
   }, [animeId]);
 
-  const toggleBookmark = () => {
+  const toggleBookmark = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
     if (bookmarked) {
       removeBookmark(animeId);
     } else {
@@ -90,7 +92,6 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
         href,
       });
     }
-    setBookmarked((v) => !v);
   };
 
   return (
@@ -142,17 +143,17 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
               )}
               {slide.format && (
                 <span className="bg-white/10 backdrop-blur text-white/80 text-[10px] font-bold px-3 py-1.5 rounded-full flex items-center gap-1">
-                  <Tv className="w-3 h-3" /> {slide.format}
+                  <Tv className="w-3 h-3" aria-hidden="true" /> {slide.format}
                 </span>
               )}
               {slide.seasonYear && (
                 <span className="bg-white/10 backdrop-blur text-white/80 text-[10px] font-bold px-3 py-1.5 rounded-full flex items-center gap-1">
-                  <Calendar className="w-3 h-3" /> {slide.seasonYear}
+                  <Calendar className="w-3 h-3" aria-hidden="true" /> {slide.seasonYear}
                 </span>
               )}
               {rating && (
                 <span className="flex items-center gap-1 bg-yellow-400/20 text-yellow-400 text-[10px] font-black px-3 py-1.5 rounded-full">
-                  <Star className="w-3 h-3 fill-current" /> {rating}
+                  <Star className="w-3 h-3 fill-current" aria-hidden="true" /> {rating}
                 </span>
               )}
             </div>
@@ -187,13 +188,13 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
                 <Link href={watchHref} prefetch
                   className="flex items-center gap-2.5 text-white font-black text-sm px-7 py-3.5 rounded-full transition-all duration-200 hover:scale-105 hover:shadow-lg shadow-md"
                   style={{ backgroundColor: accentColor, boxShadow: `0 8px 24px ${accentColor}50` }}>
-                  <Play className="w-4 h-4 fill-current" /> WATCH NOW
+                  <Play className="w-4 h-4 fill-current" aria-hidden="true" /> WATCH NOW
                 </Link>
               ) : (
                 <Link href={href}
                   className="flex items-center gap-2.5 text-white font-black text-sm px-7 py-3.5 rounded-full transition-all duration-200 hover:scale-105 hover:shadow-lg shadow-md"
                   style={{ backgroundColor: accentColor, boxShadow: `0 8px 24px ${accentColor}50` }}>
-                  <Play className="w-4 h-4" /> DETAILS
+                  <Play className="w-4 h-4" aria-hidden="true" /> DETAILS
                 </Link>
               )}
               {watchHref && (
@@ -203,17 +204,19 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
                 </Link>
               )}
               <button
+                type="button"
                 onClick={toggleBookmark}
                 className={`w-12 h-12 rounded-full flex items-center justify-center border transition-all duration-200 ${
                   bookmarked
                     ? "border-yellow-400/50 bg-yellow-400/15 hover:bg-yellow-400/25"
                     : "bg-white/10 hover:bg-white/20 border-white/10"
                 }`}
-                title={bookmarked ? "Remove bookmark" : "Bookmark"}
+                title={bookmarked ? "Remove from my list" : "Add to my list"}
+                aria-label={bookmarked ? "Remove from my list" : "Add to my list"}
               >
                 {bookmarked
-                  ? <BookmarkCheck className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-                  : <Bookmark className="w-4 h-4 text-white/70" />
+                  ? <BookmarkCheck className="w-4 h-4 text-yellow-400 fill-yellow-400" aria-hidden="true" />
+                  : <Bookmark className="w-4 h-4 text-white/70" aria-hidden="true" />
                 }
               </button>
             </div>
@@ -280,17 +283,17 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
               )}
               {slide.format && (
                 <span className="bg-white/10 backdrop-blur text-white/70 text-[9px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1">
-                  <Tv className="w-2.5 h-2.5" /> {slide.format}
+                  <Tv className="w-2.5 h-2.5" aria-hidden="true" /> {slide.format}
                 </span>
               )}
               {slide.seasonYear && (
                 <span className="bg-white/10 backdrop-blur text-white/70 text-[9px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1">
-                  <Calendar className="w-2.5 h-2.5" /> {slide.seasonYear}
+                  <Calendar className="w-2.5 h-2.5" aria-hidden="true" /> {slide.seasonYear}
                 </span>
               )}
               {rating && (
                 <span className="flex items-center gap-0.5 bg-yellow-400/20 text-yellow-400 text-[9px] font-black px-2.5 py-1 rounded-full">
-                  <Star className="w-2.5 h-2.5 fill-current" /> {rating}
+                  <Star className="w-2.5 h-2.5 fill-current" aria-hidden="true" /> {rating}
                 </span>
               )}
             </div>
@@ -327,13 +330,13 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
                 <Link href={watchHref} prefetch
                   className="flex items-center gap-1.5 text-white font-black text-[11px] px-4 py-2.5 rounded-full transition-all duration-200 shadow-md"
                   style={{ backgroundColor: accentColor, boxShadow: `0 6px 16px ${accentColor}50` }}>
-                  <Play className="w-3.5 h-3.5 fill-current" />WATCH NOW
+                  <Play className="w-3.5 h-3.5 fill-current" aria-hidden="true" />WATCH NOW
                 </Link>
               ) : (
                 <Link href={href}
                   className="flex items-center gap-1.5 text-white font-black text-[11px] px-4 py-2.5 rounded-full transition-all duration-200 shadow-md"
                   style={{ backgroundColor: accentColor, boxShadow: `0 6px 16px ${accentColor}50` }}>
-                  <Play className="w-3.5 h-3.5" />DETAILS
+                  <Play className="w-3.5 h-3.5" aria-hidden="true" />DETAILS
                 </Link>
               )}
               {watchHref && (
@@ -343,17 +346,19 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
                 </Link>
               )}
               <button
+                type="button"
                 onClick={toggleBookmark}
                 className={`w-9 h-9 rounded-full flex items-center justify-center border transition-all ${
                   bookmarked
                     ? "border-yellow-400/50 bg-yellow-400/15"
                     : "bg-white/10 border-white/10"
                 }`}
-                title={bookmarked ? "Remove bookmark" : "Bookmark"}
+                title={bookmarked ? "Remove from my list" : "Add to my list"}
+                aria-label={bookmarked ? "Remove from my list" : "Add to my list"}
               >
                 {bookmarked
-                  ? <BookmarkCheck className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
-                  : <Bookmark className="w-3.5 h-3.5 text-white/60" />
+                  ? <BookmarkCheck className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" aria-hidden="true" />
+                  : <Bookmark className="w-3.5 h-3.5 text-white/60" aria-hidden="true" />
                 }
               </button>
             </div>
@@ -390,12 +395,12 @@ function NavButtons({
     <>
       <button type="button" onClick={goPrev} aria-label="Previous slide"
         className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center border border-white/20 backdrop-blur transition-all focus:outline-none focus:ring-2 focus:ring-[#ff5500]/50">
-        <ChevronLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" />
+        <ChevronLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" aria-hidden="true" />
       </button>
 
       <div className="flex items-center gap-1.5">
         {deck.map((_, i) => (
-          <button key={i} onClick={() => goTo(i)} className="rounded-full transition-all duration-300"
+          <button key={i} onClick={() => goTo(i)} aria-label={`Go to slide ${i + 1}`} className="rounded-full transition-all duration-300"
             style={{
               width: i === activeIndex ? "20px" : "5px",
               height: "5px",
@@ -406,7 +411,7 @@ function NavButtons({
 
       <button type="button" onClick={goNext} aria-label="Next slide"
         className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center border border-white/20 backdrop-blur transition-all focus:outline-none focus:ring-2 focus:ring-[#ff5500]/50">
-        <ChevronRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" />
+        <ChevronRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" aria-hidden="true" />
       </button>
 
       <span className="text-white/40 text-[10px] sm:text-xs font-bold ml-1">

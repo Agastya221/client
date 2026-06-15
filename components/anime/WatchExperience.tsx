@@ -986,11 +986,11 @@ export default function WatchExperience({ initialSession, recommendations = null
   const { isDesidub, subServers, dubServers, hindiServers } = summarizeServerGroups(session.serverOptions);
   const mainFallback = session.availableProviders.find((p) => p !== "desidub") || "animekai";
   const showHindi = session.availableProviders.includes("desidub") || session.provider === "desidub";
-  const floatingStatus = isSessionTransitioning ? "Refreshing session..." : null;
+  const floatingStatus = isSessionTransitioning ? "Refreshing session…" : null;
   const playerFeedbackTitle = activeEmbedLoaded ? "Player ready" : "Opening player";
   const playerFeedbackHint = isSessionTransitioning
-    ? "Loading the next session..."
-    : "Opening the player...";
+    ? "Loading the next session…"
+    : "Opening the player…";
 
   /* ════════════════════════════════════════════════
      RENDER
@@ -1054,7 +1054,7 @@ export default function WatchExperience({ initialSession, recommendations = null
                 <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20" style={{ borderTopColor: accentColor }} />
               </div>
               <div className="space-y-2">
-                <h2 className="text-xl font-bold text-white">Resolving stream...</h2>
+                <h2 className="text-xl font-bold text-white">Resolving stream…</h2>
                 <p className="max-w-md text-sm text-white/60">
                   Please wait while we locate the best source for this episode.
                 </p>
@@ -1065,7 +1065,7 @@ export default function WatchExperience({ initialSession, recommendations = null
           {!embedAvailable && !session.stale && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-[#0a0a0c]/95 px-8 text-center">
               <div className="rounded-full border border-white/10 bg-white/6 p-4" style={{ color: accentColor }}>
-                <Tv2 className="h-8 w-8" />
+                <Tv2 className="h-8 w-8" aria-hidden="true" />
               </div>
               <div className="space-y-2">
                 <h2 className="text-xl font-bold text-white">
@@ -1086,7 +1086,7 @@ export default function WatchExperience({ initialSession, recommendations = null
                     className="inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-bold text-white transition-colors hover:brightness-110"
                     style={{ backgroundColor: accentColor }}
                   >
-                    <Info className="h-4 w-4" />
+                    <Info className="h-4 w-4" aria-hidden="true" />
                     Back to details
                   </Link>
                 ) : (
@@ -1096,7 +1096,7 @@ export default function WatchExperience({ initialSession, recommendations = null
                     className="inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-bold text-white transition-colors hover:brightness-110"
                     style={{ backgroundColor: accentColor }}
                   >
-                    <RefreshCcw className="h-4 w-4" />
+                    <RefreshCcw className="h-4 w-4" aria-hidden="true" />
                     Refresh source
                   </button>
                 )}
@@ -1232,7 +1232,7 @@ export default function WatchExperience({ initialSession, recommendations = null
               }`}
               style={!session.dubbed ? { background: accentStyle(0.15), color: accentColor, border: `1px solid ${accentStyle(0.25)}`, boxShadow: `0 0 8px ${accentStyle(0.15)}` } : undefined}
             >
-              <Captions className="w-3 h-3" />
+              <Captions className="w-3 h-3" aria-hidden="true" />
               Sub
             </button>
             <button
@@ -1253,7 +1253,7 @@ export default function WatchExperience({ initialSession, recommendations = null
                     : "bg-white/5 text-white/50 border border-white/8 hover:bg-white/10 hover:text-white/70 cursor-pointer"
               }`}
             >
-              <Captions className="w-3 h-3" />
+              <Captions className="w-3 h-3" aria-hidden="true" />
               Dub
             </button>
           </div>
@@ -1339,7 +1339,7 @@ export default function WatchExperience({ initialSession, recommendations = null
         {playbackMessage && (
           <div className="space-y-2 pt-1">
             <div className="flex items-start gap-2 rounded-lg bg-amber-500/[0.08] border border-amber-500/20 p-3 text-xs text-amber-300">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               <p>{playbackMessage}</p>
             </div>
           </div>
@@ -1368,10 +1368,10 @@ export default function WatchExperience({ initialSession, recommendations = null
           </div>
           <div className="flex items-center gap-2">
             <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-white/30" />
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-white/30" aria-hidden="true" />
               <input
                 type="text"
-                placeholder="Find..."
+                placeholder="Find…"
                 value={episodeQuery}
                 onChange={(e) => setEpisodeQuery(e.target.value)}
                 className="bg-white/[0.04] border border-white/8 rounded-lg text-xs text-white/80 pl-7 pr-3 py-1.5 w-28 focus:w-40 transition-all outline-none"
@@ -1387,7 +1387,7 @@ export default function WatchExperience({ initialSession, recommendations = null
               style={showEpisodeList ? { background: accentStyle(0.1), color: accentColor, borderColor: accentStyle(0.25) } : undefined}
               onClick={() => setShowEpisodeList(!showEpisodeList)}
             >
-              <ChevronDown className={`w-3 h-3 transition-transform ${showEpisodeList ? "rotate-180" : ""}`} />
+              <ChevronDown className={`w-3 h-3 transition-transform ${showEpisodeList ? "rotate-180" : ""}`} aria-hidden="true" />
               List
             </button>
           </div>

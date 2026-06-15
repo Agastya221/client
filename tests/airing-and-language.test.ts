@@ -7,6 +7,8 @@ test("getCatalogAvailabilityForMedia calculates latest episode for RELEASING med
   const mockMedia: AnilistMedia[] = [
     {
       id: 12345,
+      idMal: null,
+      title: { romaji: "Mock", english: "Mock", native: "Mock" },
       status: "RELEASING",
       nextAiringEpisode: { episode: 5, airingAt: 1700000000 },
       coverImage: { extraLarge: "", large: "", medium: "", color: null },
@@ -28,6 +30,8 @@ test("getCatalogAvailabilityForMedia calculates latest episode for RELEASING med
     },
     {
       id: 67890,
+      idMal: null,
+      title: { romaji: "Mock Finished", english: "Mock Finished", native: "Mock Finished" },
       status: "FINISHED",
       nextAiringEpisode: null,
       coverImage: { extraLarge: "", large: "", medium: "", color: null },

@@ -106,6 +106,7 @@ export default function IframePlayer({ iframeUrl, onReady, onTimeUpdate, onEpiso
         ref={iframeRef}
         src={iframeUrl}
         onLoad={handleLoad}
+        title="Anime Video Player"
         style={{
           width: "100%",
           height: "100%",

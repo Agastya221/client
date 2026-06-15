@@ -46,6 +46,11 @@ body {
   color: var(--color-on-surface);
 }
 
+/* Momentum scroll for mobile viewports */
+.overflow-x-auto, .overflow-y-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
 @layer utilities {
   .shadow-ambient {
     box-shadow: 0px 20px 40px rgba(0, 0, 0, 0.4);

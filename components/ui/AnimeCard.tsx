@@ -1,6 +1,6 @@
 import type { CatalogAnime } from "@/lib/anime/types";
 import Link from "next/link";
-import { Play } from "lucide-react";
+import { Play, Mic } from "lucide-react";
 
 interface AnimeCardProps {
   anime: CatalogAnime;
@@ -20,13 +20,14 @@ export default function AnimeCard({ anime, highlightProvider = false }: AnimeCar
         <img
           src={imageUrl}
           alt={anime.title}
+          loading="lazy"
           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
         />
         
         {/* Play Icon Overlay */}
         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
           <div className="w-12 h-12 rounded-full bg-[#ff5500] flex items-center justify-center pl-1 text-white shadow-lg">
-            <Play className="w-6 h-6 fill-current" />
+            <Play className="w-6 h-6 fill-current" aria-hidden="true" />
           </div>
         </div>
       </div>
@@ -45,7 +46,9 @@ export default function AnimeCard({ anime, highlightProvider = false }: AnimeCar
             )}
             {anime.dubCount && (
               <span className="flex items-center gap-1 bg-[#52ff7f]/20 text-[#52ff7f] px-1.5 py-0.5 rounded border border-[#52ff7f]/30">
-                <span className="w-3 h-3 bg-[#52ff7f] text-[#161616] rounded-sm flex items-center justify-center text-[7px] font-black">🎤</span>
+                <span className="w-3 h-3 bg-[#52ff7f] text-[#161616] rounded-sm flex items-center justify-center text-[7px] font-black">
+                  <Mic className="w-2 h-2 fill-current animate-none" aria-hidden="true" />
+                </span>
                 {anime.dubCount}
               </span>
             )}

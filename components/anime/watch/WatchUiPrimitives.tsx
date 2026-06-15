@@ -91,16 +91,18 @@ export function SeasonRail({ seasons, activeHref, accentColor = "#ff5500" }: { s
           <button
             type="button"
             onClick={() => scrollRef.current?.scrollBy({ left: -200, behavior: "smooth" })}
+            aria-label="Previous seasons"
             className="w-8 h-8 md:w-7 md:h-7 rounded-full border border-white/10 bg-white/5 flex items-center justify-center text-white/80 hover:text-white transition-colors"
           >
-            <ChevronLeft className="w-4 h-4 md:w-3.5 md:h-3.5" />
+            <ChevronLeft className="w-4 h-4 md:w-3.5 md:h-3.5" aria-hidden="true" />
           </button>
           <button
             type="button"
             onClick={() => scrollRef.current?.scrollBy({ left: 200, behavior: "smooth" })}
+            aria-label="Next seasons"
             className="w-8 h-8 md:w-7 md:h-7 rounded-full border border-white/10 bg-white/5 flex items-center justify-center text-white/80 hover:text-white transition-colors"
           >
-            <ChevronRight className="w-4 h-4 md:w-3.5 md:h-3.5" />
+            <ChevronRight className="w-4 h-4 md:w-3.5 md:h-3.5" aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -123,7 +125,8 @@ export function SeasonRail({ seasons, activeHref, accentColor = "#ff5500" }: { s
                 <div className="absolute inset-0">
                   <img
                     src={season.poster}
-                    alt={season.title}
+                    alt=""
+                    aria-hidden="true"
                     className="h-full w-full object-cover opacity-30 transition-transform duration-300 group-hover:scale-105"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/60 to-black/30" />
@@ -170,6 +173,15 @@ export function EpisodeNumberGrid({
     const idx = episodes.findIndex((ep) => ep.number === activeNumber);
     if (idx >= 0) {
       setRangeStart(Math.floor(idx / CHUNK_SIZE) * CHUNK_SIZE);
+    } else {
+      // If the active episode isn't in the list (e.g. newly airing or beyond list boundaries),
+      // default to the chunk closest to the active episode or the last chunk.
+      const closestIdx = episodes.findIndex((ep) => ep.number > activeNumber);
+      if (closestIdx >= 0) {
+        setRangeStart(Math.floor(closestIdx / CHUNK_SIZE) * CHUNK_SIZE);
+      } else if (episodes.length > 0) {
+        setRangeStart(Math.floor((episodes.length - 1) / CHUNK_SIZE) * CHUNK_SIZE);
+      }
     }
   }, [activeNumber, episodes]);
 
@@ -186,9 +198,10 @@ export function EpisodeNumberGrid({
             type="button"
             onClick={() => setRangeStart(Math.max(0, rangeStart - CHUNK_SIZE))}
             disabled={rangeStart === 0}
+            aria-label="Previous episode range"
             className="w-7 h-7 rounded-full border border-white/10 bg-white/5 flex items-center justify-center text-white/50 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           >
-            <ChevronLeft className="w-3.5 h-3.5" />
+            <ChevronLeft className="w-3.5 h-3.5" aria-hidden="true" />
           </button>
           <span className="text-xs text-white/50 font-medium tracking-wider min-w-[5rem] text-center">
             {rangeLabel}
@@ -197,9 +210,10 @@ export function EpisodeNumberGrid({
             type="button"
             onClick={() => setRangeStart(Math.min(episodes.length - 1, rangeStart + CHUNK_SIZE))}
             disabled={rangeStart + CHUNK_SIZE >= episodes.length}
+            aria-label="Next episode range"
             className="w-7 h-7 rounded-full border border-white/10 bg-white/5 flex items-center justify-center text-white/50 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           >
-            <ChevronRight className="w-3.5 h-3.5" />
+            <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" />
           </button>
         </div>
       )}

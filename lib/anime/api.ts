@@ -1447,43 +1447,55 @@ async function fetchHianimeGenre(genre: string, page: number) {
   return unwrapProviderPayload(response);
 }
 
-async function fetchHianimeDetailMeta(providerId: string): Promise<ProviderDetailMetaBundle> {
-  const detailResponse = await apiJson<JsonValue>(`/api/v2/hianime/anime/${encodeURIComponent(providerId)}`, {
-    revalidate: DETAIL_REVALIDATE_SECONDS,
-  });
-  const detail = unwrapProviderPayload(detailResponse);
-  const info = detail.anime?.info || {};
-  const moreInfo = detail.anime?.moreInfo || {};
-  const genres = mapGenres(moreInfo.genres || moreInfo.genre);
-  const anime = normalizeBaseAnime({
-    provider: "hianime",
-    providerId,
-    title: pickFirstNonEmpty(info.name, info.title, humanizeProviderId(providerId)),
-    poster: pickFirstNonEmpty(info.poster),
-    banner: pickFirstNonEmpty(info.banner),
-    description: pickFirstNonEmpty(info.description),
-    genres,
-    type: pickFirstNonEmpty(info.stats?.type),
-    rating: pickFirstNonEmpty(info.stats?.rating),
-    year: parseYear(moreInfo.aired),
-    status: pickFirstNonEmpty(moreInfo.status),
-    subCount: numberOrNull(info.stats?.episodes?.sub),
-    dubCount: numberOrNull(info.stats?.episodes?.dub),
-    episodeCount: numberOrNull(info.stats?.episodes?.sub) ?? numberOrNull(info.stats?.episodes?.dub),
-    anilistId: numberOrNull(info.anilistId),
-    malId: numberOrNull(info.malId),
-  });
+const hianimeMetaCache = new Map<string, Promise<ProviderDetailMetaBundle>>();
 
-  return {
-    provider: "hianime",
-    providerId,
-    anime,
-    synopsis: pickFirstNonEmpty(info.description),
-    metadata: toHianimeMetadata(detail),
-    seasons: [],
-    related: ensureArray(detail.relatedAnimes).map(normalizeHianimeCatalogItem),
-    recommended: ensureArray(detail.recommendedAnimes).map(normalizeHianimeCatalogItem),
-  };
+async function fetchHianimeDetailMeta(providerId: string): Promise<ProviderDetailMetaBundle> {
+  const existing = hianimeMetaCache.get(providerId);
+  if (existing) return existing;
+
+  const promise = (async () => {
+    const detailResponse = await apiJson<JsonValue>(`/api/v2/hianime/anime/${encodeURIComponent(providerId)}`, {
+      revalidate: DETAIL_REVALIDATE_SECONDS,
+    });
+    const detail = unwrapProviderPayload(detailResponse);
+    const info = detail.anime?.info || {};
+    const moreInfo = detail.anime?.moreInfo || {};
+    const genres = mapGenres(moreInfo.genres || moreInfo.genre);
+    const anime = normalizeBaseAnime({
+      provider: "hianime",
+      providerId,
+      title: pickFirstNonEmpty(info.name, info.title, humanizeProviderId(providerId)),
+      poster: pickFirstNonEmpty(info.poster),
+      banner: pickFirstNonEmpty(info.banner),
+      description: pickFirstNonEmpty(info.description),
+      genres,
+      type: pickFirstNonEmpty(info.stats?.type),
+      rating: pickFirstNonEmpty(info.stats?.rating),
+      year: parseYear(moreInfo.aired),
+      status: pickFirstNonEmpty(moreInfo.status),
+      subCount: numberOrNull(info.stats?.episodes?.sub),
+      dubCount: numberOrNull(info.stats?.episodes?.dub),
+      episodeCount: numberOrNull(info.stats?.episodes?.sub) ?? numberOrNull(info.stats?.episodes?.dub),
+      anilistId: numberOrNull(info.anilistId),
+      malId: numberOrNull(info.malId),
+    });
+
+    return {
+      provider: "hianime" as ProviderId,
+      providerId,
+      anime,
+      synopsis: pickFirstNonEmpty(info.description),
+      metadata: toHianimeMetadata(detail),
+      seasons: [],
+      related: ensureArray(detail.relatedAnimes).map(normalizeHianimeCatalogItem),
+      recommended: ensureArray(detail.recommendedAnimes).map(normalizeHianimeCatalogItem),
+    };
+  })();
+
+  hianimeMetaCache.set(providerId, promise);
+  setTimeout(() => hianimeMetaCache.delete(providerId), 5000);
+
+  return promise;
 }
 
 function resolveEpisodeAvailableProviders(
@@ -1509,7 +1521,20 @@ async function fetchHianimeEpisodes(providerId: string): Promise<EpisodeModel[]>
     revalidate: DETAIL_REVALIDATE_SECONDS,
   });
   const episodes = unwrapProviderPayload(episodeResponse);
-  return normalizeHianimeEpisodesPayload(episodes);
+  const rawEpisodes = normalizeHianimeEpisodesPayload(episodes);
+
+  try {
+    const meta = await fetchHianimeDetailMeta(providerId);
+    const subCount = meta.anime.subCount ?? rawEpisodes.length;
+    const dubCount = meta.anime.dubCount ?? 0;
+    return rawEpisodes.map((ep) => ({
+      ...ep,
+      isSubbed: ep.number <= subCount,
+      isDubbed: ep.number <= dubCount,
+    }));
+  } catch {
+    return rawEpisodes;
+  }
 }
 
 async function fetchHianimeDetail(providerId: string): Promise<ProviderDetailBundle> {
@@ -1524,6 +1549,8 @@ async function fetchHianimeDetail(providerId: string): Promise<ProviderDetailBun
     anime: {
       ...meta.anime,
       episodeCount: meta.anime.episodeCount ?? episodes.length,
+      subCount: meta.anime.subCount ?? episodes.filter((ep) => ep.isSubbed).length,
+      dubCount: meta.anime.dubCount ?? episodes.filter((ep) => ep.isDubbed).length,
     },
   };
 }

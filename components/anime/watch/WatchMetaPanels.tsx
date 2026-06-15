@@ -45,12 +45,14 @@ export function WatchAnimeDetailsPanel({
             <div className="w-28 md:w-36 aspect-[2/3] rounded-xl overflow-hidden border border-white/10 shadow-[0_8px_30px_rgba(0,0,0,0.5)] relative group/poster">
               <img
                 src={session.anime.poster || heroImage}
-                alt={session.anime.title}
+                alt=""
+                aria-hidden="true"
+                loading="lazy"
                 className="w-full h-full object-cover transition-transform duration-500 group-hover/poster:scale-105"
               />
               {session.anime.rating && (
                 <div className="absolute top-2 left-2 flex items-center gap-1 bg-black/70 backdrop-blur-sm rounded-md px-1.5 py-0.5">
-                  <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
+                  <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" aria-hidden="true" />
                   <span className="text-[10px] font-bold text-white">{session.anime.rating}</span>
                 </div>
               )}
@@ -72,21 +74,21 @@ export function WatchAnimeDetailsPanel({
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {session.anime.type && (
                 <div className="bg-white/[0.03] border border-white/5 rounded-xl px-3 py-2 text-center">
-                  <Film className="w-3.5 h-3.5 mx-auto mb-1" style={{ color: accentColor }} />
+                  <Film className="w-3.5 h-3.5 mx-auto mb-1" style={{ color: accentColor }} aria-hidden="true" />
                   <p className="text-[9px] font-black uppercase tracking-widest text-white/30">Type</p>
                   <p className="text-xs font-bold text-white/80">{session.anime.type}</p>
                 </div>
               )}
               {session.anime.year && (
                 <div className="bg-white/[0.03] border border-white/5 rounded-xl px-3 py-2 text-center">
-                  <Calendar className="w-3.5 h-3.5 mx-auto mb-1" style={{ color: accentColor }} />
+                  <Calendar className="w-3.5 h-3.5 mx-auto mb-1" style={{ color: accentColor }} aria-hidden="true" />
                   <p className="text-[9px] font-black uppercase tracking-widest text-white/30">Year</p>
                   <p className="text-xs font-bold text-white/80">{session.anime.year}</p>
                 </div>
               )}
               {session.anime.status && (
                 <div className="bg-white/[0.03] border border-white/5 rounded-xl px-3 py-2 text-center">
-                  <Clock className="w-3.5 h-3.5 mx-auto mb-1" style={{ color: accentColor }} />
+                  <Clock className="w-3.5 h-3.5 mx-auto mb-1" style={{ color: accentColor }} aria-hidden="true" />
                   <p className="text-[9px] font-black uppercase tracking-widest text-white/30">Status</p>
                   <p
                     className={`text-xs font-bold ${
@@ -101,7 +103,7 @@ export function WatchAnimeDetailsPanel({
               )}
               {session.anime.episodeCount && (
                 <div className="bg-white/[0.03] border border-white/5 rounded-xl px-3 py-2 text-center">
-                  <Tv2 className="w-3.5 h-3.5 mx-auto mb-1" style={{ color: accentColor }} />
+                  <Tv2 className="w-3.5 h-3.5 mx-auto mb-1" style={{ color: accentColor }} aria-hidden="true" />
                   <p className="text-[9px] font-black uppercase tracking-widest text-white/30">Episodes</p>
                   <p className="text-xs font-bold text-white/80">{session.anime.episodeCount}</p>
                 </div>
@@ -125,16 +127,16 @@ export function WatchAnimeDetailsPanel({
 
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-2 border-t border-white/5">
               <Link href={session.anime.href} className="inline-flex items-center gap-1.5 text-[11px] font-bold transition-colors hover:brightness-125" style={{ color: accentColor }}>
-                <Info className="w-3.5 h-3.5" /> Full Details
+                <Info className="w-3.5 h-3.5" aria-hidden="true" /> Full Details
               </Link>
               {session.anime.anilistId && (
                 <a href={`https://anilist.co/anime/${session.anime.anilistId}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] font-bold text-white/35 hover:text-white/60 transition-colors">
-                  <ExternalLink className="w-3 h-3" /> AniList
+                  <ExternalLink className="w-3 h-3" aria-hidden="true" /> AniList
                 </a>
               )}
               {session.anime.malId && (
                 <a href={`https://myanimelist.net/anime/${session.anime.malId}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] font-bold text-white/35 hover:text-white/60 transition-colors">
-                  <ExternalLink className="w-3 h-3" /> MAL
+                  <ExternalLink className="w-3 h-3" aria-hidden="true" /> MAL
                 </a>
               )}
             </div>
@@ -210,7 +212,7 @@ export function WatchRecommendationsPanel({
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover/rec:opacity-100 transition-opacity duration-300" />
                   <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/rec:opacity-100 transition-opacity duration-300">
                     <div className="w-10 h-10 rounded-full flex items-center justify-center shadow-2xl pl-0.5" style={{ backgroundColor: recColor }}>
-                      <Play className="w-4 h-4 text-white fill-current" />
+                      <Play className="w-4 h-4 text-white fill-current" aria-hidden="true" />
                     </div>
                   </div>
                   <div className="absolute top-1.5 left-1.5 flex flex-col gap-1">
@@ -223,7 +225,7 @@ export function WatchRecommendationsPanel({
                   </div>
                   {recRating && (
                     <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 bg-black/70 backdrop-blur text-yellow-400 text-[9px] font-black px-1.5 py-0.5 rounded-md">
-                      <Star className="w-2.5 h-2.5 fill-current" />
+                      <Star className="w-2.5 h-2.5 fill-current" aria-hidden="true" />
                       {recRating}
                     </div>
                   )}

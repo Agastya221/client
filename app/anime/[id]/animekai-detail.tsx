@@ -33,7 +33,7 @@ function SeasonRail({ seasons, activeHref }: { seasons: AnimeSeasonEntry[]; acti
     <div className="rounded-[1.75rem] border border-white/10 bg-[#111215] p-6 shadow-lg">
       <div className="flex items-center gap-3 mb-5">
         <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#ff5500]/15 text-[#ff5500]">
-          <Layers3 className="h-5 w-5" />
+          <Layers3 className="h-5 w-5" aria-hidden="true" />
         </div>
         <div>
           <p className="text-[10px] font-bold uppercase tracking-widest text-white/35">Franchise</p>
@@ -56,7 +56,7 @@ function SeasonRail({ seasons, activeHref }: { seasons: AnimeSeasonEntry[]; acti
             >
               {season.poster ? (
                 <div className="absolute inset-0">
-                  <img src={season.poster} alt={season.title} className="h-full w-full object-cover opacity-40 transition-transform duration-300 group-hover:scale-105" />
+                  <img src={season.poster} alt="" aria-hidden="true" className="h-full w-full object-cover opacity-40 transition-transform duration-300 group-hover:scale-105" />
                   <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(7,7,8,0.1),rgba(7,7,8,0.88))]" />
                 </div>
               ) : null}
@@ -172,7 +172,7 @@ async function DetailContent({ idPromise, searchParamsPromise }: { idPromise: Pr
       <section className="relative overflow-hidden pb-14 pt-24">
         {heroImage && (
           <div className="absolute inset-0">
-            <img src={heroImage} alt={detail.anime.title} className="h-full w-full object-cover opacity-20" />
+            <img src={heroImage} alt="" aria-hidden="true" className="h-full w-full object-cover opacity-20" />
             <div className="absolute inset-0 bg-gradient-to-r from-[#0a0b0c] via-[#0a0b0c]/90 to-[#0a0b0c]/40" />
             <div className="absolute inset-0 bg-gradient-to-t from-[#0a0b0c] via-transparent to-transparent" />
           </div>
@@ -232,14 +232,14 @@ async function DetailContent({ idPromise, searchParamsPromise }: { idPromise: Pr
                   prefetch
                   className="inline-flex items-center gap-2 rounded-full bg-[#ff5500] px-8 py-3.5 text-sm font-black text-white transition-transform hover:scale-105 shadow-[0_0_20px_rgba(255,85,0,0.4)]"
                 >
-                  <Play className="h-4 w-4 fill-current" />
+                  <Play className="h-4 w-4 fill-current" aria-hidden="true" />
                   Start watching
                 </Link>
                 <Link
                   href="/search"
                   className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-6 py-3.5 text-sm font-semibold text-white/70 hover:text-white hover:bg-white/10 transition-all"
                 >
-                  <Sparkles className="h-4 w-4" />
+                  <Sparkles className="h-4 w-4" aria-hidden="true" />
                   Browse more
                 </Link>
               </div>
@@ -289,7 +289,7 @@ async function DetailContent({ idPromise, searchParamsPromise }: { idPromise: Pr
             <div className="rounded-[1.75rem] border border-white/10 bg-[#111215] p-6 shadow-lg">
               <div className="mb-5 flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#52ff7f]/15 text-[#52ff7f]">
-                  <Clapperboard className="h-5 w-5" />
+                  <Clapperboard className="h-5 w-5" aria-hidden="true" />
                 </div>
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-widest text-white/35">More like this</p>
@@ -306,7 +306,8 @@ async function DetailContent({ idPromise, searchParamsPromise }: { idPromise: Pr
                     <div className="aspect-[16/9] overflow-hidden bg-black/30">
                       <img
                         src={anime.poster || anime.banner || heroImage}
-                        alt={anime.title}
+                        alt=""
+                        aria-hidden="true"
                         className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                       />
                     </div>
@@ -338,7 +339,7 @@ export default function AnimeKaiDetailPage({
     <main className="min-h-screen bg-[#0a0b0c] flex flex-col">
       <Navbar />
       <div className="flex-1">
-        <Suspense fallback={<div className="pt-32 text-center text-white/30 animate-pulse">Loading...</div>}>
+        <Suspense fallback={<div className="pt-32 text-center text-white/30 animate-pulse">Loading…</div>}>
           <DetailContent idPromise={params} searchParamsPromise={searchParams} />
         </Suspense>
       </div>

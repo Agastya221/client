@@ -70,7 +70,7 @@ export default function AnilistCard({
         </div>
 
         {/* Top badges */}
-        <div className="absolute top-2 left-2 flex flex-col gap-1">
+        <div className="absolute top-2 left-2 flex flex-col items-start gap-1">
           {isAiring && (
             <span className="flex items-center gap-1 bg-[#ff5500] text-white text-[9px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-wider">
               <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
