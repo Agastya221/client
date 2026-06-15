@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Search, Shuffle, X, Menu, TrendingUp, Calendar, Radio, Sparkles, Film, Home, Bell, Tag, Library, Bookmark, History, LoaderCircle } from "lucide-react";
+import { Search, Shuffle, X, Menu, TrendingUp, Calendar, Radio, Sparkles, Film, Home, Bell, Tag, Library, Bookmark, History, LoaderCircle, Star } from "lucide-react";
 import { useRouter, usePathname } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import UserMenu from "@/components/ui/UserMenu";
@@ -39,9 +39,7 @@ export default function NavbarClient({ user }: NavbarClientProps) {
 
   const desktopSearchRef = useRef<HTMLDivElement>(null);
   const mobileHeaderSearchRef = useRef<HTMLDivElement>(null);
-  const mobileDrawerSearchRef = useRef<HTMLDivElement>(null);
   const mobileHeaderInputRef = useRef<HTMLInputElement>(null);
-  const mobileDrawerInputRef = useRef<HTMLInputElement>(null);
 
   // Focus mobile header search input when activated
   useEffect(() => {
@@ -50,15 +48,7 @@ export default function NavbarClient({ user }: NavbarClientProps) {
     }
   }, [mobileSearchActive]);
 
-  // Focus mobile drawer search input when menu opens
-  useEffect(() => {
-    if (mobileMenuOpen) {
-      const timer = setTimeout(() => {
-        mobileDrawerInputRef.current?.focus();
-      }, 150);
-      return () => clearTimeout(timer);
-    }
-  }, [mobileMenuOpen]);
+
 
   // Close mobile menu and search active state on route change
   useEffect(() => {
@@ -83,9 +73,6 @@ export default function NavbarClient({ user }: NavbarClientProps) {
         setDesktopFocused(false);
       }
       if (mobileHeaderSearchRef.current && !mobileHeaderSearchRef.current.contains(event.target as Node)) {
-        setMobileFocused(false);
-      }
-      if (mobileDrawerSearchRef.current && !mobileDrawerSearchRef.current.contains(event.target as Node)) {
         setMobileFocused(false);
       }
     }
@@ -278,59 +265,82 @@ export default function NavbarClient({ user }: NavbarClientProps) {
               </form>
 
               {isDesktopFocused && searchValue.trim() && (
-                <div className="absolute top-full left-0 z-50 mt-2 w-full rounded-2xl border border-white/10 bg-[#0f1012]/95 backdrop-blur-md p-2 shadow-2xl flex flex-col gap-1">
+                <div className="absolute top-full left-0 z-50 mt-2.5 w-[480px] max-w-[calc(100vw-32px)] rounded-2xl border border-white/10 bg-[#0c0d0f]/85 backdrop-blur-xl p-3 shadow-[0_20px_50px_rgba(0,0,0,0.55)] flex flex-col gap-1.5 animate-slide-down">
                   {isSearching ? (
-                    <div className="flex items-center justify-center py-6 gap-2 text-white/50 text-sm">
+                    <div className="flex items-center justify-center py-8 gap-2.5 text-white/60 text-sm">
                       <LoaderCircle className="w-5 h-5 animate-spin text-[#52ff7f]" aria-hidden="true" />
-                      <span>Searching…</span>
+                      <span className="font-medium">Searching AniList catalog…</span>
                     </div>
                   ) : suggestions.length === 0 ? (
-                    <div className="py-4 text-center text-sm text-white/40">
-                      No results found
+                    <div className="py-6 text-center text-sm text-white/40 font-medium">
+                      No anime found matching your query
                     </div>
                   ) : (
                     <>
-                      {suggestions.map((media) => {
-                        const title = anilistTitle(media);
-                        const format = anilistFormat(media);
-                        const year = anilistYear(media);
-                        const href = `/anime/${encodeAnilistRouteId(media.id)}`;
-                        return (
-                          <Link
-                            key={media.id}
-                            href={href}
-                            onClick={() => {
-                              setSearchValue("");
-                              setDesktopFocused(false);
-                            }}
-                            className="flex items-center gap-3 rounded-xl p-2 hover:bg-white/5 transition-colors group"
-                          >
-                            <div className="relative h-14 w-10 shrink-0 overflow-hidden rounded-lg bg-white/5">
-                              <img
-                                src={media.coverImage.medium || media.coverImage.large}
-                                alt=""
-                                className="h-full w-full object-cover"
-                              />
-                            </div>
-                            <div className="flex flex-col min-w-0 flex-1 text-left">
-                              <span className="text-sm font-semibold text-white group-hover:text-[#52ff7f] transition-colors truncate">
-                                {title}
-                              </span>
-                              <span className="text-xs text-white/40 mt-0.5">
-                                {format} {year ? `• ${year}` : ""}
-                              </span>
-                            </div>
-                          </Link>
-                        );
-                      })}
-                      <div className="border-t border-white/5 mt-1 pt-1">
+                      <div className="flex flex-col gap-1">
+                        {suggestions.map((media) => {
+                          const title = anilistTitle(media);
+                          const format = anilistFormat(media);
+                          const year = anilistYear(media);
+                          const href = `/anime/${encodeAnilistRouteId(media.id)}`;
+                          return (
+                            <Link
+                              key={media.id}
+                              href={href}
+                              onClick={() => {
+                                setSearchValue("");
+                                setDesktopFocused(false);
+                              }}
+                              className="flex items-center gap-3.5 rounded-xl p-2.5 hover:bg-white/5 border border-transparent hover:border-white/5 transition-all group duration-200"
+                            >
+                              <div className="relative h-16 w-11 shrink-0 overflow-hidden rounded-lg bg-white/5 ring-1 ring-white/10">
+                                <img
+                                  src={media.coverImage.medium || media.coverImage.large}
+                                  alt=""
+                                  className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                />
+                              </div>
+                              <div className="flex flex-col min-w-0 flex-1 text-left gap-0.5">
+                                <div className="flex items-start justify-between gap-3">
+                                  <span className="text-sm font-bold text-white group-hover:text-[#52ff7f] transition-colors truncate">
+                                    {title}
+                                  </span>
+                                  {media.averageScore && (
+                                    <span className="flex items-center gap-0.5 text-amber-400 font-semibold text-xs shrink-0 bg-amber-400/10 px-1.5 py-0.5 rounded border border-amber-400/15">
+                                      ★ {(media.averageScore / 10).toFixed(1)}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 text-xs text-white/45 font-medium">
+                                  <span className="text-white/60">{format}</span>
+                                  {year && <span>• {year}</span>}
+                                  {media.episodes && <span>• {media.episodes} EP</span>}
+                                </div>
+                                {media.genres && media.genres.length > 0 && (
+                                  <div className="flex items-center gap-1.5 mt-1 flex-wrap shrink-0">
+                                    {media.genres.slice(0, 2).map((genre) => (
+                                      <span
+                                        key={genre}
+                                        className="text-[9px] font-bold tracking-wider uppercase text-white/50 bg-white/5 border border-white/5 px-1.5 py-0.5 rounded"
+                                      >
+                                        {genre}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                      <div className="border-t border-white/5 mt-1.5 pt-1.5">
                         <button
                           type="button"
                           onClick={(e) => {
                             handleSearch(e);
                             setDesktopFocused(false);
                           }}
-                          className="w-full text-center py-2 text-xs font-bold text-[#52ff7f] hover:underline"
+                          className="w-full text-center py-2 text-xs font-extrabold tracking-wider uppercase text-[#52ff7f] hover:text-[#3eff6c] transition-colors hover:underline flex items-center justify-center gap-1"
                         >
                           See all results
                         </button>
@@ -408,85 +418,7 @@ export default function NavbarClient({ user }: NavbarClientProps) {
               </button>
             </div>
 
-            {/* Search (mobile) */}
-            <div ref={mobileDrawerSearchRef} className="px-5 py-3 border-b border-white/5 relative">
-              <form onSubmit={handleSearch} className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" aria-hidden="true" />
-                <input
-                  ref={mobileDrawerInputRef}
-                  type="text"
-                  value={searchValue}
-                  onFocus={() => setMobileFocused(true)}
-                  onChange={(e) => setSearchValue(e.target.value)}
-                  placeholder="Search anime…"
-                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-[#ff5500]/50"
-                />
-              </form>
 
-              {isMobileFocused && searchValue.trim() && (
-                <div className="absolute top-full left-5 right-5 z-50 mt-1 rounded-2xl border border-white/10 bg-[#0f1012]/98 p-2 shadow-2xl flex flex-col gap-1">
-                  {isSearching ? (
-                    <div className="flex items-center justify-center py-6 gap-2 text-white/50 text-sm">
-                      <LoaderCircle className="w-5 h-5 animate-spin text-[#52ff7f]" aria-hidden="true" />
-                      <span>Searching…</span>
-                    </div>
-                  ) : suggestions.length === 0 ? (
-                    <div className="py-4 text-center text-sm text-white/40">
-                      No results found
-                    </div>
-                  ) : (
-                    <>
-                      {suggestions.map((media) => {
-                        const title = anilistTitle(media);
-                        const format = anilistFormat(media);
-                        const year = anilistYear(media);
-                        const href = `/anime/${encodeAnilistRouteId(media.id)}`;
-                        return (
-                          <Link
-                            key={media.id}
-                            href={href}
-                            onClick={() => {
-                              setSearchValue("");
-                              setMobileFocused(false);
-                              setMobileMenuOpen(false);
-                            }}
-                            className="flex items-center gap-3 rounded-xl p-2 hover:bg-white/5 transition-colors group"
-                          >
-                            <div className="relative h-14 w-10 shrink-0 overflow-hidden rounded-lg bg-white/5">
-                              <img
-                                src={media.coverImage.medium || media.coverImage.large}
-                                alt=""
-                                className="h-full w-full object-cover"
-                              />
-                            </div>
-                            <div className="flex flex-col min-w-0 flex-1 text-left">
-                              <span className="text-sm font-semibold text-white group-hover:text-[#52ff7f] transition-colors truncate">
-                                {title}
-                              </span>
-                              <span className="text-xs text-white/40 mt-0.5">
-                                {format} {year ? `• ${year}` : ""}
-                              </span>
-                            </div>
-                          </Link>
-                        );
-                      })}
-                      <div className="border-t border-white/5 mt-1 pt-1">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            handleSearch(e);
-                            setMobileFocused(false);
-                          }}
-                          className="w-full text-center py-2 text-xs font-bold text-[#52ff7f] hover:underline"
-                        >
-                          See all results
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
 
             {/* Links */}
             <div className="flex-1 overflow-y-auto py-2">
