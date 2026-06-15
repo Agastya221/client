@@ -75,7 +75,7 @@ export default function ContinueWatchingRail() {
         </button>
       </div>
 
-      <div className="flex gap-3 overflow-x-auto pb-2 hide-scrollbar -mx-1 px-1">
+      <div className="flex gap-3 overflow-x-auto pb-2 hide-scrollbar -mx-3 px-3 sm:-mx-4 sm:px-4 lg:-mx-12 lg:px-12 xl:-mx-16 xl:px-16">
         {/* AniList watching entries (shown first if available) */}
         {anilistItems.map((item) => (
           <div

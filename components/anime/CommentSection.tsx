@@ -240,7 +240,7 @@ export default function CommentSection({
               <textarea
                 value={newComment}
                 onChange={(e) => setNewComment(e.target.value)}
-                placeholder="Share your thoughts..."
+                placeholder="Share your thoughts…"
                 rows={2}
                 maxLength={2000}
                 className="w-full bg-white/[0.04] border border-white/8 rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-[#ff5500]/40 focus:ring-1 focus:ring-[#ff5500]/20 resize-none transition-all"
@@ -288,7 +288,7 @@ export default function CommentSection({
                         : "bg-white/5 text-white/40 border border-white/5 hover:text-white/60"
                     }`}
                   >
-                    <Clock className="w-3 h-3" />
+                    <Clock className="w-3 h-3" aria-hidden="true" />
                     {timestamp !== null ? `${Math.floor(timestamp / 60)}:${(timestamp % 60).toString().padStart(2, '0')}` : "Timestamp"}
                   </button>
                 )}
@@ -320,7 +320,7 @@ export default function CommentSection({
         {loading ? (
           <div className="p-8 text-center">
             <div className="w-6 h-6 border-2 border-[#ff5500]/30 border-t-[#ff5500] rounded-full animate-spin mx-auto" />
-            <p className="text-white/30 text-xs mt-3">Loading comments...</p>
+            <p className="text-white/30 text-xs mt-3">Loading comments…</p>
           </div>
         ) : comments.length === 0 ? (
           <div className="p-8 text-center">
@@ -410,14 +410,10 @@ function CommentItem({
                 {timeAgo(comment.createdAt)}
               </span>
               {comment.timestamp !== null && (
-                <button
-                  type="button"
-                  onClick={() => onTimestampClick?.(comment.timestamp!)}
-                  className="flex items-center gap-1 text-[10px] text-[#ff5500] hover:text-[#ff6600] font-bold transition-colors"
-                >
-                  <Clock className="w-2.5 h-2.5" />
+                <span className="flex items-center gap-1 text-[10px] text-white/40 font-semibold bg-white/5 rounded px-1.5 py-0.5 select-none">
+                  <Clock className="w-2.5 h-2.5" aria-hidden="true" />
                   {formatTimestamp(comment.timestamp)}
-                </button>
+                </span>
               )}
             </div>
 
@@ -493,7 +489,7 @@ function CommentItem({
                   type="text"
                   value={localReplyContent}
                   onChange={(e) => setLocalReplyContent(e.target.value)}
-                  placeholder="Write a reply..."
+                  placeholder="Write a reply…"
                   maxLength={2000}
                   className="flex-1 bg-white/[0.04] border border-white/8 rounded-lg px-3 py-2 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-[#ff5500]/40 transition-all"
                   onKeyDown={(e) => {

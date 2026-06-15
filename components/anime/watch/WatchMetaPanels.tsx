@@ -123,7 +123,7 @@ export function WatchAnimeDetailsPanel({
               </div>
             )}
 
-            <div className="flex items-center gap-4 pt-2 border-t border-white/5">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-2 border-t border-white/5">
               <Link href={session.anime.href} className="inline-flex items-center gap-1.5 text-[11px] font-bold transition-colors hover:brightness-125" style={{ color: accentColor }}>
                 <Info className="w-3.5 h-3.5" /> Full Details
               </Link>

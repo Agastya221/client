@@ -1225,7 +1225,7 @@ export default function WatchExperience({ initialSession, recommendations = null
               }}
               className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 transition-colors ${
                 !session.dubbed
-                  ? "cursor-default"
+                  ? "cursor-default pointer-events-none"
                   : !hasSub
                     ? "opacity-30 cursor-not-allowed bg-white/5 text-white/30 border border-white/5"
                     : "bg-white/5 text-white/50 border border-white/8 hover:bg-white/10 hover:text-white/70 cursor-pointer"
@@ -1247,7 +1247,7 @@ export default function WatchExperience({ initialSession, recommendations = null
               }}
               className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 transition-colors ${
                 session.dubbed
-                  ? "bg-[#4ade80]/15 text-[#4ade80] border border-[#4ade80]/25 shadow-[0_0_8px_rgba(74,222,128,0.15)] cursor-default"
+                  ? "bg-[#4ade80]/15 text-[#4ade80] border border-[#4ade80]/25 shadow-[0_0_8px_rgba(74,222,128,0.15)] cursor-default pointer-events-none"
                   : !hasDub
                     ? "opacity-30 cursor-not-allowed bg-white/5 text-white/30 border border-white/5"
                     : "bg-white/5 text-white/50 border border-white/8 hover:bg-white/10 hover:text-white/70 cursor-pointer"

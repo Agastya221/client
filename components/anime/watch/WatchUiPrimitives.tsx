@@ -27,15 +27,16 @@ export function ControlBtn({
       type="button"
       disabled={disabled}
       onClick={onClick}
+      aria-label={label}
       className={`
-        flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold tracking-wide transition-colors
-        rounded-md select-none whitespace-nowrap
+        flex items-center justify-center gap-1.5 p-2.5 sm:px-2.5 sm:py-1.5 text-[11px] font-semibold tracking-wide transition-colors
+        rounded-md select-none whitespace-nowrap min-w-[2.5rem] min-h-[2.5rem] sm:min-w-0 sm:min-h-0
         ${disabled ? "opacity-30 cursor-not-allowed" : "cursor-pointer hover:bg-white/8"}
         ${active && !accent ? "text-white" : !active ? "text-white/60" : ""}
       `}
       style={active && accent && accentColor ? { color: accentColor } : undefined}
     >
-      <Icon className="w-3.5 h-3.5" />
+      <Icon className="w-3.5 h-3.5" aria-hidden="true" />
       <span className="hidden sm:inline">{label}</span>
     </button>
   );

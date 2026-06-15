@@ -180,11 +180,11 @@ async function DetailContent({ idPromise, searchParamsPromise }: { idPromise: Pr
 
         <div className="relative mx-auto max-w-7xl px-6">
           <div className="grid items-end gap-10 lg:grid-cols-[18rem_1fr]">
-            <div className="hidden lg:block">
+            <div className="flex justify-center lg:block">
               <img
                 src={detail.anime.poster || heroImage}
                 alt={detail.anime.title}
-                className="w-full rounded-2xl border border-white/10 shadow-2xl"
+                className="w-48 sm:w-60 lg:w-full rounded-2xl border border-white/10 shadow-2xl"
                 style={{ aspectRatio: "2/3", objectFit: "cover" }}
               />
             </div>
@@ -209,7 +209,7 @@ async function DetailContent({ idPromise, searchParamsPromise }: { idPromise: Pr
                 <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/60">{detail.synopsis}</p>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid grid-cols-3 gap-3">
                 <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
                   <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/40">Episodes</p>
                   <p className="mt-2 text-lg font-black text-white">{detail.anime.episodeCount || "?"}</p>

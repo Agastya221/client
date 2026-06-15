@@ -16,7 +16,7 @@ export default function AnimeCard({ anime, highlightProvider = false }: AnimeCar
       href={anime.href}
       className="group relative flex flex-col gap-2 transition-all duration-300 w-full"
     >
-      <div className="relative aspect-[3/4] w-full overflow-hidden rounded-lg bg-[#20222a]">
+      <div className="relative aspect-[2/3] w-full overflow-hidden rounded-lg bg-[#20222a]">
         <img
           src={imageUrl}
           alt={anime.title}

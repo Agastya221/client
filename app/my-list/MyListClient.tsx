@@ -89,7 +89,7 @@ export default function MyListPage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-4 gap-y-8">
             {Array.from({ length: 12 }).map((_, i) => (
               <div key={i} className="animate-pulse">
-                <div className="aspect-[3/4] rounded-xl bg-white/5" />
+                <div className="aspect-[2/3] rounded-xl bg-white/5" />
                 <div className="mt-2 h-4 rounded bg-white/5" />
               </div>
             ))}
@@ -110,7 +110,7 @@ export default function MyListPage() {
             {filtered.map((bm) => (
               <div key={bm.animeId} className="group relative">
                 <Link href={bm.href}>
-                  <div className="relative aspect-[3/4] rounded-xl overflow-hidden bg-white/5 border border-white/5 group-hover:border-white/15 transition-all">
+                  <div className="relative aspect-[2/3] rounded-xl overflow-hidden bg-white/5 border border-white/5 group-hover:border-white/15 transition-all">
                     {bm.poster ? (
                       <img src={bm.poster} alt={bm.title} className="w-full h-full object-cover" />
                     ) : (
