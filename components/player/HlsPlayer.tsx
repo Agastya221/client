@@ -225,7 +225,9 @@ export default function HlsPlayer({
     video.playbackRate = prefs.getPlaybackSpeed();
 
     // Auto-select default subtitle
-    if (subtitles.length > 0 && prefs.getSubtitlesEnabled()) {
+    if (isHardSubStream) {
+      setActiveSubtitleTrack(null);
+    } else if (subtitles.length > 0 && prefs.getSubtitlesEnabled()) {
       const savedLang = prefs.getSubtitleLang();
       if (savedLang && subtitles.some((t) => t.lang === savedLang)) {
         setActiveSubtitleTrack(savedLang);
@@ -233,6 +235,8 @@ export default function HlsPlayer({
         const defaultTrack = subtitles.find((t) => t.isDefault) || subtitles.find((t) => t.lang === "en" || t.lang === "eng");
         if (defaultTrack) setActiveSubtitleTrack(defaultTrack.lang);
       }
+    } else {
+      setActiveSubtitleTrack(null);
     }
 
     return () => {
@@ -248,7 +252,7 @@ export default function HlsPlayer({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [streamUrl]);
+  }, [streamUrl, isHardSubStream]);
 
   // ── AniSkip Integration ────────────────────────────────────────
   useEffect(() => {

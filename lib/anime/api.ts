@@ -3790,7 +3790,11 @@ export async function getQuickWatchSession(input: {
           : `${backendUrl}/api/proxy/m3u8-streaming-proxy?url=${encodedUrl}${refererParam}`;
 
         const chosenSubType: "soft" | "hard" =
-          (Array.isArray(chosenStream.subtitles) && chosenStream.subtitles.length > 0) ? "soft" : "hard";
+          isWixStream(chosenStream)
+            ? "hard"
+            : (Array.isArray(chosenStream.subtitles) && chosenStream.subtitles.length > 0)
+              ? "soft"
+              : "hard";
 
         const subtitles: SubtitleTrack[] = (chosenStream.subtitles || []).map((sub) => ({
           url: sub.url || "",
