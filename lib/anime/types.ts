@@ -148,6 +148,9 @@ export interface ServerOption {
   label: string;
   provider: ProviderId;
   category?: string;
+  /** For HLS sub streams: "soft" = clean video + external VTT overlay;
+   *  "hard" = subtitles burnt into the video (no VTT file). */
+  subType?: "soft" | "hard";
 }
 
 export interface WatchAttempt {

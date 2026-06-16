@@ -983,7 +983,7 @@ export default function WatchExperience({ initialSession, recommendations = null
   /* ── Server buttons helper ───────────────────── */
   // Priority: optimistic click → pending staged session → committed session
   const effectiveActiveServerId = optimisticServerId || pendingSession?.activeServerId || session.activeServerId;
-  const { isDesidub, subServers, dubServers, hindiServers } = summarizeServerGroups(session.serverOptions);
+  const { isDesidub, subServers, softSubServers, hardSubServers, dubServers, hindiServers } = summarizeServerGroups(session.serverOptions);
   const mainFallback = session.availableProviders.find((p) => p !== "desidub") || "animekai";
   const showHindi = session.availableProviders.includes("desidub") || session.provider === "desidub";
   const floatingStatus = isSessionTransitioning ? "Refreshing session…" : null;
@@ -1283,12 +1283,12 @@ export default function WatchExperience({ initialSession, recommendations = null
 
         {/* Server rows */}
         <div className="space-y-2">
-          {/* Sub servers */}
+          {/* Sub servers - Soft Sub row */}
           <div className="flex items-center gap-3 flex-wrap">
             <span className="text-[11px] font-bold text-white/40 w-12 uppercase tracking-wider shrink-0">Sub</span>
             <div className="flex flex-wrap gap-1.5">
-              {subServers.length > 0 ? (
-                subServers.map((entry) => (
+              {softSubServers.length > 0 ? (
+                softSubServers.map((entry) => (
                   <ServerButton
                     key={entry.id}
                     label={entry.label}
@@ -1305,6 +1305,29 @@ export default function WatchExperience({ initialSession, recommendations = null
               )}
             </div>
           </div>
+
+          {/* Hard Sub row — only shown when hard-sub HLS streams are available */}
+          {hardSubServers.length > 0 && (
+          <div className="flex items-center gap-3 flex-wrap">
+            <span
+              className="text-[11px] font-bold w-12 uppercase tracking-wider shrink-0"
+              style={{ color: "rgba(251,191,36,0.7)" }}
+              title="Subtitles are burned into the video — cannot be disabled or restyled"
+            >
+              HSub
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              {hardSubServers.map((entry) => (
+                <ServerButton
+                  key={entry.id}
+                  label={entry.label}
+                  active={!session.dubbed && effectiveActiveServerId === entry.id}
+                  onClick={() => queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: entry.id, dubbed: false })}
+                />
+              ))}
+            </div>
+          </div>
+          )}
 
           {/* Dub servers — hidden entirely when no dub is available */}
           {hasDub && (

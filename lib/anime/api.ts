@@ -3735,7 +3735,7 @@ export async function getQuickWatchSession(input: {
   // Falls through to embed path if no DB cache found.
   try {
     const anilistId = detail.anime.anilistId;
-    if (anilistId && !input.server?.startsWith("megaplay") && input.server !== "desidub") {
+    if (anilistId && !input.server?.startsWith("megaplay") && input.server !== "desidub" && input.server !== "scraper-sub" && input.server !== "scraper-dub") {
       const backendUrl = process.env.ANIME_API_BASE_URL || "http://localhost:5000";
       const dubbed = Boolean(input.dubbed);
       const cachedRes = await fetch(
@@ -3744,10 +3744,32 @@ export async function getQuickWatchSession(input: {
       ).then((r) => r.json()).catch(() => ({ cached: false }));
 
       if (cachedRes?.cached && Array.isArray(cachedRes.streams) && cachedRes.streams.length > 0) {
-        const bestStream = cachedRes.streams[0];
-        const rawStreams: Array<{ url: string; quality?: string; referer?: string }> = bestStream.streams || [];
-        // Build proxied URL through the Flask HLS proxy
-        const bestRaw = rawStreams[0] || { url: bestStream.streamUrl };
+        // ── Classify all cached streams as soft-sub or hard-sub ───────────
+        // Soft sub = stream has external VTT subtitle tracks users can toggle.
+        // Hard sub = subtitles are burnt into the video pixels (no VTT file).
+        type CachedStream = {
+          provider: string;
+          quality?: string;
+          streamUrl: string;
+          streams: Array<{ url: string; quality?: string; referer?: string }>;
+          subtitles: Array<{ url?: string; label?: string; lang?: string; isDefault?: boolean }>;
+          intro?: { start: number; end: number } | null;
+          outro?: { start: number; end: number } | null;
+        };
+        const allCachedStreams: CachedStream[] = cachedRes.streams;
+        const softSubStreams = allCachedStreams.filter((s) => Array.isArray(s.subtitles) && s.subtitles.length > 0);
+        const hardSubStreams = allCachedStreams.filter((s) => !Array.isArray(s.subtitles) || s.subtitles.length === 0);
+
+        // ── Choose which stream to play based on user's server selection ──
+        const wantHard = input.server === "hls-hardsub";
+        const preferredPool = wantHard ? hardSubStreams : softSubStreams;
+        const fallbackPool = wantHard ? softSubStreams : hardSubStreams;
+        const chosenStream: CachedStream | undefined = preferredPool[0] ?? fallbackPool[0];
+        if (!chosenStream) throw new Error("No playable cached stream");
+
+        // ── Build StreamSource for the chosen stream ──────────────────────
+        const rawStreams = chosenStream.streams || [];
+        const bestRaw = rawStreams[0] || { url: chosenStream.streamUrl };
         const isWix = bestRaw.url.includes("wixmp.com") || bestRaw.url.includes("wixstatic.com");
         const encodedUrl = encodeURIComponent(bestRaw.url);
         const refererParam = bestRaw.referer ? `&referer=${encodeURIComponent(bestRaw.referer)}` : "";
@@ -3755,32 +3777,51 @@ export async function getQuickWatchSession(input: {
           ? bestRaw.url
           : `${backendUrl}/api/proxy/m3u8-streaming-proxy?url=${encodedUrl}${refererParam}`;
 
-        // Build server options for all quality variants
-        const serverOptions: ServerOption[] = rawStreams.map((s) => ({
-          id: `hls-${(s.quality || "auto").replace(/\s/g, "-").toLowerCase()}`,
-          label: `HLS Premium (${(s.quality || "Auto").toUpperCase()})`,
-          provider: "gogoanime" as ProviderId,
-          category: dubbed ? "dub" : "sub",
-        }));
+        const chosenSubType: "soft" | "hard" =
+          (Array.isArray(chosenStream.subtitles) && chosenStream.subtitles.length > 0) ? "soft" : "hard";
 
-        const subtitles: SubtitleTrack[] = (bestStream.subtitles || []).map(
-          (sub: { url?: string; label?: string; lang?: string; isDefault?: boolean }) => ({
-            url: sub.url || "",
-            label: sub.label || "English",
-            lang: sub.lang || "en",
-            isDefault: sub.isDefault ?? false,
-          }),
-        );
+        const subtitles: SubtitleTrack[] = (chosenStream.subtitles || []).map((sub) => ({
+          url: sub.url || "",
+          label: sub.label || "English",
+          lang: sub.lang || "en",
+          isDefault: sub.isDefault ?? false,
+        }));
 
         const source: StreamSource = {
           kind: "hls",
-          label: `HLS Premium (${(bestStream.quality || "Auto").toUpperCase()})`,
+          label: chosenSubType === "soft" ? "HLS Soft Sub" : "HLS Hard Sub",
           url: bestRaw.url,
           proxiedUrl,
           iframeUrl: null,
           isM3U8: true,
           requiresProxy: !isWix,
         };
+
+        // ── Build HLS server option buttons ──────────────────────────────
+        // Only surface options for stream types that actually exist in DB.
+        const hlsServerOptions: ServerOption[] = [];
+        if (softSubStreams.length > 0) {
+          hlsServerOptions.push({
+            id: "hls-softsub",
+            label: "HLS Soft Sub",
+            provider: preferredProvider,
+            category: dubbed ? "dub" : "sub",
+            subType: "soft",
+          });
+        }
+        if (hardSubStreams.length > 0) {
+          hlsServerOptions.push({
+            id: "hls-hardsub",
+            label: "HLS Hard Sub",
+            provider: preferredProvider,
+            category: dubbed ? "dub" : "sub",
+            subType: "hard",
+          });
+        }
+        if (hlsServerOptions.length === 0) {
+          hlsServerOptions.push({ id: "hls-auto", label: "HLS Auto", provider: preferredProvider, category: dubbed ? "dub" : "sub" });
+        }
+        const activeHlsServerId = chosenSubType === "soft" ? "hls-softsub" : "hls-hardsub";
 
         return {
           anime: detail.anime,
@@ -3790,15 +3831,15 @@ export async function getQuickWatchSession(input: {
           provider: preferredProvider,
           availableProviders: episodeAvailableProviders,
           attempts: detail.attempts,
-          watchAttempts: [{ provider: "gogoanime" as ProviderId, ok: true, reason: "DB-cached HLS stream" }],
+          watchAttempts: [{ provider: "gogoanime" as ProviderId, ok: true, reason: `DB-cached HLS (${chosenSubType} sub)` }],
           source,
           subtitles,
-          serverOptions: appendCustomEmbedServers(serverOptions, detail.anime, preferredProvider),
-          activeServerId: serverOptions[0]?.id || null,
+          serverOptions: appendCustomEmbedServers(hlsServerOptions, detail.anime, preferredProvider),
+          activeServerId: activeHlsServerId,
           dubbed,
-          intro: bestStream.intro || null,
-          outro: bestStream.outro || null,
-          fallbackHistory: [`gogoanime: DB-cached HLS (${bestStream.provider})`],
+          intro: chosenStream.intro || null,
+          outro: chosenStream.outro || null,
+          fallbackHistory: [`gogoanime: DB-cached HLS (${chosenStream.provider}, ${chosenSubType} sub)`],
           stale: false,
           fallback: false,
           message: null,

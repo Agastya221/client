@@ -255,9 +255,15 @@ export function EpisodeNumberGrid({
 
 export function summarizeServerGroups(serverOptions: ServerOption[]) {
   const isDesidub = serverOptions.some((entry) => entry.provider === "desidub");
+  const allSubServers = isDesidub ? [] : serverOptions.filter((entry) => entry.category !== "dub" && entry.category !== "raw");
   return {
     isDesidub,
-    subServers: isDesidub ? [] : serverOptions.filter((entry) => entry.category !== "dub" && entry.category !== "raw"),
+    // Legacy: all sub servers combined (used for fallback displays)
+    subServers: allSubServers,
+    // Soft sub: clean video + external VTT overlay (subType === "soft" or untagged HLS options)
+    softSubServers: allSubServers.filter((entry) => entry.subType === "soft" || !entry.subType),
+    // Hard sub: subtitles burnt into the video (subType === "hard")
+    hardSubServers: allSubServers.filter((entry) => entry.subType === "hard"),
     dubServers: isDesidub ? [] : serverOptions.filter((entry) => entry.category === "dub" || entry.category === "raw"),
     hindiServers: isDesidub ? serverOptions : [],
   };
