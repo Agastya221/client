@@ -486,7 +486,7 @@ export default function WatchExperience({ initialSession, recommendations = null
   // active button immediately reflects what is actually playing.
   const [subTypeFilter, setSubTypeFilter] = useState<"soft" | "hard">(() => {
     const activeId = initialSession.activeServerId || "";
-    if (activeId === "hls-hardsub" || activeId === "scraper-sub") return "hard";
+    if (activeId === "hls-hardsub" || activeId === "scraper-sub" || activeId.endsWith("-hard")) return "hard";
     const { softSubServers: initialSoft, hardSubServers: initialHard } = summarizeServerGroups(initialSession.serverOptions);
     if (initialSoft.length === 0 && initialHard.length > 0) return "hard";
     return "soft";
@@ -977,9 +977,9 @@ export default function WatchExperience({ initialSession, recommendations = null
   // loads with a different server than what was last manually selected.
   useEffect(() => {
     const active = session.activeServerId || "";
-    if (active === "hls-hardsub" || active === "scraper-sub") {
+    if (active === "hls-hardsub" || active === "scraper-sub" || active.endsWith("-hard")) {
       setSubTypeFilter("hard");
-    } else if (active === "hls-softsub" || active.endsWith("-sub")) {
+    } else if (active === "hls-softsub" || active.endsWith("-sub") || active.endsWith("-soft")) {
       setSubTypeFilter("soft");
     }
   }, [session.activeServerId]);
@@ -1055,7 +1055,7 @@ export default function WatchExperience({ initialSession, recommendations = null
                 dubbed={session.dubbed}
                 intro={session.intro}
                 outro={session.outro}
-                isHardSubStream={effectiveActiveServerId === "hls-hardsub"}
+                isHardSubStream={effectiveActiveServerId === "hls-hardsub" || effectiveActiveServerId.endsWith("-hard")}
                 onReady={() => setLoadedSurfaceKey(activePlayerSurfaceKey)}
                 onEpisodeEnd={() => {
                   if (nextEpisode) {

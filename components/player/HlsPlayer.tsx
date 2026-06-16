@@ -60,6 +60,7 @@ export default function HlsPlayer({
   const doubleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTapTimeRef = useRef(0);
   const lastTapSideRef = useRef<"left" | "right" | null>(null);
+  const networkRetryCountRef = useRef(0);
 
   // Transition & visual feature refs
   const lastTimeRef = useRef<number>(0);
@@ -145,6 +146,7 @@ export default function HlsPlayer({
       hls.attachMedia(video);
 
       hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
+        networkRetryCountRef.current = 0; // Reset retry counter on successful manifest parsed
         const levels = data.levels.map((l) => ({
           height: l.height,
           bitrate: l.bitrate,
@@ -182,17 +184,28 @@ export default function HlsPlayer({
         if (data.fatal) {
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
-              console.warn("Hls.js fatal network error, trying to recover...");
-              hls?.startLoad();
+              if (networkRetryCountRef.current < 3) {
+                networkRetryCountRef.current++;
+                console.warn(`Hls.js fatal network error (attempt ${networkRetryCountRef.current}), trying to recover...`);
+                hls?.startLoad();
+              } else {
+                console.warn("Hls.js fatal network error: max retries reached. Triggering fallback.");
+                setTimeout(() => {
+                  hls?.destroy();
+                  onError?.();
+                }, 0);
+              }
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
               console.warn("Hls.js fatal media error, trying to recover...");
               hls?.recoverMediaError();
               break;
             default:
-              console.error("Hls.js fatal error:", data);
-              hls?.destroy();
-              onError?.();
+              console.warn("Hls.js fatal error:", data);
+              setTimeout(() => {
+                hls?.destroy();
+                onError?.();
+              }, 0);
               break;
           }
         }
