@@ -9,6 +9,7 @@ interface VideoPlayerProps {
   subtitles?: SubtitleTrack[];
   malId?: number | null;
   episodeNumber?: number;
+  dubbed?: boolean;
   intro?: { start: number; end: number } | null;
   outro?: { start: number; end: number } | null;
   onReady?: () => void;
@@ -25,6 +26,7 @@ export default function VideoPlayer({
   subtitles = [],
   malId,
   episodeNumber = 1,
+  dubbed = false,
   intro,
   outro,
   onReady,
@@ -37,6 +39,7 @@ export default function VideoPlayer({
       subtitles={subtitles}
       malId={malId}
       episodeNumber={episodeNumber}
+      dubbed={dubbed}
       intro={intro}
       outro={outro}
       onReady={onReady}

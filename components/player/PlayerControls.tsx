@@ -90,6 +90,21 @@ export default function PlayerControls(props: PlayerControlsProps) {
 
   return (
     <>
+      {/* Top bar (Premium HLS Badge) */}
+      <div className="player-top-bar">
+        <div className="premium-badge-glowing">
+          <span className="premium-sparkle">✨</span>
+          <span className="premium-text">PREMIUM HLS</span>
+        </div>
+        {props.qualityLevels.length > 0 && (
+          <div className="premium-quality-indicator">
+            {props.currentQualityLevel === -1
+              ? "AUTO"
+              : `${props.qualityLevels[props.currentQualityLevel]?.height}P`}
+          </div>
+        )}
+      </div>
+
       {/* Seek bar */}
       <SeekBar
         currentTime={props.currentTime}

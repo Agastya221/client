@@ -21,6 +21,7 @@ interface HlsPlayerProps {
   onEpisodeEnd?: () => void;
   onTimeUpdate?: (time: number) => void;
   onReady?: () => void;
+  onError?: () => void;
 }
 
 interface QualityLevel {
@@ -38,6 +39,7 @@ export default function HlsPlayer({
   onEpisodeEnd,
   onTimeUpdate,
   onReady,
+  onError,
 }: HlsPlayerProps) {
   // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -92,11 +94,12 @@ export default function HlsPlayer({
 
     let hls: Hls | null = null;
 
-    if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      // Native HLS (Safari/iOS)
-      video.src = streamUrl;
-      video.addEventListener("loadedmetadata", () => onReady?.(), { once: true });
-    } else if (Hls.isSupported()) {
+    const handleNativeError = () => {
+      console.error("Native HLS video playback error");
+      onError?.();
+    };
+
+    if (Hls.isSupported()) {
       hls = new Hls({
         enableWorker: true,
         lowLatencyMode: false,
@@ -140,19 +143,28 @@ export default function HlsPlayer({
         if (data.fatal) {
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
+              console.warn("Hls.js fatal network error, trying to recover...");
               hls?.startLoad();
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
+              console.warn("Hls.js fatal media error, trying to recover...");
               hls?.recoverMediaError();
               break;
             default:
+              console.error("Hls.js fatal error:", data);
               hls?.destroy();
+              onError?.();
               break;
           }
         }
       });
 
       hlsRef.current = hls;
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      // Native HLS (Safari/iOS)
+      video.src = streamUrl;
+      video.addEventListener("loadedmetadata", () => onReady?.(), { once: true });
+      video.addEventListener("error", handleNativeError);
     }
 
     // Apply stored preferences
@@ -172,6 +184,7 @@ export default function HlsPlayer({
     }
 
     return () => {
+      video.removeEventListener("error", handleNativeError);
       if (hls) {
         hls.destroy();
         hlsRef.current = null;

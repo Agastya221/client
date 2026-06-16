@@ -116,11 +116,20 @@
   top: 0;
   left: 0;
   height: 100%;
-  background: linear-gradient(90deg, #e040fb, #7c4dff);
+  background: linear-gradient(90deg, #e040fb, #7c4dff, #00e5ff, #7c4dff, #e040fb);
+  background-size: 200% 100%;
   border-radius: 2px;
   pointer-events: none;
   z-index: 2;
+  box-shadow: 0 0 10px rgba(224, 64, 251, 0.7);
+  animation: progressBarShimmer 3s linear infinite;
 }
+
+@keyframes progressBarShimmer {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
 
 .seek-bar-thumb {
   position: absolute;
@@ -715,3 +724,100 @@
     opacity: 0;
   }
 }
+
+/* ── Top Bar / Premium Badge ───────────────────────────────────── */
+.player-top-bar {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.premium-badge-glowing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: rgba(10, 10, 12, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(224, 64, 251, 0.4);
+  border-radius: 20px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5), 0 0 15px rgba(224, 64, 251, 0.25), inset 0 0 8px rgba(224, 64, 251, 0.15);
+  animation: premiumPulse 3s infinite alternate;
+  pointer-events: auto;
+}
+
+.premium-sparkle {
+  font-size: 13px;
+  animation: sparkleRotate 2s infinite linear;
+}
+
+.premium-text {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: #fff;
+  background: linear-gradient(90deg, #fff, #f3e5f5, #e040fb, #7c4dff, #00e5ff, #fff);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: textShimmer 4s linear infinite;
+}
+
+.premium-quality-indicator {
+  padding: 4px 8px;
+  background: rgba(10, 10, 12, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  pointer-events: auto;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+@keyframes premiumPulse {
+  0% {
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5), 0 0 12px rgba(224, 64, 251, 0.2), inset 0 0 6px rgba(224, 64, 251, 0.1);
+    border-color: rgba(224, 64, 251, 0.3);
+  }
+  100% {
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5), 0 0 22px rgba(224, 64, 251, 0.5), inset 0 0 10px rgba(224, 64, 251, 0.25);
+    border-color: rgba(0, 229, 255, 0.6);
+  }
+}
+
+@keyframes sparkleRotate {
+  0% { transform: rotate(0deg) scale(1); }
+  50% { transform: rotate(180deg) scale(1.25); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+
+@keyframes textShimmer {
+  to { background-position: 200% center; }
+}
+
+/* ── Styled Skip Button ────────────────────────────────────────── */
+.skip-button {
+  border: 1px solid rgba(224, 64, 251, 0.35) !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5), 0 0 12px rgba(224, 64, 251, 0.15) !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.skip-button:hover {
+  background: rgba(224, 64, 251, 0.15) !important;
+  border-color: rgba(224, 64, 251, 0.65) !important;
+  box-shadow: 0 4px 25px rgba(0, 0, 0, 0.6), 0 0 20px rgba(224, 64, 251, 0.4) !important;
+  transform: translateY(-2px);
+}
+

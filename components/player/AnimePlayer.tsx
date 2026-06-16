@@ -55,6 +55,7 @@ interface AnimePlayerProps {
   subtitles: SubtitleTrack[];
   malId?: number | null;
   episodeNumber: number;
+  dubbed?: boolean;
   intro?: { start: number; end: number } | null;
   outro?: { start: number; end: number } | null;
   onEpisodeEnd?: () => void;
@@ -74,6 +75,7 @@ export default function AnimePlayer({
   subtitles,
   malId,
   episodeNumber,
+  dubbed = false,
   intro,
   outro,
   onEpisodeEnd,
@@ -104,7 +106,14 @@ export default function AnimePlayer({
   // Called by IframePlayer when no play signal received within 12 seconds
   // (indicates the embed is showing a 410 / error page instead of video)
   const handlePlayerError = useCallback(() => {
-    if (!iframeUrl) return;
+    if (!iframeUrl) {
+      // HLS failed, fallback to MegaPlay (Server 1)
+      const lang = dubbed ? "dub" : "sub";
+      // Use malId (representing either malId or anilistId) to construct fallback
+      const fallback = `https://megaplay.buzz/stream/ani/${malId || 0}/${episodeNumber}/${lang}`;
+      setFallbackUrl(fallback);
+      return;
+    }
 
     try {
       const currentHost = new URL(iframeUrl).hostname;
@@ -128,7 +137,7 @@ export default function AnimePlayer({
     } catch {
       setAllFailed(true);
     }
-  }, [iframeUrl, failedHosts]);
+  }, [iframeUrl, failedHosts, malId, episodeNumber, dubbed]);
 
   // ── No source at all ──────────────────────────────────────────────────────
   if (!source) {
@@ -180,28 +189,26 @@ export default function AnimePlayer({
     );
   }
 
-  // ── HLS Mode — DISABLED for now ──────────────────────────────────────────
-  // The custom HLS player is not production-ready yet. When it's ready,
-  // uncomment this block to re-enable it. For now, always use iframe embeds.
-  //
-  // const hlsUrl = source.proxiedUrl || source.url;
-  // const isHls = source.isM3U8 || source.kind === "hls" || Boolean(hlsUrl?.includes(".m3u8"));
-  //
-  // if (isHls && hlsUrl) {
-  //   return (
-  //     <HlsPlayer
-  //       source={source}
-  //       subtitles={subtitles}
-  //       malId={malId}
-  //       episodeNumber={episodeNumber}
-  //       intro={intro}
-  //       outro={outro}
-  //       onEpisodeEnd={onEpisodeEnd}
-  //       onTimeUpdate={onTimeUpdate}
-  //       onReady={onReady}
-  //     />
-  //   );
-  // }
+  // ── HLS Mode — Plays direct .m3u8 streams in custom HlsPlayer ──────────
+  const hlsUrl = source.proxiedUrl || source.url;
+  const isHls = (source.isM3U8 || source.kind === "hls" || Boolean(hlsUrl?.includes(".m3u8"))) && !fallbackUrl;
+
+  if (isHls && hlsUrl) {
+    return (
+      <HlsPlayer
+        source={source}
+        subtitles={subtitles}
+        malId={malId}
+        episodeNumber={episodeNumber}
+        intro={intro}
+        outro={outro}
+        onEpisodeEnd={onEpisodeEnd}
+        onTimeUpdate={onTimeUpdate}
+        onReady={onReady}
+        onError={handlePlayerError}
+      />
+    );
+  }
 
   // ── Iframe Mode — auto-cycles servers on error ───────────────────────────
   if (iframeUrl) {
@@ -217,22 +224,23 @@ export default function AnimePlayer({
     );
   }
 
-  // ── Direct video URL (rare — e.g. .mp4) — DISABLED with HLS ───────────
-  // if (hlsUrl) {
-  //   return (
-  //     <HlsPlayer
-  //       source={source}
-  //       subtitles={subtitles}
-  //       malId={malId}
-  //       episodeNumber={episodeNumber}
-  //       intro={intro}
-  //       outro={outro}
-  //       onEpisodeEnd={onEpisodeEnd}
-  //       onTimeUpdate={onTimeUpdate}
-  //       onReady={onReady}
-  //     />
-  //   );
-  // }
+  // ── Direct video URL fallback ──────────────────────────────────────────
+  if (hlsUrl && !fallbackUrl) {
+    return (
+      <HlsPlayer
+        source={source}
+        subtitles={subtitles}
+        malId={malId}
+        episodeNumber={episodeNumber}
+        intro={intro}
+        outro={outro}
+        onEpisodeEnd={onEpisodeEnd}
+        onTimeUpdate={onTimeUpdate}
+        onReady={onReady}
+        onError={handlePlayerError}
+      />
+    );
+  }
 
   return null;
 }

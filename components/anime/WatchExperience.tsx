@@ -478,7 +478,7 @@ export default function WatchExperience({ initialSession, recommendations = null
   const [session, setSession] = useState(initialSession);
   const [isPending, startTransition] = useTransition();
   const [isSessionLoading, setIsSessionLoading] = useState(false);
-  const [playbackMessage, setPlaybackMessage] = useState<string | null>(null);
+  const [playbackMessage, setPlaybackMessage] = useState<string | null>(initialSession.message || null);
   const [episodeQuery, setEpisodeQuery] = useState("");
   const [showEpisodeList, setShowEpisodeList] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
@@ -496,6 +496,7 @@ export default function WatchExperience({ initialSession, recommendations = null
 
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [bookmarkChecked, setBookmarkChecked] = useState(false);
+  const [reportStatus, setReportStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
 
   useEffect(() => {
     import("@/lib/anime/bookmarks").then(({ isBookmarked: getBookmarkState, ensureBookmarksHydrated, subscribeToBookmarks }) => {
@@ -715,7 +716,7 @@ export default function WatchExperience({ initialSession, recommendations = null
 
     startTransition(() => {
       setSession((previous) => mergeWatchSessions(previous, nextSession));
-      setPlaybackMessage(null);
+      setPlaybackMessage(nextSession.message || null);
     });
   };
 
@@ -1030,6 +1031,7 @@ export default function WatchExperience({ initialSession, recommendations = null
                 subtitles={session.subtitles}
                 malId={session.anime.malId}
                 episodeNumber={session.episode.number}
+                dubbed={session.dubbed}
                 intro={session.intro}
                 outro={session.outro}
                 onReady={() => setLoadedSurfaceKey(activePlayerSurfaceKey)}
@@ -1212,41 +1214,41 @@ export default function WatchExperience({ initialSession, recommendations = null
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Sub/Dub mode toggle buttons */}
+            {/* Sub/Dub/Hindi mode toggle buttons */}
             <button
               type="button"
-              disabled={!session.dubbed || !hasSub}
-              aria-pressed={!session.dubbed}
+              disabled={(!session.dubbed && session.provider !== "desidub") || !hasSub}
+              aria-pressed={!session.dubbed && session.provider !== "desidub"}
               onClick={() => {
-                if (session.dubbed && hasSub) {
+                if ((session.dubbed || session.provider === "desidub") && hasSub) {
                   const targetEpNum = getFallbackEpisodeForLanguage(false, session.episode.number);
-                  queueSession({ episodeNumber: targetEpNum, provider: session.provider, server: null, dubbed: false });
+                  queueSession({ episodeNumber: targetEpNum, provider: session.provider === "desidub" ? mainFallback : session.provider, server: null, dubbed: false });
                 }
               }}
               className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 transition-colors ${
-                !session.dubbed
+                !session.dubbed && session.provider !== "desidub"
                   ? "cursor-default pointer-events-none"
                   : !hasSub
                     ? "opacity-30 cursor-not-allowed bg-white/5 text-white/30 border border-white/5"
                     : "bg-white/5 text-white/50 border border-white/8 hover:bg-white/10 hover:text-white/70 cursor-pointer"
               }`}
-              style={!session.dubbed ? { background: accentStyle(0.15), color: accentColor, border: `1px solid ${accentStyle(0.25)}`, boxShadow: `0 0 8px ${accentStyle(0.15)}` } : undefined}
+              style={!session.dubbed && session.provider !== "desidub" ? { background: accentStyle(0.15), color: accentColor, border: `1px solid ${accentStyle(0.25)}`, boxShadow: `0 0 8px ${accentStyle(0.15)}` } : undefined}
             >
               <Captions className="w-3 h-3" aria-hidden="true" />
               Sub
             </button>
             <button
               type="button"
-              disabled={session.dubbed || !hasDub}
-              aria-pressed={session.dubbed}
+              disabled={(session.dubbed && session.provider !== "desidub") || !hasDub}
+              aria-pressed={session.dubbed && session.provider !== "desidub"}
               onClick={() => {
-                if (!session.dubbed && hasDub) {
+                if ((!session.dubbed || session.provider === "desidub") && hasDub) {
                   const targetEpNum = getFallbackEpisodeForLanguage(true, session.episode.number);
-                  queueSession({ episodeNumber: targetEpNum, provider: session.provider, server: null, dubbed: true });
+                  queueSession({ episodeNumber: targetEpNum, provider: session.provider === "desidub" ? mainFallback : session.provider, server: null, dubbed: true });
                 }
               }}
               className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 transition-colors ${
-                session.dubbed
+                session.dubbed && session.provider !== "desidub"
                   ? "bg-[#4ade80]/15 text-[#4ade80] border border-[#4ade80]/25 shadow-[0_0_8px_rgba(74,222,128,0.15)] cursor-default pointer-events-none"
                   : !hasDub
                     ? "opacity-30 cursor-not-allowed bg-white/5 text-white/30 border border-white/5"
@@ -1256,6 +1258,27 @@ export default function WatchExperience({ initialSession, recommendations = null
               <Captions className="w-3 h-3" aria-hidden="true" />
               Dub
             </button>
+            {showHindi && (
+              <button
+                type="button"
+                disabled={session.provider === "desidub"}
+                aria-pressed={session.provider === "desidub"}
+                onClick={() => {
+                  if (session.provider !== "desidub") {
+                    const targetEpNum = getFallbackEpisodeForLanguage(true, session.episode.number);
+                    queueSession({ episodeNumber: targetEpNum, provider: "desidub", server: null, dubbed: true });
+                  }
+                }}
+                className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 transition-colors ${
+                  session.provider === "desidub"
+                    ? "bg-[#ff5500]/15 text-[#ff5500] border border-[#ff5500]/25 shadow-[0_0_8px_rgba(255,85,0,0.15)] cursor-default pointer-events-none"
+                    : "bg-white/5 text-white/50 border border-white/8 hover:bg-white/10 hover:text-white/70 cursor-pointer"
+                }`}
+              >
+                <Captions className="w-3 h-3" aria-hidden="true" />
+                Hindi
+              </button>
+            )}
           </div>
         </div>
 
@@ -1344,6 +1367,54 @@ export default function WatchExperience({ initialSession, recommendations = null
             </div>
           </div>
         )}
+
+        {/* Report / Refresh stream */}
+        <div className="flex items-center justify-between pt-1 border-t border-white/[0.04]">
+          <p className="text-[10px] text-white/25">
+            {reportStatus === "sent"
+              ? "✓ Stream reported — refreshing in background"
+              : reportStatus === "error"
+                ? "⚠ Report failed — please try again"
+                : "Stream not working?"}
+          </p>
+          <button
+            id="report-stream-btn"
+            type="button"
+            disabled={reportStatus === "sending" || reportStatus === "sent"}
+            onClick={async () => {
+              if (reportStatus !== "idle" && reportStatus !== "error") return;
+              setReportStatus("sending");
+              try {
+                const res = await fetch("/api/watch/report", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    anilistId: session.anime.anilistId,
+                    episodeNumber: session.episode.number,
+                    dubbed: session.dubbed,
+                  }),
+                });
+                setReportStatus(res.ok ? "sent" : "error");
+                if (res.ok) {
+                  // Reset to idle after 8 seconds so user can report again if needed
+                  setTimeout(() => setReportStatus("idle"), 8000);
+                }
+              } catch {
+                setReportStatus("error");
+              }
+            }}
+            className={`flex items-center gap-1.5 text-[10px] font-semibold px-2.5 py-1 rounded transition-all ${
+              reportStatus === "sent"
+                ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 opacity-60 cursor-default"
+                : reportStatus === "sending"
+                  ? "bg-white/5 text-white/30 border border-white/8 cursor-wait"
+                  : "bg-white/[0.04] text-white/40 border border-white/8 hover:text-amber-400 hover:border-amber-500/30 hover:bg-amber-500/[0.06]"
+            }`}
+          >
+            <AlertTriangle className="w-3 h-3" aria-hidden="true" />
+            {reportStatus === "sending" ? "Reporting…" : reportStatus === "sent" ? "Reported" : "Report stream"}
+          </button>
+        </div>
       </div>
 
       {/* ── EPISODE GRID ─────────────────────────── */}

@@ -207,3 +207,57 @@ model CommentLike {
 
   @@unique([userId, commentId])
 }
+
+// ─── Stream Caching & Background Seeding ────────────────────────────────────
+
+/// Stores resolved HLS stream links for each anime episode.
+/// Populated by the background catalog cron job (catalog_cron.py).
+/// Queried first on every watch request for instant playback (DB-first).
+model EpisodeStream {
+  id             String   @id @default(cuid())
+  anilistId      Int
+  episodeNumber  Int
+  dubbed         Boolean  @default(false)
+  provider       String                     // "gogoanime", "animepahe", etc.
+  miruroProvider String?                    // Miruro internal alias: "bonk", "kiwi"
+  quality        String   @default("auto")  // best quality label: "1080p", "720p", "auto"
+  streamUrl      String                     // Primary HLS m3u8 URL (best quality)
+  referer        String?                    // Required Referer header for the CDN
+  streams        Json     @default("[]")    // All quality variants: [{url, type, quality, referer}]
+  subtitles      Json     @default("[]")    // Subtitle tracks: [{url, label, lang, isDefault}]
+  intro          Json?                      // Skip intro times: {start, end} in seconds
+  outro          Json?                      // Skip outro times: {start, end} in seconds
+  episodeTitle   String?
+  isStale        Boolean  @default(false)   // True when reported by user — cron will refresh
+  lastFetchedAt  DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([anilistId, episodeNumber, dubbed, provider])
+  @@index([anilistId])
+  @@index([anilistId, episodeNumber])
+  @@index([isStale])
+  @@index([lastFetchedAt])
+}
+
+/// Tracks the catalog cron job's progress across all anime.
+/// Allows the cron to resume exactly where it left off on redeploy.
+model SeedingState {
+  id             String    @id @default(cuid())
+  anilistId      Int       @unique
+  status         String    @default("PENDING")  // PENDING | IN_PROGRESS | SEEDED | FAILED
+  totalEpisodes  Int       @default(0)          // Known episode count from AniList
+  seededEpisodes Int       @default(0)          // Successfully stored episodes
+  failureCount   Int       @default(0)          // Consecutive scrape failures
+  failureReason  String?                        // Last error message
+  priority       Int       @default(0)          // Higher = processed sooner. Airing=100, Popular=50, Default=0
+  nextAiringAt   DateTime?                      // When next episode airs (from AniList airing cron)
+  nextAiringEp   Int?                           // Next airing episode number
+  lastCheckedAt  DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([status, priority])
+  @@index([nextAiringAt])
+  @@index([lastCheckedAt])
+}

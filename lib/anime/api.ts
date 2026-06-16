@@ -3100,6 +3100,7 @@ async function fetchProviderFastWatch(
 }
 
 const CUSTOM_SERVERS = [
+  "scraper-sub", "scraper-dub",
   "megaplay-sub", "megaplay-dub",
   "animeplay-sub", "animeplay-dub",
   "tryembed-sub", "tryembed-dub",
@@ -3127,6 +3128,18 @@ function appendCustomEmbedServers(
   }
 
   const customOptions: ServerOption[] = [
+    {
+      id: "scraper-sub",
+      label: "Scraper (HLS)",
+      provider: activeProvider,
+      category: "sub",
+    },
+    {
+      id: "scraper-dub",
+      label: "Scraper (HLS)",
+      provider: activeProvider,
+      category: "dub",
+    },
     {
       id: "megaplay-sub",
       label: "Server 1",
@@ -3714,6 +3727,111 @@ export async function getQuickWatchSession(input: {
   }
   const targetEpisode2 = resolvedTargetEpisode;
 
+  // ─── DB-FIRST HLS PATH ────────────────────────────────────────────────────
+  // If the catalog cron job has pre-seeded HLS streams for this episode in the
+  // EpisodeStream table, return them instantly for premium HLS playback.
+  // This gives instant load for all seeded anime without any scraping latency.
+  //
+  // Falls through to embed path if no DB cache found.
+  try {
+    const anilistId = detail.anime.anilistId;
+    if (anilistId && !input.server?.startsWith("megaplay") && input.server !== "desidub") {
+      const backendUrl = process.env.ANIME_API_BASE_URL || "http://localhost:5000";
+      const dubbed = Boolean(input.dubbed);
+      const cachedRes = await fetch(
+        `${backendUrl}/api/streams/cached?anilistId=${anilistId}&episodeNumber=${targetEpisode2.number}&dubbed=${dubbed ? "1" : "0"}`,
+        { signal: AbortSignal.timeout(3_000) },
+      ).then((r) => r.json()).catch(() => ({ cached: false }));
+
+      if (cachedRes?.cached && Array.isArray(cachedRes.streams) && cachedRes.streams.length > 0) {
+        const bestStream = cachedRes.streams[0];
+        const rawStreams: Array<{ url: string; quality?: string; referer?: string }> = bestStream.streams || [];
+        // Build proxied URL through the Flask HLS proxy
+        const bestRaw = rawStreams[0] || { url: bestStream.streamUrl };
+        const isWix = bestRaw.url.includes("wixmp.com") || bestRaw.url.includes("wixstatic.com");
+        const encodedUrl = encodeURIComponent(bestRaw.url);
+        const refererParam = bestRaw.referer ? `&referer=${encodeURIComponent(bestRaw.referer)}` : "";
+        const proxiedUrl = isWix
+          ? bestRaw.url
+          : `${backendUrl}/api/proxy/m3u8-streaming-proxy?url=${encodedUrl}${refererParam}`;
+
+        // Build server options for all quality variants
+        const serverOptions: ServerOption[] = rawStreams.map((s) => ({
+          id: `hls-${(s.quality || "auto").replace(/\s/g, "-").toLowerCase()}`,
+          label: `HLS Premium (${(s.quality || "Auto").toUpperCase()})`,
+          provider: "gogoanime" as ProviderId,
+          category: dubbed ? "dub" : "sub",
+        }));
+
+        const subtitles: SubtitleTrack[] = (bestStream.subtitles || []).map(
+          (sub: { url?: string; label?: string; lang?: string; isDefault?: boolean }) => ({
+            url: sub.url || "",
+            label: sub.label || "English",
+            lang: sub.lang || "en",
+            isDefault: sub.isDefault ?? false,
+          }),
+        );
+
+        const source: StreamSource = {
+          kind: "hls",
+          label: `HLS Premium (${(bestStream.quality || "Auto").toUpperCase()})`,
+          url: bestRaw.url,
+          proxiedUrl,
+          iframeUrl: null,
+          isM3U8: true,
+          requiresProxy: !isWix,
+        };
+
+        return {
+          anime: detail.anime,
+          episode: targetEpisode2,
+          episodes: detail.episodes,
+          seasons: detail.seasons,
+          provider: preferredProvider,
+          availableProviders: episodeAvailableProviders,
+          attempts: detail.attempts,
+          watchAttempts: [{ provider: "gogoanime" as ProviderId, ok: true, reason: "DB-cached HLS stream" }],
+          source,
+          subtitles,
+          serverOptions: appendCustomEmbedServers(serverOptions, detail.anime, preferredProvider),
+          activeServerId: serverOptions[0]?.id || null,
+          dubbed,
+          intro: bestStream.intro || null,
+          outro: bestStream.outro || null,
+          fallbackHistory: [`gogoanime: DB-cached HLS (${bestStream.provider})`],
+          stale: false,
+          fallback: false,
+          message: null,
+        };
+      }
+    }
+  } catch {
+    // Non-fatal: fall through to embed path on any error
+  }
+  // ─── END DB-FIRST HLS PATH ────────────────────────────────────────────────
+
+  if (input.server === "scraper-sub" || input.server === "scraper-dub") {
+    return {
+      anime: detail.anime,
+      episode: targetEpisode2,
+      episodes: detail.episodes,
+      seasons: detail.seasons,
+      provider: preferredProvider,
+      availableProviders: episodeAvailableProviders,
+      attempts: detail.attempts,
+      watchAttempts: [{ provider: preferredProvider, server: input.server, ok: false, reason: "No scraped HLS stream found in database" }],
+      source: null,
+      subtitles: [],
+      serverOptions: appendCustomEmbedServers([], detail.anime, preferredProvider),
+      activeServerId: input.server,
+      dubbed: Boolean(input.dubbed),
+      fallbackHistory: ["Scraper database lookup returned no cached streams"],
+      stale: false,
+      fallback: false,
+      message: "No scraped HLS stream found in database for this episode.",
+    };
+  }
+
   // ─── INSTANT EMBED PATH ───────────────────────────────────────────────────
   // For any anime where the active server is a custom embed (MegaPlay, AnimePlay,
   // TryEmbed, MoStream) AND the anime has an anilistId or malId:
@@ -3752,6 +3870,7 @@ export async function getQuickWatchSession(input: {
     };
   }
   // ─── END INSTANT EMBED PATH ───────────────────────────────────────────────
+
 
   const providerEpisodeId = input.episodeId || targetEpisode2.idByProvider[preferredProvider] || "";
   const params = new URLSearchParams({
