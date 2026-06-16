@@ -50,9 +50,21 @@ interface PlayerControlsProps {
   onSubtitleStyleChange: (style: Partial<SubtitleStyle>) => void;
   onFullscreenToggle: () => void;
   onPipToggle: () => void;
+  onToggleShortcuts: () => void;
 }
 
 type MenuType = "quality" | "speed" | "subtitle" | null;
+
+function KeyboardIcon() {
+  return (
+    <svg viewBox="0 0 24 24" style={{ width: "100%", height: "100%" }}>
+      <path
+        fill="currentColor"
+        d="M20,5H4C2.9,5,2,5.9,2,7v10c0,1.1,0.9,2,2,2h16c1.1,0,2,-0.9,2-2V7C22,5.9,21.1,5,20,5z M20,17H4V7h16V17z M5,8h2v2H5V8z M5,11h2v2H5V11z M5,14h2v2H5V14z M8,8h2v2H8V8z M8,11h2v2H8V11z M8,14h2v2H8V14z M11,8h2v2h-2V8z M11,11h2v2h-2V11z M11,14h5v2h-5V14z M14,8h2v2h-2V8z M14,11h2v2h-2V11z M17,8h2v2h-2V8z M17,11h2v2h-2V11z M17,14h2v2h-2V14z"
+      />
+    </svg>
+  );
+}
 
 export default function PlayerControls(props: PlayerControlsProps) {
   const [activeMenu, setActiveMenu] = useState<MenuType>(null);
@@ -210,6 +222,11 @@ export default function PlayerControls(props: PlayerControlsProps) {
             )}
           </div>
         )}
+
+        {/* Keyboard Help */}
+        <button className="player-btn" onClick={props.onToggleShortcuts} title="Keyboard Shortcuts (?)">
+          <KeyboardIcon />
+        </button>
 
         {/* PiP */}
         <button className="player-btn" onClick={props.onPipToggle} title="Picture in Picture (I)">

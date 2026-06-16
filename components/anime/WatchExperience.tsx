@@ -542,12 +542,11 @@ export default function WatchExperience({ initialSession, recommendations = null
   const [pendingSession, setPendingSession] = useState<WatchSessionModel | null>(null);
   const pendingEmbedUrl = pendingSession?.source?.iframeUrl || null;
   const animeGenresKey = session.anime.genres.join("|");
+  const playerType = directAvailable ? "hls" : "iframe";
   const activePlayerSurfaceKey = [
     session.anime.id,
     session.episode.number,
-    session.provider,
-    session.activeServerId || "",
-    session.source?.iframeUrl || "",
+    playerType,
   ].join("|");
   const embedOnlyBlocked = !embedAvailable && directAvailable;
   const activeEmbedLoaded = loadedSurfaceKey === activePlayerSurfaceKey;

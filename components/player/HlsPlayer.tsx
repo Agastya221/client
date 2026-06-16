@@ -29,6 +29,14 @@ interface QualityLevel {
   bitrate: number;
 }
 
+// Simple time formatter for the transition overlay
+function formatTime(sec: number): string {
+  if (isNaN(sec)) return "00:00";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+}
+
 export default function HlsPlayer({
   source,
   subtitles,
@@ -50,6 +58,12 @@ export default function HlsPlayer({
   const lastTapTimeRef = useRef(0);
   const lastTapSideRef = useRef<"left" | "right" | null>(null);
 
+  // Transition & visual feature refs
+  const lastTimeRef = useRef<number>(0);
+  const wasPlayingRef = useRef<boolean>(false);
+  const glowCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const seekRippleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Playback state
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -61,6 +75,9 @@ export default function HlsPlayer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [isBuffering, setIsBuffering] = useState(true);
+  const [isSwitchingSource, setIsSwitchingSource] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [glowDataUrl, setGlowDataUrl] = useState<string | null>(null);
 
   // Quality
   const [qualityLevels, setQualityLevels] = useState<QualityLevel[]>([]);
@@ -77,8 +94,8 @@ export default function HlsPlayer({
   const [skipTimes, setSkipTimes] = useState<SkipTimes | null>(null);
   const [autoSkip, setAutoSkip] = useState(() => prefs.getAutoSkip());
 
-  // Double-tap feedback
-  const [doubleTapFeedback, setDoubleTapFeedback] = useState<{ side: "left" | "right"; key: number } | null>(null);
+  // Seek ripples feedback
+  const [seekRipple, setSeekRipple] = useState<{ side: "left" | "right"; visible: boolean; key: number } | null>(null);
 
   // Auto-advance
   const [showAutoAdvance, setShowAutoAdvance] = useState(false);
@@ -91,6 +108,11 @@ export default function HlsPlayer({
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !streamUrl) return;
+
+    // Trigger switching overlay if we are reloading stream at a timestamp
+    if (lastTimeRef.current > 0) {
+      setIsSwitchingSource(true);
+    }
 
     let hls: Hls | null = null;
 
@@ -129,14 +151,21 @@ export default function HlsPlayer({
           }
         }
 
+        // Restore timestamp and play state if switching language
+        if (lastTimeRef.current > 0) {
+          video.currentTime = lastTimeRef.current;
+          lastTimeRef.current = 0; // reset
+        }
+        if (wasPlayingRef.current) {
+          video.play().catch(() => {});
+          wasPlayingRef.current = false; // reset
+        }
+
         onReady?.();
       });
 
       hls.on(Hls.Events.LEVEL_SWITCHED, (_event, data) => {
-        if (currentQualityLevel === -1) {
-          // We're on auto — don't update the setting, but track current auto level
-        }
-        void data; // unused but needed for handler signature
+        void data;
       });
 
       hls.on(Hls.Events.ERROR, (_event, data) => {
@@ -163,7 +192,20 @@ export default function HlsPlayer({
     } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
       // Native HLS (Safari/iOS)
       video.src = streamUrl;
-      video.addEventListener("loadedmetadata", () => onReady?.(), { once: true });
+      
+      const onNativeLoaded = () => {
+        if (lastTimeRef.current > 0) {
+          video.currentTime = lastTimeRef.current;
+          lastTimeRef.current = 0;
+        }
+        if (wasPlayingRef.current) {
+          video.play().catch(() => {});
+          wasPlayingRef.current = false;
+        }
+        onReady?.();
+      };
+
+      video.addEventListener("loadedmetadata", onNativeLoaded, { once: true });
       video.addEventListener("error", handleNativeError);
     }
 
@@ -189,13 +231,17 @@ export default function HlsPlayer({
         hls.destroy();
         hlsRef.current = null;
       }
+      // Capture context before URL switch
+      if (video) {
+        lastTimeRef.current = video.currentTime;
+        wasPlayingRef.current = !video.paused;
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streamUrl]);
 
   // ── AniSkip Integration ────────────────────────────────────────
   useEffect(() => {
-    // Merge server-provided intro/outro with AniSkip data
     const serverSkips: SkipTimes = {
       op: intro ?? null,
       ed: outro ?? null,
@@ -233,7 +279,10 @@ export default function HlsPlayer({
       }
     };
     const onWaiting = () => setIsBuffering(true);
-    const onCanPlay = () => setIsBuffering(false);
+    const onCanPlay = () => {
+      setIsBuffering(false);
+      setIsSwitchingSource(false);
+    };
     const onEnded = () => {
       setPlaying(false);
       if (prefs.getAutoAdvance() && onEpisodeEnd) {
@@ -264,6 +313,38 @@ export default function HlsPlayer({
       video.removeEventListener("ended", onEnded);
     };
   }, [onTimeUpdate, onEpisodeEnd]);
+
+  // ── Ambient Glow Periodic Capturer ─────────────────────────────
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    let intervalId: ReturnType<typeof setInterval>;
+
+    const updateGlow = () => {
+      const canvas = glowCanvasRef.current;
+      if (!canvas || !video || video.paused || video.ended) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      try {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.3); // low res for speed
+        setGlowDataUrl(dataUrl);
+      } catch {
+        // Fallback under CORS constraints
+        setGlowDataUrl(null);
+      }
+    };
+
+    if (playing) {
+      updateGlow();
+      intervalId = setInterval(updateGlow, 250);
+    }
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [playing]);
 
   // ── Auto-advance countdown ─────────────────────────────────────
   useEffect(() => {
@@ -313,10 +394,18 @@ export default function HlsPlayer({
     return () => document.removeEventListener("fullscreenchange", handler);
   }, []);
 
+  // ── Seek ripples trigger ────────────────────────────────────────
+  const triggerSeekRipple = useCallback((side: "left" | "right") => {
+    if (seekRippleTimerRef.current) clearTimeout(seekRippleTimerRef.current);
+    setSeekRipple({ side, visible: true, key: Date.now() });
+    seekRippleTimerRef.current = setTimeout(() => {
+      setSeekRipple(null);
+    }, 600);
+  }, []);
+
   // ── Keyboard shortcuts ─────────────────────────────────────────
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      // Don't capture shortcuts when typing in inputs
       const tag = (e.target as HTMLElement).tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
@@ -341,21 +430,25 @@ export default function HlsPlayer({
         case "arrowleft":
           e.preventDefault();
           video.currentTime = Math.max(0, video.currentTime - 5);
+          triggerSeekRipple("left");
           showControls();
           break;
         case "arrowright":
           e.preventDefault();
           video.currentTime = Math.min(video.duration, video.currentTime + 5);
+          triggerSeekRipple("right");
           showControls();
           break;
         case "j":
           e.preventDefault();
           video.currentTime = Math.max(0, video.currentTime - 10);
+          triggerSeekRipple("left");
           showControls();
           break;
         case "l":
           e.preventDefault();
           video.currentTime = Math.min(video.duration, video.currentTime + 10);
+          triggerSeekRipple("right");
           showControls();
           break;
         case "arrowup":
@@ -372,9 +465,15 @@ export default function HlsPlayer({
           e.preventDefault();
           handlePipToggle();
           break;
+        case "?":
+        case "/":
+          if (e.key === "?" || e.shiftKey) {
+            e.preventDefault();
+            setShortcutsOpen((prev) => !prev);
+          }
+          break;
         case "c":
           e.preventDefault();
-          // Toggle subtitles on/off
           if (activeSubtitleTrack) {
             setActiveSubtitleTrack(null);
             prefs.setSubtitlesEnabled(false);
@@ -388,7 +487,6 @@ export default function HlsPlayer({
           }
           break;
         default:
-          // Number keys 0-9: jump to 0-90% of video
           if (/^[0-9]$/.test(e.key)) {
             e.preventDefault();
             const pct = parseInt(e.key, 10) / 10;
@@ -401,7 +499,7 @@ export default function HlsPlayer({
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [playing, activeSubtitleTrack, subtitles, showControls]);
+  }, [playing, activeSubtitleTrack, subtitles, showControls, triggerSeekRipple]);
 
   // ── Action handlers ────────────────────────────────────────────
   const handlePlayPause = useCallback(() => {
@@ -499,8 +597,7 @@ export default function HlsPlayer({
 
   // ── Mobile double-tap to seek ──────────────────────────────────
   const handleContainerClick = useCallback((e: React.MouseEvent) => {
-    // Don't handle if clicking on controls
-    if ((e.target as HTMLElement).closest(".player-bottom-bar, .seek-bar-container, .player-menu, .skip-button, .auto-advance-overlay")) return;
+    if ((e.target as HTMLElement).closest(".player-bottom-bar, .seek-bar-container, .player-menu, .skip-button, .auto-advance-overlay, .shortcuts-modal")) return;
 
     const now = Date.now();
     const rect = containerRef.current?.getBoundingClientRect();
@@ -510,26 +607,20 @@ export default function HlsPlayer({
     const side = xPct < 0.4 ? "left" : xPct > 0.6 ? "right" : null;
 
     if (now - lastTapTimeRef.current < 300 && side && side === lastTapSideRef.current) {
-      // Double tap!
       const video = videoRef.current;
       if (video) {
         const seekAmount = side === "left" ? -10 : 10;
         video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + seekAmount));
-        setDoubleTapFeedback({ side, key: now });
-        // Clear feedback after animation
+        triggerSeekRipple(side);
         if (doubleTapTimerRef.current) clearTimeout(doubleTapTimerRef.current);
-        doubleTapTimerRef.current = setTimeout(() => setDoubleTapFeedback(null), 500);
       }
       lastTapTimeRef.current = 0; // reset
     } else {
-      // Single tap: toggle controls (or play/pause on desktop)
       lastTapTimeRef.current = now;
       lastTapSideRef.current = side;
 
-      // On desktop single click = play/pause after short delay
       if (doubleTapTimerRef.current) clearTimeout(doubleTapTimerRef.current);
       doubleTapTimerRef.current = setTimeout(() => {
-        // Only toggle play/pause if it wasn't a double-tap
         if (Date.now() - now >= 280) return;
         const video = videoRef.current;
         if (video) {
@@ -538,7 +629,7 @@ export default function HlsPlayer({
         showControls();
       }, 300);
     }
-  }, [showControls]);
+  }, [showControls, triggerSeekRipple]);
 
   // Auto quality label
   const autoQualityLabel = useMemo(() => {
@@ -549,136 +640,227 @@ export default function HlsPlayer({
     return height ? `Auto (${height}p)` : "Auto";
   }, [qualityLevels, currentTime]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const circumference = 2 * Math.PI * 28; // for auto-advance timer circle
+  const circumference = 2 * Math.PI * 28;
 
   return (
-    <div
-      ref={containerRef}
-      className={`anime-player${isFullscreen ? " fullscreen" : ""}`}
-      onMouseMove={showControls}
-      onMouseLeave={() => playing && setControlsVisible(false)}
-      tabIndex={0}
-    >
-      {/* Video element */}
-      <video
-        ref={videoRef}
-        className="h-full w-full bg-black"
-        autoPlay
-        playsInline
-        onClick={handleContainerClick}
-      />
-
-      {/* Loading spinner */}
-      {isBuffering && (
-        <div className="player-loading">
-          <div className="spinner" />
-        </div>
-      )}
-
-      {/* Double-tap feedback */}
-      {doubleTapFeedback && (
-        <div
-          key={doubleTapFeedback.key}
-          className={`double-tap-feedback ${doubleTapFeedback.side}`}
-        >
-          {doubleTapFeedback.side === "left" ? "−10s" : "+10s"}
-        </div>
-      )}
-
-      {/* Skip intro/outro button */}
-      <SkipButton
-        currentTime={currentTime}
-        skipTimes={skipTimes}
-        autoSkip={autoSkip}
-        onSkip={handleSkip}
-      />
-
-      {/* Controls overlay */}
+    <div className="player-wrapper">
+      {/* Immersive Ambient Glow Background */}
       <div
-        className={`player-controls-overlay${controlsVisible ? "" : " hidden"}`}
-        onClick={handleContainerClick}
-      >
-        <PlayerControls
-          playing={playing}
-          currentTime={currentTime}
-          duration={duration}
-          buffered={buffered}
-          volume={volume}
-          muted={muted}
-          playbackSpeed={playbackSpeed}
-          isFullscreen={isFullscreen}
-          qualityLevels={qualityLevels}
-          currentQualityLevel={currentQualityLevel}
-          autoQualityLabel={autoQualityLabel}
-          subtitleTracks={subtitles}
-          activeSubtitleTrack={activeSubtitleTrack}
-          subtitleStyle={subtitleStyle}
-          skipTimes={skipTimes}
-          onPlayPause={handlePlayPause}
-          onSeek={handleSeek}
-          onVolumeChange={handleVolumeChange}
-          onMuteToggle={handleMuteToggle}
-          onSpeedChange={handleSpeedChange}
-          onQualityChange={handleQualityChange}
-          onSubtitleTrackChange={handleSubtitleTrackChange}
-          onSubtitleStyleChange={handleSubtitleStyleChange}
-          onFullscreenToggle={toggleFullscreen}
-          onPipToggle={handlePipToggle}
-        />
-      </div>
-
-      {/* Subtitle renderer */}
-      <SubtitleRenderer
-        tracks={subtitles}
-        activeTrack={activeSubtitleTrack}
-        currentTime={currentTime}
-        style={subtitleStyle}
-        controlsVisible={controlsVisible}
+        className="player-glow-backdrop"
+        style={{
+          backgroundImage: glowDataUrl ? `url(${glowDataUrl})` : undefined,
+          backgroundColor: glowDataUrl ? undefined : "rgba(224, 64, 251, 0.08)",
+        }}
       />
 
-      {/* Auto-advance overlay */}
-      {showAutoAdvance && (
-        <div className="auto-advance-overlay">
-          <div className="auto-advance-card">
-            <div className="auto-advance-timer">
-              <svg width="62" height="62" viewBox="0 0 62 62">
-                <circle
-                  cx="31"
-                  cy="31"
-                  r="28"
-                  style={{
-                    strokeDashoffset: circumference * (1 - autoAdvanceCountdown / 5),
-                    transition: "stroke-dashoffset 1s linear",
-                  }}
-                />
-              </svg>
-              <span>{autoAdvanceCountdown}</span>
-            </div>
-            <h3>Next Episode</h3>
-            <p>Playing in {autoAdvanceCountdown} seconds...</p>
-            <div className="auto-advance-actions">
-              <button
-                className="play-next"
-                onClick={() => {
-                  setShowAutoAdvance(false);
-                  onEpisodeEnd?.();
-                }}
-              >
-                Play Now
-              </button>
-              <button
-                className="cancel-next"
-                onClick={() => {
-                  setShowAutoAdvance(false);
-                  if (autoAdvanceTimerRef.current) clearInterval(autoAdvanceTimerRef.current);
-                }}
-              >
-                Cancel
-              </button>
+      {/* Hidden Frame Grabber Canvas */}
+      <canvas ref={glowCanvasRef} width={16} height={9} style={{ display: "none" }} />
+
+      <div
+        ref={containerRef}
+        className={`anime-player${isFullscreen ? " fullscreen" : ""}`}
+        onMouseMove={showControls}
+        onMouseLeave={() => playing && setControlsVisible(false)}
+        tabIndex={0}
+      >
+        {/* Video element */}
+        <video
+          ref={videoRef}
+          className="h-full w-full bg-black"
+          autoPlay
+          playsInline
+          crossOrigin="anonymous"
+          onClick={handleContainerClick}
+        />
+
+        {/* Loading spinner */}
+        {isBuffering && !isSwitchingSource && (
+          <div className="player-loading">
+            <div className="spinner" />
+          </div>
+        )}
+
+        {/* Switching language overlay */}
+        {isSwitchingSource && (
+          <div className="switching-source-overlay">
+            <div className="switching-card">
+              <div className="spinner" style={{ width: 32, height: 32, border: "2px solid rgba(255,255,255,0.1)", borderTopColor: "#e040fb", borderRadius: "50%", animation: "playerSpin 0.8s linear infinite" }} />
+              <h4>Switching Audio Track...</h4>
+              <p>Resuming playback at {formatTime(currentTime || lastTimeRef.current)}</p>
             </div>
           </div>
+        )}
+
+        {/* Expanding seek ripple overlays */}
+        {seekRipple && (
+          <div key={seekRipple.key} className={`seek-ripple-overlay ${seekRipple.side} animate`}>
+            <div className={`seek-ripple-chevrons ${seekRipple.side}`}>
+              {seekRipple.side === "left" ? (
+                <>
+                  <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+                  <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+                  <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+                </>
+              ) : (
+                <>
+                  <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+                  <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+                  <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+                </>
+              )}
+            </div>
+            <div className="seek-ripple-text">
+              {seekRipple.side === "left" ? "−10 seconds" : "+10 seconds"}
+            </div>
+          </div>
+        )}
+
+        {/* Skip intro/outro button */}
+        <SkipButton
+          currentTime={currentTime}
+          skipTimes={skipTimes}
+          autoSkip={autoSkip}
+          onSkip={handleSkip}
+        />
+
+        {/* Controls overlay */}
+        <div
+          className={`player-controls-overlay${controlsVisible ? "" : " hidden"}`}
+          onClick={handleContainerClick}
+        >
+          <PlayerControls
+            playing={playing}
+            currentTime={currentTime}
+            duration={duration}
+            buffered={buffered}
+            volume={volume}
+            muted={muted}
+            playbackSpeed={playbackSpeed}
+            isFullscreen={isFullscreen}
+            qualityLevels={qualityLevels}
+            currentQualityLevel={currentQualityLevel}
+            autoQualityLabel={autoQualityLabel}
+            subtitleTracks={subtitles}
+            activeSubtitleTrack={activeSubtitleTrack}
+            subtitleStyle={subtitleStyle}
+            skipTimes={skipTimes}
+            onPlayPause={handlePlayPause}
+            onSeek={handleSeek}
+            onVolumeChange={handleVolumeChange}
+            onMuteToggle={handleMuteToggle}
+            onSpeedChange={handleSpeedChange}
+            onQualityChange={handleQualityChange}
+            onSubtitleTrackChange={handleSubtitleTrackChange}
+            onSubtitleStyleChange={handleSubtitleStyleChange}
+            onFullscreenToggle={toggleFullscreen}
+            onPipToggle={handlePipToggle}
+            onToggleShortcuts={() => setShortcutsOpen((prev) => !prev)}
+          />
         </div>
-      )}
+
+        {/* Subtitle renderer */}
+        <SubtitleRenderer
+          tracks={subtitles}
+          activeTrack={activeSubtitleTrack}
+          currentTime={currentTime}
+          style={subtitleStyle}
+          controlsVisible={controlsVisible}
+        />
+
+        {/* Keyboard Shortcuts Modal */}
+        <div className={`shortcuts-modal-overlay${shortcutsOpen ? " open" : ""}`} onClick={() => setShortcutsOpen(false)}>
+          <div className="shortcuts-modal" onClick={(e) => e.stopPropagation()}>
+            <h3 className="shortcuts-title">✨ Keyboard Shortcuts</h3>
+            <div className="shortcuts-grid">
+              <div className="shortcuts-item">
+                <span>Play / Pause</span>
+                <div className="kbd-keys"><kbd className="kbd-key">Space</kbd><span className="text-white/40">or</span><kbd className="kbd-key">K</kbd></div>
+              </div>
+              <div className="shortcuts-item">
+                <span>Seek 5s Back / Forward</span>
+                <div className="kbd-keys"><kbd className="kbd-key">←</kbd><kbd className="kbd-key">→</kbd></div>
+              </div>
+              <div className="shortcuts-item">
+                <span>Seek 10s Back / Forward</span>
+                <div className="kbd-keys"><kbd className="kbd-key">J</kbd><kbd className="kbd-key">L</kbd></div>
+              </div>
+              <div className="shortcuts-item">
+                <span>Volume Up / Down</span>
+                <div className="kbd-keys"><kbd className="kbd-key">↑</kbd><kbd className="kbd-key">↓</kbd></div>
+              </div>
+              <div className="shortcuts-item">
+                <span>Toggle Mute</span>
+                <div className="kbd-keys"><kbd className="kbd-key">M</kbd></div>
+              </div>
+              <div className="shortcuts-item">
+                <span>Toggle Fullscreen</span>
+                <div className="kbd-keys"><kbd className="kbd-key">F</kbd></div>
+              </div>
+              <div className="shortcuts-item">
+                <span>Picture-in-Picture</span>
+                <div className="kbd-keys"><kbd className="kbd-key">I</kbd></div>
+              </div>
+              <div className="shortcuts-item">
+                <span>Toggle Subtitles</span>
+                <div className="kbd-keys"><kbd className="kbd-key">C</kbd></div>
+              </div>
+              <div className="shortcuts-item">
+                <span>Jump to % of video</span>
+                <div className="kbd-keys"><kbd className="kbd-key">0</kbd><span>-</span><kbd className="kbd-key">9</kbd></div>
+              </div>
+              <div className="shortcuts-item">
+                <span>Toggle Shortcut Sheet</span>
+                <div className="kbd-keys"><kbd className="kbd-key">?</kbd></div>
+              </div>
+            </div>
+            <button className="shortcuts-close-btn" onClick={() => setShortcutsOpen(false)}>Got it</button>
+          </div>
+        </div>
+
+        {/* Auto-advance overlay */}
+        {showAutoAdvance && (
+          <div className="auto-advance-overlay">
+            <div className="auto-advance-card">
+              <div className="auto-advance-timer">
+                <svg width="62" height="62" viewBox="0 0 62 62">
+                  <circle
+                    cx="31"
+                    cy="31"
+                    r="28"
+                    style={{
+                      strokeDashoffset: circumference * (1 - autoAdvanceCountdown / 5),
+                      transition: "stroke-dashoffset 1s linear",
+                    }}
+                  />
+                </svg>
+                <span>{autoAdvanceCountdown}</span>
+              </div>
+              <h3>Next Episode</h3>
+              <p>Playing in {autoAdvanceCountdown} seconds...</p>
+              <div className="auto-advance-actions">
+                <button
+                  className="play-next"
+                  onClick={() => {
+                    setShowAutoAdvance(false);
+                    onEpisodeEnd?.();
+                  }}
+                >
+                  Play Now
+                </button>
+                <button
+                  className="cancel-next"
+                  onClick={() => {
+                    setShowAutoAdvance(false);
+                    if (autoAdvanceTimerRef.current) clearInterval(autoAdvanceTimerRef.current);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -86,13 +86,14 @@ export default function AnimePlayer({
   const [failedHosts, setFailedHosts] = useState<Set<string>>(new Set());
   const [allFailed, setAllFailed] = useState(false);
 
-  // Reset fallback state when the source URL changes (user manually switched
-  // server, or navigated to a new episode). This ensures a manual server switch
+  // Reset fallback state when the source changes (user manually switched
+  // server, language, or navigated). This ensures a manual change
   // is not overridden by a previous auto-fallback state.
   const sourceIframeUrl = source?.iframeUrl ?? null;
-  const prevSourceUrlRef = useRef(sourceIframeUrl);
-  if (prevSourceUrlRef.current !== sourceIframeUrl) {
-    prevSourceUrlRef.current = sourceIframeUrl;
+  const sourceKey = source ? `${source.kind}|${source.url || ""}|${source.iframeUrl || ""}` : null;
+  const prevSourceKeyRef = useRef(sourceKey);
+  if (prevSourceKeyRef.current !== sourceKey) {
+    prevSourceKeyRef.current = sourceKey;
     if (fallbackUrl !== null || failedHosts.size > 0 || allFailed) {
       setFallbackUrl(null);
       setFailedHosts(new Set());

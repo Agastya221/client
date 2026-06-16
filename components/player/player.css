@@ -821,3 +821,291 @@
   transform: translateY(-2px);
 }
 
+/* ── Premium Player Additions ──────────────────────────────────── */
+
+.player-wrapper {
+  position: relative;
+  width: 100%;
+  z-index: 1;
+}
+
+.player-glow-backdrop {
+  position: absolute;
+  top: -30px;
+  left: -30px;
+  right: -30px;
+  bottom: -30px;
+  filter: blur(60px);
+  opacity: 0.45;
+  z-index: 0;
+  pointer-events: none;
+  transition: background 0.8s ease, opacity 0.8s ease;
+  border-radius: 24px;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/* Seek Ripple Animation */
+.seek-ripple-overlay {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 33%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle, rgba(224, 64, 251, 0.15) 0%, transparent 80%);
+  pointer-events: none;
+  z-index: 18;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.seek-ripple-overlay.left {
+  left: 0;
+  border-top-left-radius: 12px;
+  border-bottom-left-radius: 12px;
+}
+
+.seek-ripple-overlay.right {
+  right: 0;
+  border-top-right-radius: 12px;
+  border-bottom-right-radius: 12px;
+}
+
+.seek-ripple-overlay.animate {
+  animation: seekRippleFade 0.6s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+@keyframes seekRippleFade {
+  0% { opacity: 0; }
+  15% { opacity: 1; }
+  85% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.seek-ripple-chevrons {
+  display: flex;
+  gap: 2px;
+  color: #fff;
+  margin-bottom: 6px;
+}
+
+.seek-ripple-chevrons svg {
+  width: 28px;
+  height: 28px;
+  fill: currentColor;
+  filter: drop-shadow(0 0 8px rgba(224, 64, 251, 0.8));
+}
+
+.seek-ripple-text {
+  font-size: 13px;
+  font-weight: 800;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6), 0 0 12px rgba(224, 64, 251, 0.8);
+}
+
+.seek-ripple-chevrons.left svg:nth-child(1) { animation: chevronPulse 0.6s infinite 0.2s; }
+.seek-ripple-chevrons.left svg:nth-child(2) { animation: chevronPulse 0.6s infinite 0.1s; }
+.seek-ripple-chevrons.left svg:nth-child(3) { animation: chevronPulse 0.6s infinite 0s; }
+
+.seek-ripple-chevrons.right svg:nth-child(1) { animation: chevronPulse 0.6s infinite 0s; }
+.seek-ripple-chevrons.right svg:nth-child(2) { animation: chevronPulse 0.6s infinite 0.1s; }
+.seek-ripple-chevrons.right svg:nth-child(3) { animation: chevronPulse 0.6s infinite 0.2s; }
+
+@keyframes chevronPulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.92); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+
+/* Keyboard Shortcuts Modal */
+.shortcuts-modal-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 8, 12, 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.shortcuts-modal-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.shortcuts-modal {
+  background: rgba(18, 18, 26, 0.95);
+  border: 1px solid rgba(224, 64, 251, 0.25);
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.7), 0 0 30px rgba(224, 64, 251, 0.15);
+  border-radius: 16px;
+  padding: 24px 32px;
+  max-width: 480px;
+  width: 90%;
+  color: #fff;
+  transform: scale(0.95);
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.shortcuts-modal-overlay.open .shortcuts-modal {
+  transform: scale(1);
+}
+
+.shortcuts-title {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #e040fb;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 8px;
+}
+
+.shortcuts-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.shortcuts-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.kbd-keys {
+  display: flex;
+  gap: 4px;
+}
+
+.kbd-key {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-bottom: 2px solid rgba(255, 255, 255, 0.25);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: monospace;
+  color: #fff;
+  min-width: 20px;
+  text-align: center;
+}
+
+.shortcuts-close-btn {
+  margin-top: 20px;
+  width: 100%;
+  padding: 8px;
+  background: linear-gradient(135deg, #e040fb, #7c4dff);
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  transition: filter 0.15s ease, transform 0.1s ease;
+}
+
+.shortcuts-close-btn:hover {
+  filter: brightness(1.1);
+}
+
+.shortcuts-close-btn:active {
+  transform: scale(0.98);
+}
+
+/* Switching Audio/Language Track Overlay */
+.switching-source-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 25;
+  animation: fadeInOverlay 0.25s ease forwards;
+}
+
+.switching-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 32px;
+  background: rgba(20, 20, 28, 0.85);
+  border: 1px solid rgba(224, 64, 251, 0.3);
+  border-radius: 12px;
+  text-align: center;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6);
+}
+
+.switching-card h4 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.switching-card p {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* Subtitle Menu Enhancements */
+.subtitle-menu-mode-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 4px 10px 8px;
+}
+
+.subtitle-menu-mode-btn {
+  flex: 1;
+  padding: 6px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.6);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+}
+
+.subtitle-menu-mode-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.subtitle-menu-mode-btn.active {
+  background: rgba(224, 64, 251, 0.15);
+  border-color: rgba(224, 64, 251, 0.5);
+  color: #e040fb;
+}
+
+.subtitle-menu-tracks-list {
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+

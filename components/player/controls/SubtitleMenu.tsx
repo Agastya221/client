@@ -98,43 +98,75 @@ export default function SubtitleMenu({
     );
   }
 
+  const isSoftSubsActive = activeTrack !== null;
+
   return (
     <div className="player-menu" onClick={(e) => e.stopPropagation()}>
-      <div className="player-menu-title">Subtitles</div>
+      <div className="player-menu-title" style={{ marginBottom: 4 }}>Subtitles</div>
 
-      {/* Off option */}
-      <button
-        className={`player-menu-item${activeTrack === null ? " active" : ""}`}
-        onClick={() => { onSelectTrack(null); onClose(); }}
-      >
-        <span className="check">
-          {activeTrack === null && <CheckIcon />}
-        </span>
-        Off
-      </button>
+      {/* Mode Selectors */}
+      <div className="subtitle-menu-mode-tabs">
+        <button
+          className={`subtitle-menu-mode-btn${isSoftSubsActive ? " active" : ""}`}
+          onClick={() => {
+            if (!isSoftSubsActive && tracks.length > 0) {
+              const defaultTrack = tracks.find((t) => t.isDefault) || tracks[0];
+              onSelectTrack(defaultTrack.lang);
+            }
+          }}
+          disabled={tracks.length === 0}
+          title={tracks.length === 0 ? "No soft subtitles available" : "Enable soft subtitles"}
+        >
+          Soft Subs
+        </button>
+        <button
+          className={`subtitle-menu-mode-btn${!isSoftSubsActive ? " active" : ""}`}
+          onClick={() => {
+            onSelectTrack(null);
+          }}
+          title="Watch burnt-in hardsubs or raw video"
+        >
+          Hard Subs / Off
+        </button>
+      </div>
 
       <div className="player-menu-divider" />
 
-      {/* Track list */}
-      {tracks.map((track) => (
-        <button
-          key={track.lang}
-          className={`player-menu-item${activeTrack === track.lang ? " active" : ""}`}
-          onClick={() => { onSelectTrack(track.lang); onClose(); }}
-        >
-          <span className="check">
-            {activeTrack === track.lang && <CheckIcon />}
-          </span>
-          {track.label || track.lang}
-        </button>
-      ))}
+      {/* Subtitle track list or state message */}
+      <div className="subtitle-menu-tracks-list">
+        {isSoftSubsActive ? (
+          tracks.map((track) => (
+            <button
+              key={track.lang}
+              className={`player-menu-item${activeTrack === track.lang ? " active" : ""}`}
+              onClick={() => {
+                onSelectTrack(track.lang);
+                onClose();
+              }}
+            >
+              <span className="check">
+                {activeTrack === track.lang && <CheckIcon />}
+              </span>
+              {track.label || track.lang}
+            </button>
+          ))
+        ) : (
+          <div style={{ padding: "12px 10px", fontSize: "12px", color: "rgba(255,255,255,0.4)", textAlign: "center", lineHeight: "1.4" }}>
+            {tracks.length === 0 
+              ? "No soft subtitles available. Video contains hardsubs or raw audio." 
+              : "Soft subtitles disabled. Watching burnt-in hardsubs or raw video."}
+          </div>
+        )}
+      </div>
 
-      {tracks.length > 0 && <div className="player-menu-divider" />}
+      <div className="player-menu-divider" />
 
       {/* Settings button */}
       <button
         className="player-menu-item"
         onClick={() => setShowSettings(true)}
+        disabled={tracks.length === 0}
+        style={{ opacity: tracks.length === 0 ? 0.5 : 1 }}
       >
         <span className="check" />
         Subtitle Settings ⚙
