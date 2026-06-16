@@ -484,9 +484,13 @@ export default function WatchExperience({ initialSession, recommendations = null
   const [focusMode, setFocusMode] = useState(false);
   // Sub-type filter for the server panel — initialised from the session so the
   // active button immediately reflects what is actually playing.
-  const [subTypeFilter, setSubTypeFilter] = useState<"soft" | "hard">(
-    initialSession.activeServerId === "hls-hardsub" ? "hard" : "soft"
-  );
+  const [subTypeFilter, setSubTypeFilter] = useState<"soft" | "hard">(() => {
+    const activeId = initialSession.activeServerId || "";
+    if (activeId === "hls-hardsub" || activeId === "scraper-sub") return "hard";
+    const { softSubServers: initialSoft, hardSubServers: initialHard } = summarizeServerGroups(initialSession.serverOptions);
+    if (initialSoft.length === 0 && initialHard.length > 0) return "hard";
+    return "soft";
+  });
   const [loadedSurfaceKey, setLoadedSurfaceKey] = useState<string | null>(null);
   // Optimistic server selection: turns the button green immediately on click
   // before the embed has finished loading. Cleared when the session commits.
@@ -972,8 +976,12 @@ export default function WatchExperience({ initialSession, recommendations = null
   // Without this, the S-SUB/H-SUB buttons stay out of sync after a session
   // loads with a different server than what was last manually selected.
   useEffect(() => {
-    if (session.activeServerId === "hls-hardsub") setSubTypeFilter("hard");
-    else if (session.activeServerId === "hls-softsub") setSubTypeFilter("soft");
+    const active = session.activeServerId || "";
+    if (active === "hls-hardsub" || active === "scraper-sub") {
+      setSubTypeFilter("hard");
+    } else if (active === "hls-softsub" || active.endsWith("-sub")) {
+      setSubTypeFilter("soft");
+    }
   }, [session.activeServerId]);
 
 
@@ -1309,17 +1317,22 @@ export default function WatchExperience({ initialSession, recommendations = null
                   type="button"
                   onClick={() => {
                     setSubTypeFilter("soft");
-                    if (effectiveActiveServerId === "hls-hardsub" && softSubServers.length > 0) {
-                      queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: "hls-softsub", dubbed: false });
+                    if (softSubServers.length > 0 && !softSubServers.some((s) => s.id === effectiveActiveServerId)) {
+                      const firstSoft = softSubServers[0];
+                      if (firstSoft) {
+                        queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: firstSoft.id, dubbed: false });
+                      }
                     }
                   }}
-                  disabled={subServers.length === 0 && softSubServers.length === 0}
+                  disabled={softSubServers.length === 0}
                   className={`text-[9px] font-black tracking-widest px-1.5 py-0.5 rounded transition-all border ${
-                    subTypeFilter === "soft"
-                      ? "bg-[rgba(34,211,238,0.18)] text-[rgba(34,211,238,1)] border-[rgba(34,211,238,0.4)]"
-                      : "bg-transparent text-white/35 border-white/12 hover:text-white/55 hover:border-white/20"
+                    softSubServers.length === 0
+                      ? "bg-transparent text-white/20 border-white/8 cursor-not-allowed"
+                      : subTypeFilter === "soft"
+                        ? "bg-[rgba(34,211,238,0.18)] text-[rgba(34,211,238,1)] border-[rgba(34,211,238,0.4)]"
+                        : "bg-transparent text-white/35 border-white/12 hover:text-white/55 hover:border-white/20"
                   }`}
-                  title="Soft subtitles — external VTT overlay, can be restyled"
+                  title={softSubServers.length === 0 ? "No soft sub stream available for this episode" : "Soft subtitles — external VTT overlay, can be restyled"}
                 >
                   S-SUB
                 </button>
@@ -1328,8 +1341,11 @@ export default function WatchExperience({ initialSession, recommendations = null
                   type="button"
                   onClick={() => {
                     setSubTypeFilter("hard");
-                    if (hardSubServers.length > 0 && effectiveActiveServerId !== "hls-hardsub") {
-                      queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: "hls-hardsub", dubbed: false });
+                    if (hardSubServers.length > 0 && !hardSubServers.some((s) => s.id === effectiveActiveServerId)) {
+                      const firstHard = hardSubServers[0];
+                      if (firstHard) {
+                        queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: firstHard.id, dubbed: false });
+                      }
                     }
                   }}
                   disabled={hardSubServers.length === 0}
@@ -1350,10 +1366,7 @@ export default function WatchExperience({ initialSession, recommendations = null
             {/* Row 2: server buttons */}
             <div className="flex flex-wrap gap-1.5 pl-10">
               {(() => {
-                const hasBothTypes = softSubServers.length > 0 && hardSubServers.length > 0;
-                const serversToShow = hasBothTypes
-                  ? (subTypeFilter === "hard" ? hardSubServers : softSubServers)
-                  : subServers;
+                const serversToShow = subTypeFilter === "hard" ? hardSubServers : softSubServers;
                 return serversToShow.length > 0 ? (
                   serversToShow.map((entry) => (
                     <ServerButton

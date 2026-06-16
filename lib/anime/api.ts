@@ -3133,6 +3133,7 @@ function appendCustomEmbedServers(
       label: "Scraper (HLS)",
       provider: activeProvider,
       category: "sub",
+      subType: "hard",
     },
     {
       id: "scraper-dub",
@@ -3758,18 +3759,27 @@ export async function getQuickWatchSession(input: {
         };
         const allCachedStreams: CachedStream[] = cachedRes.streams;
         // ── Classification rules ─────────────────────────────────────────────
-        // WixMP/wixstatic URLs ALWAYS have burnt-in subtitles (hard sub) even
-        // when they ship VTT files. Only non-WixMP streams with VTT tracks are
-        // true soft sub (clean video + external overlay).
-        const isWixStream = (s: CachedStream) => {
-          const firstUrl = (s.streams?.[0]?.url || s.streamUrl || "");
-          return firstUrl.includes("wixmp.com") || firstUrl.includes("wixstatic.com");
+        // Streams from Gogoanime, Nekostream, Animepahe, and Wixstatic/Wixmp (ally)
+        // are always hard-subbed (burnt-in pixels), even if they carry a VTT subtitle track.
+        const isHardSubProvider = (s: CachedStream) => {
+          const prov = (s.provider || "").toLowerCase();
+          const firstUrl = (s.streams?.[0]?.url || s.streamUrl || "").toLowerCase();
+          return (
+            prov === "gogoanime" ||
+            prov === "nekostream" ||
+            prov === "animepahe" ||
+            prov === "ally" ||
+            firstUrl.includes("wixmp.com") ||
+            firstUrl.includes("wixstatic.com") ||
+            firstUrl.includes("vibeplayer.site") ||
+            firstUrl.includes("nekostream.site")
+          );
         };
         const softSubStreams = allCachedStreams.filter(
-          (s) => !isWixStream(s) && Array.isArray(s.subtitles) && s.subtitles.length > 0
+          (s) => !isHardSubProvider(s) && Array.isArray(s.subtitles) && s.subtitles.length > 0
         );
         const hardSubStreams = allCachedStreams.filter(
-          (s) => isWixStream(s) || !Array.isArray(s.subtitles) || s.subtitles.length === 0
+          (s) => isHardSubProvider(s) || !Array.isArray(s.subtitles) || s.subtitles.length === 0
         );
 
         // ── Choose which stream to play based on user's server selection ──
@@ -3790,7 +3800,7 @@ export async function getQuickWatchSession(input: {
           : `${backendUrl}/api/proxy/m3u8-streaming-proxy?url=${encodedUrl}${refererParam}`;
 
         const chosenSubType: "soft" | "hard" =
-          isWixStream(chosenStream)
+          isHardSubProvider(chosenStream)
             ? "hard"
             : (Array.isArray(chosenStream.subtitles) && chosenStream.subtitles.length > 0)
               ? "soft"
