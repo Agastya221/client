@@ -3757,8 +3757,20 @@ export async function getQuickWatchSession(input: {
           outro?: { start: number; end: number } | null;
         };
         const allCachedStreams: CachedStream[] = cachedRes.streams;
-        const softSubStreams = allCachedStreams.filter((s) => Array.isArray(s.subtitles) && s.subtitles.length > 0);
-        const hardSubStreams = allCachedStreams.filter((s) => !Array.isArray(s.subtitles) || s.subtitles.length === 0);
+        // ── Classification rules ─────────────────────────────────────────────
+        // WixMP/wixstatic URLs ALWAYS have burnt-in subtitles (hard sub) even
+        // when they ship VTT files. Only non-WixMP streams with VTT tracks are
+        // true soft sub (clean video + external overlay).
+        const isWixStream = (s: CachedStream) => {
+          const firstUrl = (s.streams?.[0]?.url || s.streamUrl || "");
+          return firstUrl.includes("wixmp.com") || firstUrl.includes("wixstatic.com");
+        };
+        const softSubStreams = allCachedStreams.filter(
+          (s) => !isWixStream(s) && Array.isArray(s.subtitles) && s.subtitles.length > 0
+        );
+        const hardSubStreams = allCachedStreams.filter(
+          (s) => isWixStream(s) || !Array.isArray(s.subtitles) || s.subtitles.length === 0
+        );
 
         // ── Choose which stream to play based on user's server selection ──
         const wantHard = input.server === "hls-hardsub";

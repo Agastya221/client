@@ -482,8 +482,11 @@ export default function WatchExperience({ initialSession, recommendations = null
   const [episodeQuery, setEpisodeQuery] = useState("");
   const [showEpisodeList, setShowEpisodeList] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
-  // Sub-type filter for the server panel: "soft" = VTT overlay, "hard" = burnt-in subs
-  const [subTypeFilter, setSubTypeFilter] = useState<"soft" | "hard">("soft");
+  // Sub-type filter for the server panel — initialised from the session so the
+  // active button immediately reflects what is actually playing.
+  const [subTypeFilter, setSubTypeFilter] = useState<"soft" | "hard">(
+    initialSession.activeServerId === "hls-hardsub" ? "hard" : "soft"
+  );
   const [loadedSurfaceKey, setLoadedSurfaceKey] = useState<string | null>(null);
   // Optimistic server selection: turns the button green immediately on click
   // before the embed has finished loading. Cleared when the session commits.
@@ -957,12 +960,33 @@ export default function WatchExperience({ initialSession, recommendations = null
     return () => clearTimeout(timeoutId);
   }, [session.stale, session.anime.id, session.episode.number, session.provider, session.dubbed, session.activeServerId]);
 
+  /* ── Server buttons helper ───────────────────── */
+  // Priority: optimistic click → pending staged session → committed session
+  const effectiveActiveServerId = optimisticServerId || pendingSession?.activeServerId || session.activeServerId;
+  const { isDesidub, subServers, softSubServers, hardSubServers, dubServers, hindiServers } = summarizeServerGroups(session.serverOptions);
+  const mainFallback = session.availableProviders.find((p) => p !== "desidub") || "animekai";
+  const showHindi = session.availableProviders.includes("desidub") || session.provider === "desidub";
+
+
+  // ── Sync subTypeFilter whenever the committed session switches server ───────
+  // Without this, the S-SUB/H-SUB buttons stay out of sync after a session
+  // loads with a different server than what was last manually selected.
+  useEffect(() => {
+    if (session.activeServerId === "hls-hardsub") setSubTypeFilter("hard");
+    else if (session.activeServerId === "hls-softsub") setSubTypeFilter("soft");
+  }, [session.activeServerId]);
+
 
   const heroImage =
     session.anime.banner ||
     session.anime.poster ||
     "https://placehold.co/1600x900/09090b/f5f5f5?text=AnimeKAI";
   const isSessionTransitioning = isSessionLoading;
+  const floatingStatus = isSessionTransitioning ? "Refreshing session…" : null;
+  const playerFeedbackTitle = activeEmbedLoaded ? "Player ready" : "Opening player";
+  const playerFeedbackHint = isSessionTransitioning
+    ? "Loading the next session…"
+    : "Opening the player…";
 
   const filteredEpisodes = languageFilteredEpisodes.filter((episode) => {
     const query = episodeQuery.trim().toLowerCase();
@@ -981,18 +1005,6 @@ export default function WatchExperience({ initialSession, recommendations = null
       server: null,
     });
   };
-
-  /* ── Server buttons helper ───────────────────── */
-  // Priority: optimistic click → pending staged session → committed session
-  const effectiveActiveServerId = optimisticServerId || pendingSession?.activeServerId || session.activeServerId;
-  const { isDesidub, subServers, softSubServers, hardSubServers, dubServers, hindiServers } = summarizeServerGroups(session.serverOptions);
-  const mainFallback = session.availableProviders.find((p) => p !== "desidub") || "animekai";
-  const showHindi = session.availableProviders.includes("desidub") || session.provider === "desidub";
-  const floatingStatus = isSessionTransitioning ? "Refreshing session…" : null;
-  const playerFeedbackTitle = activeEmbedLoaded ? "Player ready" : "Opening player";
-  const playerFeedbackHint = isSessionTransitioning
-    ? "Loading the next session…"
-    : "Opening the player…";
 
   /* ════════════════════════════════════════════════
      RENDER
@@ -1287,11 +1299,11 @@ export default function WatchExperience({ initialSession, recommendations = null
         {/* Server rows */}
         <div className="space-y-2">
           {/* Sub servers — S-SUB / H-SUB toggle always visible */}
-          <div className="flex items-start gap-3 flex-wrap">
-            {/* Label + type toggles in one column */}
-            <div className="flex flex-col gap-1 shrink-0">
-              <span className="text-[11px] font-bold text-white/40 uppercase tracking-wider">Sub</span>
-              <div className="flex gap-1">
+          <div className="flex flex-col gap-2">
+            {/* Row 1: label + sub-type toggles */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] font-bold text-white/40 uppercase tracking-wider w-8 shrink-0">Sub</span>
+              <div className="flex gap-1 items-center">
                 {/* S-SUB toggle */}
                 <button
                   type="button"
@@ -1335,8 +1347,8 @@ export default function WatchExperience({ initialSession, recommendations = null
               </div>
             </div>
 
-            {/* Filtered server list */}
-            <div className="flex flex-wrap gap-1.5 pt-5">
+            {/* Row 2: server buttons */}
+            <div className="flex flex-wrap gap-1.5 pl-10">
               {(() => {
                 const hasBothTypes = softSubServers.length > 0 && hardSubServers.length > 0;
                 const serversToShow = hasBothTypes
