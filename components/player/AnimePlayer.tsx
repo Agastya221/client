@@ -58,6 +58,8 @@ interface AnimePlayerProps {
   dubbed?: boolean;
   intro?: { start: number; end: number } | null;
   outro?: { start: number; end: number } | null;
+  /** When true the active stream has burnt-in subs — VTT overlay is auto-disabled. */
+  isHardSubStream?: boolean;
   onEpisodeEnd?: () => void;
   onTimeUpdate?: (time: number) => void;
   onReady?: () => void;
@@ -78,6 +80,7 @@ export default function AnimePlayer({
   dubbed = false,
   intro,
   outro,
+  isHardSubStream = false,
   onEpisodeEnd,
   onTimeUpdate,
   onReady,
@@ -203,6 +206,7 @@ export default function AnimePlayer({
         episodeNumber={episodeNumber}
         intro={intro}
         outro={outro}
+        isHardSubStream={isHardSubStream}
         onEpisodeEnd={onEpisodeEnd}
         onTimeUpdate={onTimeUpdate}
         onReady={onReady}

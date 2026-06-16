@@ -18,6 +18,8 @@ interface HlsPlayerProps {
   episodeNumber: number;
   intro?: { start: number; end: number } | null;
   outro?: { start: number; end: number } | null;
+  /** When true the stream has burnt-in subtitles — VTT overlay is auto-disabled. */
+  isHardSubStream?: boolean;
   onEpisodeEnd?: () => void;
   onTimeUpdate?: (time: number) => void;
   onReady?: () => void;
@@ -44,6 +46,7 @@ export default function HlsPlayer({
   episodeNumber,
   intro,
   outro,
+  isHardSubStream = false,
   onEpisodeEnd,
   onTimeUpdate,
   onReady,
@@ -93,6 +96,13 @@ export default function HlsPlayer({
   // Skip times
   const [skipTimes, setSkipTimes] = useState<SkipTimes | null>(null);
   const [autoSkip, setAutoSkip] = useState(() => prefs.getAutoSkip());
+
+  // Auto-disable VTT overlay for hard sub streams (subtitles are burnt into video)
+  useEffect(() => {
+    if (isHardSubStream) {
+      setActiveSubtitleTrack(null);
+    }
+  }, [isHardSubStream, source]);
 
   // Seek ripples feedback
   const [seekRipple, setSeekRipple] = useState<{ side: "left" | "right"; visible: boolean; key: number } | null>(null);

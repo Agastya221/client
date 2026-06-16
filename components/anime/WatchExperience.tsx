@@ -482,6 +482,8 @@ export default function WatchExperience({ initialSession, recommendations = null
   const [episodeQuery, setEpisodeQuery] = useState("");
   const [showEpisodeList, setShowEpisodeList] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
+  // Sub-type filter for the server panel: "soft" = VTT overlay, "hard" = burnt-in subs
+  const [subTypeFilter, setSubTypeFilter] = useState<"soft" | "hard">("soft");
   const [loadedSurfaceKey, setLoadedSurfaceKey] = useState<string | null>(null);
   // Optimistic server selection: turns the button green immediately on click
   // before the embed has finished loading. Cleared when the session commits.
@@ -1033,6 +1035,7 @@ export default function WatchExperience({ initialSession, recommendations = null
                 dubbed={session.dubbed}
                 intro={session.intro}
                 outro={session.outro}
+                isHardSubStream={effectiveActiveServerId === "hls-hardsub"}
                 onReady={() => setLoadedSurfaceKey(activePlayerSurfaceKey)}
                 onEpisodeEnd={() => {
                   if (nextEpisode) {
@@ -1283,51 +1286,78 @@ export default function WatchExperience({ initialSession, recommendations = null
 
         {/* Server rows */}
         <div className="space-y-2">
-          {/* Sub servers - Soft Sub row */}
-          <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-[11px] font-bold text-white/40 w-12 uppercase tracking-wider shrink-0">Sub</span>
-            <div className="flex flex-wrap gap-1.5">
-              {softSubServers.length > 0 ? (
-                softSubServers.map((entry) => (
-                  <ServerButton
-                    key={entry.id}
-                    label={entry.label}
-                    active={!session.dubbed && effectiveActiveServerId === entry.id}
-                    onClick={() => queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: entry.id, dubbed: false })}
-                  />
-                ))
-              ) : (
-                <ServerButton
-                  label={`Try ${humanizeProviderId(mainFallback)} sub`}
-                  active={false}
-                  onClick={() => queueSession({ episodeNumber: session.episode.number, provider: mainFallback, server: null, dubbed: false })}
-                />
+          {/* Sub servers — with Soft/Hard filter pills when both types exist */}
+          <div className="flex items-start gap-3 flex-wrap">
+            <span className="text-[11px] font-bold text-white/40 w-12 uppercase tracking-wider shrink-0 pt-1">Sub</span>
+            <div className="flex flex-col gap-2 flex-1">
+              {/* Sub-type filter pills — only shown when both soft and hard sub streams exist */}
+              {softSubServers.length > 0 && hardSubServers.length > 0 && (
+                <div className="flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSubTypeFilter("soft");
+                      // Switch to soft sub server if currently on hard sub
+                      if (effectiveActiveServerId === "hls-hardsub") {
+                        queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: "hls-softsub", dubbed: false });
+                      }
+                    }}
+                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-all ${
+                      subTypeFilter === "soft"
+                        ? "border-white/25 text-white/80 bg-white/10"
+                        : "border-white/10 text-white/35 bg-transparent hover:border-white/18 hover:text-white/55"
+                    }`}
+                  >
+                    📄 Soft Sub
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSubTypeFilter("hard");
+                      // Switch to hard sub server immediately
+                      if (effectiveActiveServerId !== "hls-hardsub") {
+                        queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: "hls-hardsub", dubbed: false });
+                      }
+                    }}
+                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-all ${
+                      subTypeFilter === "hard"
+                        ? "border-amber-400/40 text-amber-300/90 bg-amber-400/10"
+                        : "border-white/10 text-white/35 bg-transparent hover:border-white/18 hover:text-white/55"
+                    }`}
+                    title="Subtitles are burnt into the video and cannot be restyled"
+                  >
+                    🔒 Hard Sub
+                  </button>
+                </div>
               )}
+              {/* Filtered server buttons */}
+              <div className="flex flex-wrap gap-1.5">
+                {(() => {
+                  // Determine which servers to show based on filter
+                  const hasBothTypes = softSubServers.length > 0 && hardSubServers.length > 0;
+                  const serversToShow = hasBothTypes
+                    ? (subTypeFilter === "hard" ? hardSubServers : softSubServers)
+                    : subServers; // only one type — show all
+                  return serversToShow.length > 0 ? (
+                    serversToShow.map((entry) => (
+                      <ServerButton
+                        key={entry.id}
+                        label={entry.label}
+                        active={!session.dubbed && effectiveActiveServerId === entry.id}
+                        onClick={() => queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: entry.id, dubbed: false })}
+                      />
+                    ))
+                  ) : (
+                    <ServerButton
+                      label={`Try ${humanizeProviderId(mainFallback)} sub`}
+                      active={false}
+                      onClick={() => queueSession({ episodeNumber: session.episode.number, provider: mainFallback, server: null, dubbed: false })}
+                    />
+                  );
+                })()}
+              </div>
             </div>
           </div>
-
-          {/* Hard Sub row — only shown when hard-sub HLS streams are available */}
-          {hardSubServers.length > 0 && (
-          <div className="flex items-center gap-3 flex-wrap">
-            <span
-              className="text-[11px] font-bold w-12 uppercase tracking-wider shrink-0"
-              style={{ color: "rgba(251,191,36,0.7)" }}
-              title="Subtitles are burned into the video — cannot be disabled or restyled"
-            >
-              HSub
-            </span>
-            <div className="flex flex-wrap gap-1.5">
-              {hardSubServers.map((entry) => (
-                <ServerButton
-                  key={entry.id}
-                  label={entry.label}
-                  active={!session.dubbed && effectiveActiveServerId === entry.id}
-                  onClick={() => queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: entry.id, dubbed: false })}
-                />
-              ))}
-            </div>
-          </div>
-          )}
 
           {/* Dub servers — hidden entirely when no dub is available */}
           {hasDub && (

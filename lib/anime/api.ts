@@ -3803,7 +3803,7 @@ export async function getQuickWatchSession(input: {
         if (softSubStreams.length > 0) {
           hlsServerOptions.push({
             id: "hls-softsub",
-            label: "HLS Soft Sub",
+            label: "HLS",
             provider: preferredProvider,
             category: dubbed ? "dub" : "sub",
             subType: "soft",
@@ -3812,7 +3812,7 @@ export async function getQuickWatchSession(input: {
         if (hardSubStreams.length > 0) {
           hlsServerOptions.push({
             id: "hls-hardsub",
-            label: "HLS Hard Sub",
+            label: "HLS",
             provider: preferredProvider,
             category: dubbed ? "dub" : "sub",
             subType: "hard",

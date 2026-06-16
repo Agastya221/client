@@ -7,7 +7,7 @@ import type { SubtitleStyle } from "@/lib/player/player-prefs";
 
 interface SubtitleMenuProps {
   tracks: SubtitleTrack[];
-  activeTrack: string | null;  // lang code or null = off
+  activeTrack: string | null; // lang code or null = off
   subtitleStyle: SubtitleStyle;
   onSelectTrack: (lang: string | null) => void;
   onStyleChange: (style: Partial<SubtitleStyle>) => void;
@@ -38,7 +38,9 @@ export default function SubtitleMenu({
           onClick={() => setShowSettings(false)}
           style={{ gap: 4 }}
         >
-          <span className="check"><ChevronLeftIcon /></span>
+          <span className="check">
+            <ChevronLeftIcon />
+          </span>
           Subtitle Settings
         </button>
         <div className="player-menu-divider" />
@@ -86,10 +88,14 @@ export default function SubtitleMenu({
             <span>Font</span>
             <select
               value={subtitleStyle.fontFamily}
-              onChange={(e) => onStyleChange({ fontFamily: e.target.value as SubtitleStyle["fontFamily"] })}
+              onChange={(e) =>
+                onStyleChange({ fontFamily: e.target.value as SubtitleStyle["fontFamily"] })
+              }
             >
               {FONT_FAMILIES.map((f) => (
-                <option key={f.value} value={f.value}>{f.label}</option>
+                <option key={f.value} value={f.value}>
+                  {f.label}
+                </option>
               ))}
             </select>
           </label>
@@ -98,43 +104,39 @@ export default function SubtitleMenu({
     );
   }
 
-  const isSoftSubsActive = activeTrack !== null;
-
   return (
     <div className="player-menu" onClick={(e) => e.stopPropagation()}>
-      <div className="player-menu-title" style={{ marginBottom: 4 }}>Subtitles</div>
-
-      {/* Mode Selectors */}
-      <div className="subtitle-menu-mode-tabs">
-        <button
-          className={`subtitle-menu-mode-btn${isSoftSubsActive ? " active" : ""}`}
-          onClick={() => {
-            if (!isSoftSubsActive && tracks.length > 0) {
-              const defaultTrack = tracks.find((t) => t.isDefault) || tracks[0];
-              onSelectTrack(defaultTrack.lang);
-            }
-          }}
-          disabled={tracks.length === 0}
-          title={tracks.length === 0 ? "No soft subtitles available" : "Enable soft subtitles"}
-        >
-          Soft Subs
-        </button>
-        <button
-          className={`subtitle-menu-mode-btn${!isSoftSubsActive ? " active" : ""}`}
-          onClick={() => {
-            onSelectTrack(null);
-          }}
-          title="Watch burnt-in hardsubs or raw video"
-        >
-          Hard Subs / Off
-        </button>
+      <div className="player-menu-title" style={{ marginBottom: 4 }}>
+        Subtitles
       </div>
-
       <div className="player-menu-divider" />
 
-      {/* Subtitle track list or state message */}
+      {/* Subtitle track list */}
       <div className="subtitle-menu-tracks-list">
-        {isSoftSubsActive ? (
+        {/* Off option — always visible */}
+        <button
+          className={`player-menu-item${activeTrack === null ? " active" : ""}`}
+          onClick={() => {
+            onSelectTrack(null);
+            onClose();
+          }}
+        >
+          <span className="check">{activeTrack === null && <CheckIcon />}</span>
+          Off
+        </button>
+
+        {tracks.length === 0 ? (
+          <div
+            style={{
+              padding: "10px 10px 4px",
+              fontSize: "11px",
+              color: "rgba(255,255,255,0.3)",
+              textAlign: "center",
+            }}
+          >
+            No subtitle tracks available
+          </div>
+        ) : (
           tracks.map((track) => (
             <button
               key={track.lang}
@@ -150,18 +152,12 @@ export default function SubtitleMenu({
               {track.label || track.lang}
             </button>
           ))
-        ) : (
-          <div style={{ padding: "12px 10px", fontSize: "12px", color: "rgba(255,255,255,0.4)", textAlign: "center", lineHeight: "1.4" }}>
-            {tracks.length === 0 
-              ? "No soft subtitles available. Video contains hardsubs or raw audio." 
-              : "Soft subtitles disabled. Watching burnt-in hardsubs or raw video."}
-          </div>
         )}
       </div>
 
       <div className="player-menu-divider" />
 
-      {/* Settings button */}
+      {/* Settings shortcut */}
       <button
         className="player-menu-item"
         onClick={() => setShowSettings(true)}

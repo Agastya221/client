@@ -12,6 +12,8 @@ interface VideoPlayerProps {
   dubbed?: boolean;
   intro?: { start: number; end: number } | null;
   outro?: { start: number; end: number } | null;
+  /** When true the active stream has burnt-in subs — VTT overlay is auto-disabled. */
+  isHardSubStream?: boolean;
   onReady?: () => void;
   onTimeUpdate?: (time: number) => void;
   onEpisodeEnd?: () => void;
@@ -29,6 +31,7 @@ export default function VideoPlayer({
   dubbed = false,
   intro,
   outro,
+  isHardSubStream = false,
   onReady,
   onTimeUpdate,
   onEpisodeEnd,
@@ -42,6 +45,7 @@ export default function VideoPlayer({
       dubbed={dubbed}
       intro={intro}
       outro={outro}
+      isHardSubStream={isHardSubStream}
       onReady={onReady}
       onTimeUpdate={onTimeUpdate}
       onEpisodeEnd={onEpisodeEnd}
