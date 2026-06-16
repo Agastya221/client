@@ -1343,6 +1343,7 @@ export default function WatchExperience({ initialSession, recommendations = null
                       <ServerButton
                         key={entry.id}
                         label={entry.label}
+                        subType={entry.subType}
                         active={!session.dubbed && effectiveActiveServerId === entry.id}
                         onClick={() => queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: entry.id, dubbed: false })}
                       />

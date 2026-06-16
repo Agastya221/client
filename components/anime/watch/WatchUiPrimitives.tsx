@@ -46,22 +46,41 @@ export function ServerButton({
   label,
   active,
   onClick,
+  subType,
 }: {
   label: string;
   active: boolean;
   onClick: () => void;
+  /** If set, shows a S-SUB or H-SUB badge chip on the button */
+  subType?: "soft" | "hard";
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`px-3 py-1.5 rounded-md text-[11px] font-bold transition-colors border ${
+      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-bold transition-colors border ${
         active
           ? "bg-[#4ade80] text-black border-[#4ade80]/60 shadow-[0_0_10px_rgba(74,222,128,0.2)]"
           : "bg-white/[0.04] text-white/60 border-white/8 hover:bg-white/8 hover:text-white hover:border-white/15"
       }`}
     >
       {label}
+      {subType === "soft" && (
+        <span
+          className="text-[9px] font-black tracking-widest px-1 py-0.5 rounded"
+          style={{ background: "rgba(34,211,238,0.15)", color: "rgba(34,211,238,0.9)", border: "1px solid rgba(34,211,238,0.25)" }}
+        >
+          S-SUB
+        </span>
+      )}
+      {subType === "hard" && (
+        <span
+          className="text-[9px] font-black tracking-widest px-1 py-0.5 rounded"
+          style={{ background: "rgba(251,191,36,0.12)", color: "rgba(251,191,36,0.85)", border: "1px solid rgba(251,191,36,0.25)" }}
+        >
+          H-SUB
+        </span>
+      )}
     </button>
   );
 }
