@@ -70,6 +70,7 @@ async function WatchContent({
     provider: normalizeProviderParam(firstParam(query.provider)),
     episodeId: firstParam(query.episodeId) || null,
     dubbed,
+    server: firstParam(query.server) || null,
   });
 
   const accentColor = session.anime.color || "#ff5500";

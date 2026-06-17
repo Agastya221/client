@@ -3036,7 +3036,7 @@ async function fetchGogoAnimeWatchSession(
         id: "gogoanime-default",
         label: "GogoAnime",
         provider: "gogoanime" as any,
-        category: "sub",
+        category: dubbed ? "dub" : "sub",
       },
     ],
     activeServerId: "gogoanime-default",
@@ -3739,12 +3739,21 @@ export async function getQuickWatchSession(input: {
     if (anilistId && !input.server?.startsWith("megaplay") && input.server !== "desidub" && input.server !== "scraper-sub" && input.server !== "scraper-dub") {
       const backendUrl = process.env.ANIME_API_BASE_URL || "http://localhost:5000";
       const dubbed = Boolean(input.dubbed);
-      const cachedRes = await fetch(
-        `${backendUrl}/api/streams/cached?anilistId=${anilistId}&episodeNumber=${targetEpisode2.number}&dubbed=${dubbed ? "1" : "0"}`,
-        { signal: AbortSignal.timeout(3_000) },
-      ).then((r) => r.json()).catch(() => ({ cached: false }));
+      const [cachedResSub, cachedResDub] = await Promise.all([
+        fetch(
+          `${backendUrl}/api/streams/cached?anilistId=${anilistId}&episodeNumber=${targetEpisode2.number}&dubbed=0`,
+          { signal: AbortSignal.timeout(3_000) },
+        ).then((r) => r.json()).catch(() => ({ cached: false })),
+        fetch(
+          `${backendUrl}/api/streams/cached?anilistId=${anilistId}&episodeNumber=${targetEpisode2.number}&dubbed=1`,
+          { signal: AbortSignal.timeout(3_000) },
+        ).then((r) => r.json()).catch(() => ({ cached: false })),
+      ]);
 
-      if (cachedRes?.cached && Array.isArray(cachedRes.streams) && cachedRes.streams.length > 0) {
+      const subStreams = cachedResSub?.cached && Array.isArray(cachedResSub.streams) ? cachedResSub.streams : [];
+      const dubStreams = cachedResDub?.cached && Array.isArray(cachedResDub.streams) ? cachedResDub.streams : [];
+
+      if (subStreams.length > 0 || dubStreams.length > 0) {
         // ── Classify all cached streams as soft-sub or hard-sub ───────────
         // Soft sub = stream has external VTT subtitle tracks users can toggle.
         // Hard sub = subtitles are burnt into the video pixels (no VTT file).
@@ -3752,12 +3761,19 @@ export async function getQuickWatchSession(input: {
           provider: string;
           quality?: string;
           streamUrl: string;
+          referer?: string;
           streams: Array<{ url: string; quality?: string; referer?: string }>;
           subtitles: Array<{ url?: string; label?: string; lang?: string; isDefault?: boolean }>;
           intro?: { start: number; end: number } | null;
           outro?: { start: number; end: number } | null;
+          isDub: boolean;
         };
-        const allCachedStreams: CachedStream[] = cachedRes.streams;
+
+        const allCachedStreams: CachedStream[] = [
+          ...subStreams.map((s: any) => ({ ...s, isDub: false })),
+          ...dubStreams.map((s: any) => ({ ...s, isDub: true })),
+        ];
+
         // ── Classification rules ─────────────────────────────────────────────
         // Streams from Gogoanime, Nekostream, Animepahe, and Wixstatic/Wixmp (ally)
         // are always hard-subbed (burnt-in pixels), even if they carry a VTT subtitle track.
@@ -3772,135 +3788,190 @@ export async function getQuickWatchSession(input: {
           );
         };
 
-        // ── Subtitle Propagation ──────────────────────────────────────────────
-        // Extract common subtitles from any hard-sub or soft-sub provider that has them (e.g. gogoanime)
-        const commonSubtitles = allCachedStreams.reduce<CachedStream["subtitles"]>((acc, s) => {
-          if (Array.isArray(s.subtitles) && s.subtitles.length > 0 && acc.length === 0) {
-            return s.subtitles;
-          }
-          return acc;
-        }, []);
-
-        // Propagate common subtitles to any soft provider that lacks subtitles (like anidb/pewe)
-        for (const s of allCachedStreams) {
-          if (!isHardSubProvider(s) && (!Array.isArray(s.subtitles) || s.subtitles.length === 0)) {
-            s.subtitles = commonSubtitles;
-          }
-        }
-
         const getStreamSubType = (s: CachedStream): "soft" | "hard" => {
           return !isHardSubProvider(s) && Array.isArray(s.subtitles) && s.subtitles.length > 0
             ? "soft"
             : "hard";
         };
 
-        const getMiruroAlias = (provider: string) => {
-          const p = provider.toLowerCase();
-          if (p === "gogoanime") return "bonk";
-          if (p === "anidb") return "pewe";
-          if (p === "nekostream") return "bee";
-          if (p === "ally") return "ally";
-          if (p === "animepahe") return "kiwi";
-          if (p === "kickassanime") return "hop";
-          return provider;
-        };
+        // If the user requested a specific HLS server, check if we have it in the DB cache.
+        // If not (e.g. they requested bonk but it's not in the DB yet), fall out of DB-first path
+        // so it goes to the status/scraping API to fetch/scrape it on demand.
+        const hasRequestedServer = !input.server || input.server === "auto" ||
+          allCachedStreams.some((s) => s.isDub === dubbed && `hls-${s.provider}-${getStreamSubType(s)}` === input.server);
 
-        // ── Choose which stream to play based on user's server selection ──
-        let chosenStream = allCachedStreams.find((s) => {
-          const subType = getStreamSubType(s);
-          return input.server === `hls-${s.provider}-${subType}`;
-        });
+        if (hasRequestedServer) {
+          // ── Subtitle Propagation ──────────────────────────────────────────────
+          // Extract common subtitles from any hard-sub or soft-sub provider that has them (e.g. gogoanime)
+          const commonSubtitles = allCachedStreams.reduce<CachedStream["subtitles"]>((acc, s) => {
+            if (Array.isArray(s.subtitles) && s.subtitles.length > 0 && acc.length === 0) {
+              return s.subtitles;
+            }
+            return acc;
+          }, []);
 
-        // Backwards compatibility fallbacks
-        if (!chosenStream && (input.server === "hls-softsub" || input.server === "hls-hardsub")) {
-          const wantHard = input.server === "hls-hardsub";
-          chosenStream = allCachedStreams.find((s) => getStreamSubType(s) === (wantHard ? "hard" : "soft"))
-            || allCachedStreams.find((s) => getStreamSubType(s) === (wantHard ? "soft" : "hard"));
-        }
+          // Propagate common subtitles to any soft provider that lacks subtitles (like anidb/pewe)
+          for (const s of allCachedStreams) {
+            if (!isHardSubProvider(s) && (!Array.isArray(s.subtitles) || s.subtitles.length === 0)) {
+              s.subtitles = commonSubtitles;
+            }
+          }
 
-        if (!chosenStream) {
-          // Default: prefer soft-subbed stream, fallback to hard-subbed
-          chosenStream = allCachedStreams.find((s) => getStreamSubType(s) === "soft")
-            || allCachedStreams[0];
-        }
-
-        if (!chosenStream) throw new Error("No playable cached stream");
-
-        // ── Build StreamSource for the chosen stream ──────────────────────
-        const rawStreams = chosenStream.streams || [];
-        const bestRaw = rawStreams[0] || { url: chosenStream.streamUrl };
-        const isWix = bestRaw.url.includes("wixmp.com") || bestRaw.url.includes("wixstatic.com");
-        const encodedUrl = encodeURIComponent(bestRaw.url);
-        const refererParam = bestRaw.referer ? `&referer=${encodeURIComponent(bestRaw.referer)}` : "";
-        const proxiedUrl = isWix
-          ? bestRaw.url
-          : `${backendUrl}/api/proxy/m3u8-streaming-proxy?url=${encodedUrl}${refererParam}`;
-
-        const chosenSubType = getStreamSubType(chosenStream);
-
-        const subtitles: SubtitleTrack[] = (chosenStream.subtitles || []).map((sub) => {
-          const rawUrl = sub.url || "";
-          const isAbsolute = rawUrl.startsWith("http://") || rawUrl.startsWith("https://");
-          const proxiedSubUrl = isAbsolute
-            ? buildProxyUrl(backendUrl, rawUrl, chosenStream.referer || undefined, "video")
-            : rawUrl;
-          return {
-            url: proxiedSubUrl,
-            label: sub.label || "English",
-            lang: sub.lang || "en",
-            isDefault: sub.isDefault ?? false,
+          const getMiruroAlias = (provider: string) => {
+            const p = provider.toLowerCase();
+            if (p === "gogoanime") return "bonk";
+            if (p === "anidb") return "pewe";
+            if (p === "nekostream") return "bee";
+            if (p === "ally") return "ally";
+            if (p === "animepahe") return "kiwi";
+            if (p === "kickassanime") return "hop";
+            return provider;
           };
-        });
 
-        const source: StreamSource = {
-          kind: "hls",
-          label: `HLS ${getMiruroAlias(chosenStream.provider)} (${chosenSubType.toUpperCase()})`,
-          url: bestRaw.url,
-          proxiedUrl,
-          iframeUrl: null,
-          isM3U8: true,
-          requiresProxy: !isWix,
-        };
+          // ── Choose which stream to play based on user's server selection ──
+          let chosenStream = allCachedStreams.find((s) => {
+            const subType = getStreamSubType(s);
+            return s.isDub === dubbed && input.server === `hls-${s.provider}-${subType}`;
+          });
 
-        // ── Build HLS server option buttons dynamically for all cached streams ──
-        const hlsServerOptions: ServerOption[] = allCachedStreams.map((s) => {
-          const subType = getStreamSubType(s);
-          const alias = getMiruroAlias(s.provider);
+          // Backwards compatibility fallbacks
+          if (!chosenStream && (input.server === "hls-softsub" || input.server === "hls-hardsub")) {
+            const wantHard = input.server === "hls-hardsub";
+            chosenStream = allCachedStreams.find((s) => s.isDub === dubbed && getStreamSubType(s) === (wantHard ? "hard" : "soft"))
+              || allCachedStreams.find((s) => s.isDub === dubbed && getStreamSubType(s) === (wantHard ? "soft" : "hard"));
+          }
+
+          if (!chosenStream && preferredProvider) {
+            chosenStream = allCachedStreams.find((s) => s.isDub === dubbed && s.provider === preferredProvider);
+          }
+
+          if (!chosenStream) {
+            // Default: prefer soft-subbed stream, fallback to hard-subbed
+            chosenStream = allCachedStreams.find((s) => s.isDub === dubbed && getStreamSubType(s) === "soft")
+              || allCachedStreams.find((s) => s.isDub === dubbed);
+          }
+
+          if (!chosenStream) throw new Error("No playable cached stream");
+
+          // ── Build StreamSource for the chosen stream ──────────────────────
+          const rawStreams = chosenStream.streams || [];
+          const bestRaw = rawStreams[0] || { url: chosenStream.streamUrl };
+          const isWix = bestRaw.url.includes("wixmp.com") || bestRaw.url.includes("wixstatic.com");
+          const encodedUrl = encodeURIComponent(bestRaw.url);
+          const refererParam = bestRaw.referer ? `&referer=${encodeURIComponent(bestRaw.referer)}` : "";
+          const proxiedUrl = isWix
+            ? bestRaw.url
+            : `${backendUrl}/api/proxy/m3u8-streaming-proxy?url=${encodedUrl}${refererParam}`;
+
+          const chosenSubType = getStreamSubType(chosenStream);
+
+          const subtitles: SubtitleTrack[] = (chosenStream.subtitles || []).map((sub) => {
+            const rawUrl = sub.url || "";
+            const isAbsolute = rawUrl.startsWith("http://") || rawUrl.startsWith("https://");
+            const proxiedSubUrl = isAbsolute
+              ? buildProxyUrl(backendUrl, rawUrl, chosenStream.referer || undefined, "video")
+              : rawUrl;
+            return {
+              url: proxiedSubUrl,
+              label: sub.label || "English",
+              lang: sub.lang || "en",
+              isDefault: sub.isDefault ?? false,
+            };
+          });
+
+          const source: StreamSource = {
+            kind: "hls",
+            label: `HLS ${getMiruroAlias(chosenStream.provider)} (${chosenSubType.toUpperCase()})`,
+            url: bestRaw.url,
+            proxiedUrl,
+            iframeUrl: null,
+            isM3U8: true,
+            requiresProxy: !isWix,
+          };
+
+          // ── Build HLS server option buttons dynamically for all cached streams ──
+          const hlsServerOptions: ServerOption[] = allCachedStreams.map((s) => {
+            const subType = getStreamSubType(s);
+            const alias = getMiruroAlias(s.provider);
+            return {
+              id: `hls-${s.provider}-${subType}`,
+              label: `${alias}`,
+              provider: preferredProvider,
+              category: s.isDub ? "dub" : "sub",
+              subType: subType,
+            };
+          });
+
+          // Ensure fallbacks for all direct HLS providers are present in H-SUB/S-SUB and DUB server options
+          const allHlsProviders = [
+            { provider: "gogoanime", alias: "bonk", subType: "hard" as const },
+            { provider: "animepahe", alias: "kiwi", subType: "hard" as const },
+            { provider: "anidb", alias: "pewe", subType: "hard" as const },
+            { provider: "ally", alias: "ally", subType: "hard" as const },
+            { provider: "nekostream", alias: "bee", subType: "soft" as const },
+            { provider: "kickassanime", alias: "hop", subType: "soft" as const },
+          ];
+
+          for (const item of allHlsProviders) {
+            // Ensure for Sub (category: "sub")
+            const subId = `hls-${item.provider}-${item.subType}`;
+            if (!hlsServerOptions.some((opt) => opt.id === subId && opt.category === "sub")) {
+              hlsServerOptions.push({
+                id: subId,
+                label: item.alias,
+                provider: preferredProvider,
+                category: "sub",
+                subType: item.subType,
+              });
+            }
+
+            // Ensure for Dub (category: "dub") only if the anime has confirmed dubs
+            const dubExists = (detail.anime.dubCount != null && detail.anime.dubCount > 0) ||
+              dubStreams.length > 0 ||
+              targetEpisode2.isDubbed ||
+              detail.episodes.some((ep) => ep.isDubbed);
+
+            if (dubExists) {
+              const dubId = `hls-${item.provider}-${item.subType}`;
+              if (!hlsServerOptions.some((opt) => opt.id === dubId && opt.category === "dub")) {
+                hlsServerOptions.push({
+                  id: dubId,
+                  label: item.alias,
+                  provider: preferredProvider,
+                  category: "dub",
+                  subType: item.subType,
+                });
+              }
+            }
+          }
+
+          if (hlsServerOptions.length === 0) {
+            hlsServerOptions.push({ id: "hls-auto", label: "HLS Auto", provider: preferredProvider, category: dubbed ? "dub" : "sub" });
+          }
+          const activeHlsServerId = `hls-${chosenStream.provider}-${chosenSubType}`;
+
           return {
-            id: `hls-${s.provider}-${subType}`,
-            label: `${alias}`,
+            anime: detail.anime,
+            episode: targetEpisode2,
+            episodes: detail.episodes,
+            seasons: detail.seasons,
             provider: preferredProvider,
-            category: dubbed ? "dub" : "sub",
-            subType: subType,
+            availableProviders: episodeAvailableProviders,
+            attempts: detail.attempts,
+            watchAttempts: [{ provider: "gogoanime" as ProviderId, ok: true, reason: `DB-cached HLS (${chosenSubType} sub)` }],
+            source,
+            subtitles,
+            serverOptions: appendCustomEmbedServers(hlsServerOptions, detail.anime, preferredProvider),
+            activeServerId: activeHlsServerId,
+            dubbed,
+            intro: chosenStream.intro || null,
+            outro: chosenStream.outro || null,
+            fallbackHistory: [`gogoanime: DB-cached HLS (${chosenStream.provider}, ${chosenSubType} sub)`],
+            stale: false,
+            fallback: false,
+            message: null,
           };
-        });
-
-        if (hlsServerOptions.length === 0) {
-          hlsServerOptions.push({ id: "hls-auto", label: "HLS Auto", provider: preferredProvider, category: dubbed ? "dub" : "sub" });
         }
-        const activeHlsServerId = `hls-${chosenStream.provider}-${chosenSubType}`;
-
-        return {
-          anime: detail.anime,
-          episode: targetEpisode2,
-          episodes: detail.episodes,
-          seasons: detail.seasons,
-          provider: preferredProvider,
-          availableProviders: episodeAvailableProviders,
-          attempts: detail.attempts,
-          watchAttempts: [{ provider: "gogoanime" as ProviderId, ok: true, reason: `DB-cached HLS (${chosenSubType} sub)` }],
-          source,
-          subtitles,
-          serverOptions: appendCustomEmbedServers(hlsServerOptions, detail.anime, preferredProvider),
-          activeServerId: activeHlsServerId,
-          dubbed,
-          intro: chosenStream.intro || null,
-          outro: chosenStream.outro || null,
-          fallbackHistory: [`gogoanime: DB-cached HLS (${chosenStream.provider}, ${chosenSubType} sub)`],
-          stale: false,
-          fallback: false,
-          message: null,
-        };
       }
     }
   } catch {

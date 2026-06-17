@@ -589,8 +589,14 @@ export default function WatchExperience({ initialSession, recommendations = null
   // - dubCount is 0 → no dub, hide button
   // - dubCount is null (anime not in Anikoto) → don't assume dub exists, hide button
   // - Any episode has isDubbed flag → show button (real scraped data)
-  const hasDub = (dubCount != null && dubCount > 0) || session.episodes.some((ep) => ep.isDubbed);
-  const hasSub = canUseEmbed || session.episodes.some((ep) => ep.isSubbed);
+  const hasDub =
+    (dubCount != null && dubCount > 0) ||
+    session.episodes.some((ep) => ep.isDubbed) ||
+    session.serverOptions.some((entry) => entry.category === "dub" || entry.category === "raw");
+  const hasSub =
+    canUseEmbed ||
+    session.episodes.some((ep) => ep.isSubbed) ||
+    session.serverOptions.some((entry) => entry.category !== "dub" && entry.category !== "raw");
 
   // Cap episode list by dubCount when in dub mode (for synthetic episodes).
   // If dubCount is null (anime not found in Anikoto), show all episodes.
@@ -1055,7 +1061,7 @@ export default function WatchExperience({ initialSession, recommendations = null
                 dubbed={session.dubbed}
                 intro={session.intro}
                 outro={session.outro}
-                isHardSubStream={effectiveActiveServerId === "hls-hardsub" || effectiveActiveServerId.endsWith("-hard")}
+                isHardSubStream={effectiveActiveServerId === "hls-hardsub" || (effectiveActiveServerId?.endsWith("-hard") ?? false)}
                 onReady={() => setLoadedSurfaceKey(activePlayerSurfaceKey)}
                 onEpisodeEnd={() => {
                   if (nextEpisode) {
