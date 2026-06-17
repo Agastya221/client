@@ -15,6 +15,7 @@
     "@auth/prisma-adapter": "^2.11.2",
     "@prisma/adapter-pg": "^7.7.0",
     "@prisma/client": "^7.7.0",
+    "@vidstack/react": "^1.15.6",
     "bcryptjs": "^3.0.3",
     "hls.js": "^1.6.15",
     "lucide-react": "^1.8.0",

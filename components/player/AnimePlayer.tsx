@@ -3,7 +3,7 @@
 import React, { useCallback, useRef, useState } from "react";
 import type { StreamSource, SubtitleTrack } from "@/lib/anime/types";
 
-import HlsPlayer from "./HlsPlayer";
+import VidstackPlayer from "./VidstackPlayer";
 import IframePlayer from "./IframePlayer";
 
 // Fallback server order when the primary server returns an error.
@@ -199,7 +199,7 @@ export default function AnimePlayer({
 
   if (isHls && hlsUrl) {
     return (
-      <HlsPlayer
+      <VidstackPlayer
         source={source}
         subtitles={subtitles}
         malId={malId}
@@ -232,7 +232,7 @@ export default function AnimePlayer({
   // ── Direct video URL fallback ──────────────────────────────────────────
   if (hlsUrl && !fallbackUrl) {
     return (
-      <HlsPlayer
+      <VidstackPlayer
         source={source}
         subtitles={subtitles}
         malId={malId}
