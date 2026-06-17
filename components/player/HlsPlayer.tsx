@@ -61,6 +61,7 @@ export default function HlsPlayer({
   const lastTapTimeRef = useRef(0);
   const lastTapSideRef = useRef<"left" | "right" | null>(null);
   const networkRetryCountRef = useRef(0);
+  const mediaRetryCountRef = useRef(0);
 
   // Transition & visual feature refs
   const lastTimeRef = useRef<number>(0);
@@ -119,6 +120,8 @@ export default function HlsPlayer({
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !streamUrl) return;
+    networkRetryCountRef.current = 0;
+    mediaRetryCountRef.current = 0;
 
     // Trigger switching overlay if we are reloading stream at a timestamp
     if (lastTimeRef.current > 0) {
@@ -197,8 +200,17 @@ export default function HlsPlayer({
               }
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
-              console.warn("Hls.js fatal media error, trying to recover...");
-              hls?.recoverMediaError();
+              if (mediaRetryCountRef.current < 2) {
+                mediaRetryCountRef.current++;
+                console.warn(`Hls.js fatal media error (attempt ${mediaRetryCountRef.current}), trying to recover...`);
+                hls?.recoverMediaError();
+              } else {
+                console.warn("Hls.js fatal media error: max retries reached. Triggering fallback.");
+                setTimeout(() => {
+                  hls?.destroy();
+                  onError?.();
+                }, 0);
+              }
               break;
             default:
               console.warn("Hls.js fatal error:", data);

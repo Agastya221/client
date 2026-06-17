@@ -3769,10 +3769,11 @@ export async function getQuickWatchSession(input: {
           isDub: boolean;
         };
 
+        const stableHlsProviders = new Set(["ally", "nekostream"]);
         const allCachedStreams: CachedStream[] = [
           ...subStreams.map((s: any) => ({ ...s, isDub: false })),
           ...dubStreams.map((s: any) => ({ ...s, isDub: true })),
-        ];
+        ].filter((s) => stableHlsProviders.has((s.provider || "").toLowerCase()));
 
         // ── Classification rules ─────────────────────────────────────────────
         // Streams from Gogoanime, Nekostream, Animepahe, and Wixstatic/Wixmp (ally)
@@ -3797,7 +3798,7 @@ export async function getQuickWatchSession(input: {
         // If the user requested a specific HLS server, check if we have it in the DB cache.
         // If not (e.g. they requested bonk but it's not in the DB yet), fall out of DB-first path
         // so it goes to the status/scraping API to fetch/scrape it on demand.
-        const hasRequestedServer = !input.server || input.server === "auto" ||
+        const hasRequestedServer = !input.server || input.server === "auto" || input.server.startsWith("hls-") ||
           allCachedStreams.some((s) => s.isDub === dubbed && `hls-${s.provider}-${getStreamSubType(s)}` === input.server);
 
         if (hasRequestedServer) {
@@ -3904,12 +3905,8 @@ export async function getQuickWatchSession(input: {
 
           // Ensure fallbacks for all direct HLS providers are present in H-SUB/S-SUB and DUB server options
           const allHlsProviders = [
-            { provider: "gogoanime", alias: "bonk", subType: "hard" as const },
-            { provider: "animepahe", alias: "kiwi", subType: "hard" as const },
-            { provider: "anidb", alias: "pewe", subType: "hard" as const },
             { provider: "ally", alias: "ally", subType: "hard" as const },
             { provider: "nekostream", alias: "bee", subType: "soft" as const },
-            { provider: "kickassanime", alias: "hop", subType: "soft" as const },
           ];
 
           for (const item of allHlsProviders) {
