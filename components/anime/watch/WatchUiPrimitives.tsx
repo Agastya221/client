@@ -274,7 +274,7 @@ export function EpisodeNumberGrid({
 
 export function summarizeServerGroups(serverOptions: ServerOption[]) {
   const isDesidub = serverOptions.some((entry) => entry.provider === "desidub");
-  const allSubServers = isDesidub ? [] : serverOptions.filter((entry) => entry.category !== "dub" && entry.category !== "raw");
+  const allSubServers = isDesidub ? [] : serverOptions.filter((entry) => entry.category === "sub" || !entry.category);
   return {
     isDesidub,
     // Legacy: all sub servers combined (used for fallback displays)
@@ -283,7 +283,7 @@ export function summarizeServerGroups(serverOptions: ServerOption[]) {
     softSubServers: allSubServers.filter((entry) => entry.subType === "soft" || !entry.subType),
     // Hard sub: subtitles burnt into the video (subType === "hard")
     hardSubServers: allSubServers.filter((entry) => entry.subType === "hard"),
-    dubServers: isDesidub ? [] : serverOptions.filter((entry) => entry.category === "dub" || entry.category === "raw"),
+    dubServers: isDesidub ? [] : serverOptions.filter((entry) => entry.category === "dub"),
     hindiServers: isDesidub ? serverOptions : [],
   };
 }

@@ -14,8 +14,8 @@ interface IframePlayerProps {
 
 // How long to wait for a "playing" signal from the embed before declaring it failed.
 // MegaPlay sends a postMessage when video actually starts playing.
-// If we don't get one within this timeout, it's showing an error page.
-const PLAY_SIGNAL_TIMEOUT_MS = 12_000;
+// flixcloud.cc embeds take longer to initialize and may not send postMessages at all.
+const PLAY_SIGNAL_TIMEOUT_MS = 20_000;
 
 // postMessage event types that confirm the player is actually playing (not an error page)
 const PLAY_SIGNALS = new Set([
@@ -33,11 +33,14 @@ export default function IframePlayer({ iframeUrl, onReady, onTimeUpdate, onEpiso
   const handleLoad = useCallback(() => {
     setLoaded(true);
     onReady?.();
+  }, [onReady]);
 
-    // Start a timeout: if we don't receive any play signal from the embed
-    // within PLAY_SIGNAL_TIMEOUT_MS, the embed is likely showing a 410 error page.
+  // Clean up timer when URL changes (server switch) or unmount, and start error timer immediately
+  useEffect(() => {
+    setLoaded(false);
+    playSignalReceivedRef.current = false;
+
     if (onPlayerError) {
-      playSignalReceivedRef.current = false;
       if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
 
       errorTimerRef.current = setTimeout(() => {
@@ -47,16 +50,11 @@ export default function IframePlayer({ iframeUrl, onReady, onTimeUpdate, onEpiso
         }
       }, PLAY_SIGNAL_TIMEOUT_MS);
     }
-  }, [onReady, onPlayerError]);
 
-  // Clean up timer when URL changes (server switch) or unmount
-  useEffect(() => {
-    setLoaded(false);
-    playSignalReceivedRef.current = false;
     return () => {
       if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
     };
-  }, [iframeUrl]);
+  }, [iframeUrl, onPlayerError]);
 
   // Listen for postMessage events from the embed
   useEffect(() => {
@@ -117,7 +115,7 @@ export default function IframePlayer({ iframeUrl, onReady, onTimeUpdate, onEpiso
         }}
         allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
         allowFullScreen
-        referrerPolicy="origin"
+        referrerPolicy="no-referrer-when-downgrade"
       />
     </div>
   );

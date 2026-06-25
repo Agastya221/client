@@ -104,12 +104,38 @@ export default function AnimePlayer({
     }
   }
 
+  // Trigger onReady when allFailed becomes true, so the loading overlay is dismissed
+  // and the user can see the "All servers failed to load" screen.
+  React.useEffect(() => {
+    if (allFailed) {
+      onReady?.();
+    }
+  }, [allFailed, onReady]);
+
   // The iframe URL to actually render: fallback takes priority over source URL
   const iframeUrl = fallbackUrl ?? sourceIframeUrl;
 
-  // Called by IframePlayer when no play signal received within 12 seconds
-  // (indicates the embed is showing a 410 / error page instead of video)
+  // DISABLE_CUSTOM_EMBEDS blocks generic custom embed servers (megaplay, animeplay, etc.)
+  // but should NOT block provider-direct embeds (flixcloud.cc/e/...) from Anivexa worker.
+  // Provider embeds are set as iframeUrl on the source object directly.
+  const DISABLE_CUSTOM_EMBEDS = true;
+
+  // Called by VidstackPlayer/IframePlayer when playback fails
   const handlePlayerError = useCallback(() => {
+    // If HLS failed but we have a provider-direct iframe URL (e.g. flixcloud embed),
+    // fall through to iframe player instead of immediately marking as failed.
+    if (sourceIframeUrl && !fallbackUrl) {
+      // Let the iframe try — the render logic below will pick it up
+      setFallbackUrl(sourceIframeUrl);
+      return;
+    }
+
+    if (DISABLE_CUSTOM_EMBEDS) {
+      console.warn("All playback sources exhausted (custom embeds disabled).");
+      setAllFailed(true);
+      return;
+    }
+
     if (!iframeUrl) {
       // HLS failed, fallback to MegaPlay (Server 1)
       const lang = dubbed ? "dub" : "sub";
@@ -141,7 +167,7 @@ export default function AnimePlayer({
     } catch {
       setAllFailed(true);
     }
-  }, [iframeUrl, failedHosts, malId, episodeNumber, dubbed]);
+  }, [iframeUrl, sourceIframeUrl, fallbackUrl, failedHosts, malId, episodeNumber, dubbed]);
 
   // ── No source at all ──────────────────────────────────────────────────────
   if (!source) {
@@ -193,9 +219,12 @@ export default function AnimePlayer({
     );
   }
 
+
   // ── HLS Mode — Plays direct .m3u8 streams in custom HlsPlayer ──────────
   const hlsUrl = source.proxiedUrl || source.url;
-  const isHls = (source.isM3U8 || source.kind === "hls" || Boolean(hlsUrl?.includes(".m3u8"))) && !fallbackUrl;
+  // Only use HLS player when source.kind is explicitly "hls" or when no iframe is available.
+  // If kind is "iframe", go directly to IframePlayer (don't try doomed HLS proxy).
+  const isHls = source.kind !== "iframe" && (source.isM3U8 || source.kind === "hls" || Boolean(hlsUrl?.includes(".m3u8"))) && !fallbackUrl;
 
   if (isHls && hlsUrl) {
     return (
@@ -217,6 +246,11 @@ export default function AnimePlayer({
 
   // ── Iframe Mode — auto-cycles servers on error ───────────────────────────
   if (iframeUrl) {
+    // For provider-direct embeds (source.kind === "iframe", e.g. flixcloud.cc/e/...),
+    // disable the error detection timer because these embeds don't send postMessage
+    // play-signal events. The 20s timer would always fire and mark the player as failed
+    // even when video is playing fine. Users can manually switch servers if needed.
+    const isProviderEmbed = source?.kind === "iframe";
     return (
       <IframePlayer
         key="custom-iframe-player"
@@ -224,7 +258,7 @@ export default function AnimePlayer({
         onReady={onReady}
         onTimeUpdate={onTimeUpdate}
         onEpisodeEnd={onEpisodeEnd}
-        onPlayerError={handlePlayerError}
+        onPlayerError={isProviderEmbed ? undefined : handlePlayerError}
       />
     );
   }

@@ -31,7 +31,10 @@ export function decodeAnimeId(value: string): { provider: ProviderId; providerId
 }
 
 export function buildProviderOrder(preferred?: ProviderId | null, seeded?: ProviderId | null): ProviderId[] {
-  const fallbackOrder: ProviderId[] = ["hianime", "animekai", "desidub"];
+  const fallbackOrder: ProviderId[] = [
+    "hianime", "animekai", "desidub",
+    "reanime", "allmanga", "anikoto", "animegg", "anineko",
+  ];
   const ordered = [preferred, seeded, ...fallbackOrder].filter(Boolean) as ProviderId[];
   return Array.from(new Set(ordered));
 }
@@ -118,11 +121,13 @@ export function buildProxyUrl(
   referer?: string | null,
   kind: "playlist" | "video" = "playlist",
 ): string {
-  const url = new URL("/api/proxy/m3u8-streaming-proxy", apiBaseUrl);
+  // Use relative path for all client/browser requests to hit local Next.js proxy route,
+  // avoiding CORS and off-line backend server (404) blocks.
+  const url = new URL("/api/proxy/m3u8-streaming-proxy", "http://localhost:3000");
   url.searchParams.set("url", targetUrl);
   if (referer) url.searchParams.set("referer", referer);
   if (kind === "video") url.searchParams.set("type", "video");
-  return url.toString();
+  return url.pathname + url.search;
 }
 
 export function pickFirstNonEmpty(...values: Array<string | null | undefined>): string {

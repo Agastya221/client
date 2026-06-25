@@ -71,6 +71,9 @@ function buildWatchSessionUrl(animeId: string, request: SessionRequest): string 
 }
 
 function hasDirectPlaybackSource(session: WatchSessionModel): boolean {
+  // Only count as a "direct" source if the kind is hls/video (not iframe).
+  // Iframe-kind sources (flixcloud embeds from Anivexa) use the iframe player path.
+  if (session.source?.kind === "iframe") return false;
   return Boolean(session.source?.proxiedUrl || session.source?.url);
 }
 
@@ -592,11 +595,11 @@ export default function WatchExperience({ initialSession, recommendations = null
   const hasDub =
     (dubCount != null && dubCount > 0) ||
     session.episodes.some((ep) => ep.isDubbed) ||
-    session.serverOptions.some((entry) => entry.category === "dub" || entry.category === "raw");
+    session.serverOptions.some((entry) => entry.category === "dub");
   const hasSub =
     canUseEmbed ||
     session.episodes.some((ep) => ep.isSubbed) ||
-    session.serverOptions.some((entry) => entry.category !== "dub" && entry.category !== "raw");
+    session.serverOptions.some((entry) => entry.category === "sub" || !entry.category);
 
   // Cap episode list by dubCount when in dub mode (for synthetic episodes).
   // If dubCount is null (anime not found in Anikoto), show all episodes.
@@ -1326,7 +1329,7 @@ export default function WatchExperience({ initialSession, recommendations = null
                     if (softSubServers.length > 0 && !softSubServers.some((s) => s.id === effectiveActiveServerId)) {
                       const firstSoft = softSubServers[0];
                       if (firstSoft) {
-                        queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: firstSoft.id, dubbed: false });
+                        queueSession({ episodeNumber: session.episode.number, provider: firstSoft.provider, server: firstSoft.id, dubbed: false });
                       }
                     }
                   }}
@@ -1350,7 +1353,7 @@ export default function WatchExperience({ initialSession, recommendations = null
                     if (hardSubServers.length > 0 && !hardSubServers.some((s) => s.id === effectiveActiveServerId)) {
                       const firstHard = hardSubServers[0];
                       if (firstHard) {
-                        queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: firstHard.id, dubbed: false });
+                        queueSession({ episodeNumber: session.episode.number, provider: firstHard.provider, server: firstHard.id, dubbed: false });
                       }
                     }
                   }}
@@ -1380,7 +1383,7 @@ export default function WatchExperience({ initialSession, recommendations = null
                       label={entry.label}
                       subType={entry.subType}
                       active={!session.dubbed && effectiveActiveServerId === entry.id}
-                      onClick={() => queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: entry.id, dubbed: false })}
+                      onClick={() => queueSession({ episodeNumber: session.episode.number, provider: entry.provider, server: entry.id, dubbed: false })}
                     />
                   ))
                 ) : (
@@ -1405,7 +1408,7 @@ export default function WatchExperience({ initialSession, recommendations = null
                     key={entry.id}
                     label={entry.label}
                     active={session.dubbed && effectiveActiveServerId === entry.id && !isDesidub}
-                    onClick={() => queueSession({ episodeNumber: session.episode.number, provider: session.provider, server: entry.id, dubbed: true })}
+                    onClick={() => queueSession({ episodeNumber: session.episode.number, provider: entry.provider, server: entry.id, dubbed: true })}
                   />
                 ))
               ) : (

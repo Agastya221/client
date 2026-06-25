@@ -90,6 +90,40 @@ export default function VidstackPlayer({
     };
   }, [playing]);
 
+  const playStartedRef = useRef(false);
+  const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Trigger onReady on mount to immediately dismiss the loading overlay
+  // and show the Vidstack player structure.
+  useEffect(() => {
+    onReady?.();
+  }, [onReady]);
+
+  // Set up an 8-second timeout to fall back to custom embeds if stream playback doesn't start
+  useEffect(() => {
+    playStartedRef.current = false;
+    if (fallbackTimerRef.current) {
+      clearTimeout(fallbackTimerRef.current);
+      fallbackTimerRef.current = null;
+    }
+
+    if (onError) {
+      fallbackTimerRef.current = setTimeout(() => {
+        if (!playStartedRef.current) {
+          console.warn("HLS playback did not start within 8 seconds, falling back to embeds...");
+          onError();
+        }
+      }, 8000);
+    }
+
+    return () => {
+      if (fallbackTimerRef.current) {
+        clearTimeout(fallbackTimerRef.current);
+        fallbackTimerRef.current = null;
+      }
+    };
+  }, [source.url, onError]);
+
   // ── AniSkip Integration ────────────────────────────────────────
   useEffect(() => {
     const serverSkips: SkipTimes = {
@@ -136,7 +170,7 @@ export default function VidstackPlayer({
 
       <MediaPlayer
         className="w-full h-full aspect-video rounded-lg overflow-hidden border border-white/10 shadow-[0_0_30px_rgba(0,0,0,0.8)] bg-black"
-        src={streamUrl || undefined}
+        src={streamUrl ? { src: streamUrl, type: "application/x-mpegurl" } : undefined}
         onTimeUpdate={(event) => {
           const time = event.currentTime;
           setCurrentTime(time);
@@ -144,9 +178,23 @@ export default function VidstackPlayer({
         }}
         onDurationChange={(duration) => setDuration(duration)}
         onEnded={() => onEpisodeEnd?.()}
-        onPlay={() => setPlaying(true)}
+        onPlay={() => {
+          setPlaying(true);
+          playStartedRef.current = true;
+          if (fallbackTimerRef.current) {
+            clearTimeout(fallbackTimerRef.current);
+            fallbackTimerRef.current = null;
+          }
+        }}
         onPause={() => setPlaying(false)}
-        onCanPlay={() => onReady?.()}
+        onCanPlay={() => {
+          playStartedRef.current = true;
+          if (fallbackTimerRef.current) {
+            clearTimeout(fallbackTimerRef.current);
+            fallbackTimerRef.current = null;
+          }
+          onReady?.();
+        }}
         onError={() => onError?.()}
         onProviderSetup={onProviderSetup}
         crossorigin="anonymous"

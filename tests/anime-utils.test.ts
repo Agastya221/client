@@ -19,8 +19,8 @@ test("encodeAnimeId and decodeAnimeId round-trip provider ids", () => {
 });
 
 test("buildProviderOrder prioritizes preferred and seeded providers without duplicates", () => {
-  assert.deepEqual(buildProviderOrder("animekai", "hianime"), ["animekai", "hianime", "desidub"]);
-  assert.deepEqual(buildProviderOrder("desidub", "desidub"), ["desidub", "hianime", "animekai"]);
+  assert.deepEqual(buildProviderOrder("animekai", "hianime"), ["animekai", "hianime", "desidub", "reanime", "allmanga", "anikoto", "animegg", "anineko"]);
+  assert.deepEqual(buildProviderOrder("desidub", "desidub"), ["desidub", "hianime", "animekai", "reanime", "allmanga", "anikoto", "animegg", "anineko"]);
 });
 
 test("bestTitleMatch chooses the closest normalized title", () => {
