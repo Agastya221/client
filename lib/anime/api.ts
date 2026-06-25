@@ -3255,10 +3255,11 @@ async function fetchAniviexaWatchSession(
   };
 }
 
-// ── Reanime Direct Server-Side Decryption ─────────────────────────────────────
-// Fetches Flixcloud embed HTML on the Next.js server process so that both the
-// token-API call and the subsequent M3U8 proxy request share the same server IP,
-// eliminating 403 Forbidden errors caused by IP-locked Flixcloud JWT tokens.
+// ── Reanime via Worker Stream Proxy ──────────────────────────────────────────
+// Flixcloud CDN blocks all non-browser/datacenter IPs at the network level.
+// The only solution: let the Cloudflare Worker (which Flixcloud trusts) serve
+// the M3U8 via its /stream/ endpoint, then proxy THAT through our Next.js
+// m3u8-streaming-proxy so HLS.js can consume it without CORS issues.
 async function fetchReanimeDirectWatchSession(
   anilistId: string,
   episodeNum: number,
@@ -3282,17 +3283,21 @@ async function fetchReanimeDirectWatchSession(
 
   const data = (await response.json()) as Record<string, any>;
 
-  // Parse allServers list from worker response
-  const allServers = ensureArray(data.allServers || data.data?.allServers);
+  // Intro / Outro from worker data
+  const introStart = data.intro_start ?? data.intro?.start ?? null;
+  const introEnd   = data.intro_end   ?? data.intro?.end   ?? null;
+  const outroStart = data.outro_start ?? data.outro?.start ?? null;
+  const outroEnd   = data.outro_end   ?? data.outro?.end   ?? null;
+  const intro = introStart != null ? { start: Number(introStart), end: Number(introEnd ?? (Number(introStart) + 90)) } : null;
+  const outro = outroStart != null ? { start: Number(outroStart), end: Number(outroEnd ?? (Number(outroStart) + 90)) } : null;
 
-  // Filter to current audio type
+  // Parse allServers to build server option buttons (HD-1, HD-2, S-SUB etc.)
+  const allServers = ensureArray(data.allServers || data.data?.allServers);
   const relevantServers = allServers.filter((s: any) => {
     const typeStr = (s.type || "sub").toLowerCase();
-    const isDub = typeStr.includes("dub");
-    return dubbed === isDub;
+    return dubbed === typeStr.includes("dub");
   });
 
-  // Build server options
   const serverOptions: ServerOption[] = relevantServers.map((s: any, i: number) => {
     const typeStr = (s.type || "sub").toLowerCase();
     const sType: "soft" | "hard" = typeStr === "s-sub" ? "soft" : "hard";
@@ -3315,75 +3320,56 @@ async function fetchReanimeDirectWatchSession(
     });
   }
 
-  // Select target server
-  let targetServer: any = relevantServers[0] ?? null;
   let activeId = serverOptions[0]?.id ?? "reanime-default";
   if (requestedServer) {
     const idx = serverOptions.findIndex((opt) => opt.id === requestedServer);
-    if (idx >= 0) {
-      activeId = serverOptions[idx].id;
-      targetServer = relevantServers[idx] ?? targetServer;
-    }
+    if (idx >= 0) activeId = serverOptions[idx].id;
   }
 
-  // Intro / Outro from worker data
-  const introStart = data.intro_start ?? data.intro?.start ?? null;
-  const introEnd = data.intro_end ?? data.intro?.end ?? null;
-  const outroStart = data.outro_start ?? data.outro?.start ?? null;
-  const outroEnd = data.outro_end ?? data.outro?.end ?? null;
-  const intro = introStart != null ? { start: Number(introStart), end: Number(introEnd ?? (Number(introStart) + 90)) } : null;
-  const outro = outroStart != null ? { start: Number(outroStart), end: Number(outroEnd ?? (Number(outroStart) + 90)) } : null;
+  // ── Use the worker's /stream/ endpoint as M3U8 source ───────────────────────
+  // The worker streams Flixcloud HLS from its own IP (which Flixcloud trusts).
+  // streams[1] has { type: "hls-redirect", url: "...workers.dev/stream/reanime/..." }
+  // redirect_url is the same short-form URL from the worker.
+  const streams: any[] = ensureArray(data.streams);
+  const workerStreamEntry = streams.find((s: any) =>
+    s.type === "hls-redirect" || (typeof s.url === "string" && s.url.includes("/stream/"))
+  );
+  const workerStreamUrl: string =
+    workerStreamEntry?.url ||
+    data.redirect_url ||
+    `${base}/stream/reanime/${anilistId}/${audio}/${episodeNum}`;
 
-  // Fetch and decrypt embed HTML directly on the Next.js server (same IP → no 403)
-  const embedUrl: string | undefined = targetServer?.embed;
-  if (embedUrl) {
-    try {
-      const embedHtml = await fetch(embedUrl, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-          Referer: "https://reanime.to/",
-          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        },
-        signal: AbortSignal.timeout(12_000),
-      }).then((r) => {
-        if (!r.ok) throw new Error(`Embed fetch failed ${r.status}`);
-        return r.text();
-      });
+  // The worker's /stream/ endpoint has Access-Control-Allow-Origin: * so HLS.js
+  // in the browser can fetch it directly — no Next.js proxy needed.
+  // Browser requests are NOT blocked by Cloudflare Bot Fight Mode (only server IPs are).
+  const source: StreamSource = {
+    kind: "hls",
+    label: "Reanime",
+    url: workerStreamUrl,
+    proxiedUrl: workerStreamUrl,   // direct worker URL — browser fetches it natively
+    iframeUrl: null,
+    isM3U8: true,
+    requiresProxy: false,          // browser CAN fetch this cross-origin (CORS: *)
+  };
 
-      const { url: hlsUrl, subtitles: rawSubs } = await decryptEmbed(embedHtml);
-      const proxiedUrl = `/api/proxy/m3u8-streaming-proxy?url=${encodeURIComponent(hlsUrl)}&referer=${encodeURIComponent("https://flixcloud.cc/")}`;
 
-      const source: StreamSource = {
-        kind: "hls",
-        label: `Reanime ${targetServer?.name || "HD"}`,
-        url: hlsUrl,
-        proxiedUrl,
-        iframeUrl: null,
-        isM3U8: true,
-        requiresProxy: true,
-      };
+  // Subtitles from worker response
+  const rawSubtitles = ensureArray(data.subtitles || []);
+  const subtitles: SubtitleTrack[] = rawSubtitles
+    .filter((s: any) => {
+      const fmt = String(s.format || "").toLowerCase();
+      if (fmt === "ass" || fmt === "ssa") return false;
+      return Boolean(s.file || s.url);
+    })
+    .map((s: any) => ({
+      label: String(s.label || s.language || s.lang || "Subtitle"),
+      lang: String(s.language || s.lang || s.label || "Unknown"),
+      url: String(s.file || s.url || ""),
+      isDefault: Boolean(s.default),
+    }))
+    .filter((s: SubtitleTrack) => Boolean(s.url));
 
-      const subtitles: SubtitleTrack[] = ensureArray(rawSubs)
-        .filter((s: any) => {
-          const fmt = String(s.format || "").toLowerCase();
-          if (fmt === "ass" || fmt === "ssa") return false;
-          return Boolean(s.file || s.url);
-        })
-        .map((s: any) => ({
-          label: String(s.label || s.language || s.lang || "Subtitle"),
-          lang: String(s.language || s.lang || s.label || "Unknown"),
-          url: String(s.file || s.url || ""),
-          isDefault: Boolean(s.default),
-        }))
-        .filter((s: SubtitleTrack) => Boolean(s.url));
-
-      return { source, subtitles, serverOptions, activeServerId: activeId, intro, outro };
-    } catch (err) {
-      console.error("[Reanime Direct] Embed decryption failed:", err);
-    }
-  }
-
-  return { source: null, subtitles: [], serverOptions, activeServerId: activeId, intro, outro };
+  return { source, subtitles, serverOptions, activeServerId: activeId, intro, outro };
 }
 
 async function fetchProviderWatch(
