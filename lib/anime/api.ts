@@ -3323,10 +3323,8 @@ async function fetchAniviexaWatchSession(
   }
 
   const selectedReferer = selectedStream?.referer || selectedStream?.referrer || null;
-  const workerProxyUrl = (assetUrl: string, referer?: string | null) => {
-    const refererParam = referer ? `&referer=${encodeURIComponent(String(referer))}` : "";
-    return `${base}/proxy?url=${encodeURIComponent(assetUrl)}${refererParam}`;
-  };
+  const streamProxyUrl = (assetUrl: string, referer?: string | null) =>
+    buildProxyUrl(API_BASE_URL, assetUrl, referer);
 
   const selectedPayload = selectedStream?.__payload || selectedEnvelopeCandidates[0]?.payload || fallbackPayload;
   const rawSubtitles = ensureArray(selectedPayload.subtitles || data.subtitles);
@@ -3346,7 +3344,7 @@ async function fetchAniviexaWatchSession(
       return {
         label: seen > 0 ? `${label} ${seen + 1}` : label,
         lang: seen > 0 ? `${baseLang}-${seen + 1}` : baseLang,
-        url: rawUrl ? workerProxyUrl(rawUrl, s.referer || s.referrer || selectedReferer) : "",
+        url: rawUrl ? streamProxyUrl(rawUrl, s.referer || s.referrer || selectedReferer) : "",
         isDefault: seen === 0,
       };
     })
@@ -3362,7 +3360,7 @@ async function fetchAniviexaWatchSession(
       kind: isEmbed ? "iframe" : (isM3U8 ? "hls" : "video"),
       label: selectedLabel,
       url: streamUrl,
-      proxiedUrl: isM3U8 ? workerProxyUrl(streamUrl, selectedReferer) : streamUrl,
+      proxiedUrl: isM3U8 ? streamProxyUrl(streamUrl, selectedReferer) : streamUrl,
       iframeUrl: isEmbed ? streamUrl : null,
       isM3U8,
       requiresProxy: isM3U8,
@@ -3497,9 +3495,9 @@ async function fetchAnivexaAggregateData(
       fetchedAt: Date.now(),
     };
   }, {
-    freshMs: 20 * 60 * 1000,
-    staleMs: 40 * 60 * 1000,
-    expireMs: 60 * 60 * 1000,
+    freshMs: 45 * 1000,
+    staleMs: 45 * 1000,
+    expireMs: 90 * 1000,
     shouldCache: (value) => {
       const aggregate = value as AnivexaAggregateData;
       return Array.isArray(aggregate?.buckets) &&
@@ -3556,10 +3554,8 @@ async function fetchAnivexaAggregateWatchSession(
     ? `anivexa2-${selectedBucket.provider}-${selectedType}-${dubbed ? "dub" : selectedBucket.subType}`
     : requestedServer || null;
 
-  const workerProxyUrl = (assetUrl: string, referer?: string | null) => {
-    const refererParam = referer ? `&referer=${encodeURIComponent(String(referer))}` : "";
-    return `${base}/proxy?url=${encodeURIComponent(assetUrl)}${refererParam}`;
-  };
+  const streamProxyUrl = (assetUrl: string, referer?: string | null) =>
+    buildProxyUrl(API_BASE_URL, assetUrl, referer);
   const selectedReferer = selectedStream?.referer || selectedStream?.referrer || null;
   const rawSubtitles = selectedBucket?.subtitles || [];
   const subtitleLangCounts = new Map<string, number>();
@@ -3577,7 +3573,7 @@ async function fetchAnivexaAggregateWatchSession(
       return {
         label: seen > 0 ? `${label} ${seen + 1}` : label,
         lang: seen > 0 ? `${baseLang}-${seen + 1}` : baseLang,
-        url: rawUrl ? workerProxyUrl(rawUrl, s.referer || s.referrer || selectedReferer) : "",
+        url: rawUrl ? streamProxyUrl(rawUrl, s.referer || s.referrer || selectedReferer) : "",
         isDefault: seen === 0,
       };
     })
@@ -3592,7 +3588,7 @@ async function fetchAnivexaAggregateWatchSession(
       kind: isEmbed ? "iframe" : (isM3U8 ? "hls" : "video"),
       label: selectedBucket?.label || "Anivexa",
       url: streamUrl,
-      proxiedUrl: isM3U8 ? workerProxyUrl(streamUrl, selectedReferer) : streamUrl,
+      proxiedUrl: isM3U8 ? streamProxyUrl(streamUrl, selectedReferer) : streamUrl,
       iframeUrl: isEmbed ? streamUrl : null,
       isM3U8,
       requiresProxy: isM3U8,
@@ -5037,6 +5033,7 @@ export async function resolveStreamSource(input: {
   outro?: { start: number; end: number } | null;
   watchAttempts: WatchAttempt[];
 }> {
+  const isAnivexaSourceRequest = Boolean(input.server?.startsWith("anivexa2-") || input.server?.startsWith("anivexa-"));
   const cacheKey = `stream:${input.animeId}:ep${input.episodeNumber || 1}:${input.dubbed ? "dub" : "sub"}:${input.server || "auto"}:${input.provider || "auto"}`;
 
   return cacheFetch(cacheKey, async () => measureAsync(
@@ -5207,9 +5204,9 @@ export async function resolveStreamSource(input: {
       };
     },
   ), {
-    freshMs: 5 * 60 * 1000,      // 5 min fresh
-    staleMs: 15 * 60 * 1000,     // 15 min stale-while-revalidate
-    expireMs: 30 * 60 * 1000,    // 30 min hard expire
+    freshMs: isAnivexaSourceRequest ? 30 * 1000 : 5 * 60 * 1000,
+    staleMs: isAnivexaSourceRequest ? 30 * 1000 : 15 * 60 * 1000,
+    expireMs: isAnivexaSourceRequest ? 90 * 1000 : 30 * 60 * 1000,
     shouldCache: (value) => shouldCacheStreamResolution(value as { source: StreamSource | null }),
   });
 }

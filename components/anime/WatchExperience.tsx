@@ -511,15 +511,6 @@ export default function WatchExperience({ initialSession, recommendations = null
   const [episodeQuery, setEpisodeQuery] = useState("");
   const [showEpisodeList, setShowEpisodeList] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
-  // Sub-type filter for the server panel — initialised from the session so the
-  // active button immediately reflects what is actually playing.
-  const [subTypeFilter, setSubTypeFilter] = useState<"soft" | "hard">(() => {
-    const activeId = initialSession.activeServerId || "";
-    if (activeId === "hls-hardsub" || activeId === "scraper-sub" || activeId.endsWith("-hard")) return "hard";
-    const { softSubServers: initialSoft, hardSubServers: initialHard } = summarizeServerGroups(initialSession.serverOptions);
-    if (initialSoft.length === 0 && initialHard.length > 0) return "hard";
-    return "soft";
-  });
   const [loadedSurfaceKey, setLoadedSurfaceKey] = useState<string | null>(null);
   // Optimistic server selection: turns the button green immediately on click
   // before the embed has finished loading. Cleared when the session commits.
@@ -1234,19 +1225,6 @@ export default function WatchExperience({ initialSession, recommendations = null
   const showHindi = session.availableProviders.includes("desidub") || session.provider === "desidub";
 
 
-  // ── Sync subTypeFilter whenever the committed session switches server ───────
-  // Without this, the S-SUB/H-SUB buttons stay out of sync after a session
-  // loads with a different server than what was last manually selected.
-  useEffect(() => {
-    const active = session.activeServerId || "";
-    if (active === "hls-hardsub" || active === "scraper-sub" || active.endsWith("-hard")) {
-      setSubTypeFilter("hard");
-    } else if (active === "hls-softsub" || active.endsWith("-sub") || active.endsWith("-soft")) {
-      setSubTypeFilter("soft");
-    }
-  }, [session.activeServerId]);
-
-
   const heroImage =
     session.anime.banner ||
     session.anime.poster ||
@@ -1274,6 +1252,62 @@ export default function WatchExperience({ initialSession, recommendations = null
       dubbed: session.dubbed,
       server: null,
     });
+  };
+
+  const internalHardSubServers = hardSubServers.filter((entry) => !isEmbedServerOption(entry.id));
+  const internalSoftSubServers = softSubServers.filter((entry) => !isEmbedServerOption(entry.id));
+  const internalDubServers = dubServers.filter((entry) => !isEmbedServerOption(entry.id));
+  const externalSubServers = subServers.filter((entry) => isEmbedServerOption(entry.id));
+  const externalDubServers = dubServers.filter((entry) => isEmbedServerOption(entry.id));
+  const internalServerCount = internalHardSubServers.length + internalSoftSubServers.length + internalDubServers.length;
+  const externalServerCount = externalSubServers.length + externalDubServers.length;
+
+  const renderServerRow = (
+    label: string,
+    entries: ServerOption[],
+    options: { dubbed?: boolean; provider?: ProviderId; emptyLabel?: string; accent?: string } = {},
+  ) => {
+    if (entries.length === 0 && !options.emptyLabel) return null;
+    return (
+      <div className="grid gap-2 sm:grid-cols-[92px_1fr] sm:items-center">
+        <span className="text-[11px] font-bold text-white/45 sm:text-right">{label}:</span>
+        <div className="flex flex-wrap gap-2">
+          {entries.length > 0 ? entries.map((entry) => (
+            <ServerButton
+              key={entry.id}
+              label={entry.label}
+              subType={entry.subType}
+              tag={isEmbedServerOption(entry.id) ? "Embed" : "HLS"}
+              accentColor={options.accent || accentColor}
+              active={Boolean(
+                effectiveActiveServerId === entry.id &&
+                (options.provider === "desidub"
+                  ? isDesidub
+                  : Boolean(options.dubbed) === Boolean(session.dubbed) && (!options.dubbed || !isDesidub))
+              )}
+              onClick={() => queueSession({
+                episodeNumber: session.episode.number,
+                provider: options.provider || entry.provider,
+                server: entry.id,
+                dubbed: Boolean(options.dubbed),
+              })}
+            />
+          )) : (
+            <ServerButton
+              label={options.emptyLabel || "Try another source"}
+              active={false}
+              accentColor={options.accent || accentColor}
+              onClick={() => queueSession({
+                episodeNumber: session.episode.number,
+                provider: options.provider || mainFallback,
+                server: null,
+                dubbed: Boolean(options.dubbed),
+              })}
+            />
+          )}
+        </div>
+      </div>
+    );
   };
 
   /* ════════════════════════════════════════════════
@@ -1567,199 +1601,39 @@ export default function WatchExperience({ initialSession, recommendations = null
           </div>
         </div>
 
-        {/* Server rows */}
-        <div className="space-y-2">
-          {/* Sub servers — S-SUB / H-SUB toggle always visible */}
-          <div className="flex flex-col gap-2">
-            {/* Row 1: label + sub-type toggles */}
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[11px] font-bold text-white/40 uppercase tracking-wider w-8 shrink-0">Sub</span>
-              <div className="flex gap-1 items-center">
-                {/* S-SUB toggle */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSubTypeFilter("soft");
-                    if (softSubServers.length > 0 && !softSubServers.some((s) => s.id === effectiveActiveServerId)) {
-                      const firstSoft = softSubServers[0];
-                      if (firstSoft) {
-                        queueSession({ episodeNumber: session.episode.number, provider: firstSoft.provider, server: firstSoft.id, dubbed: false });
-                      }
-                    }
-                  }}
-                  disabled={softSubServers.length === 0}
-                  className={`text-[9px] font-black tracking-widest px-1.5 py-0.5 rounded transition-all border ${
-                    softSubServers.length === 0
-                      ? "bg-transparent text-white/20 border-white/8 cursor-not-allowed"
-                      : subTypeFilter === "soft"
-                        ? "bg-[rgba(34,211,238,0.18)] text-[rgba(34,211,238,1)] border-[rgba(34,211,238,0.4)]"
-                        : "bg-transparent text-white/35 border-white/12 hover:text-white/55 hover:border-white/20"
-                  }`}
-                  title={softSubServers.length === 0 ? "No soft sub stream available for this episode" : "Soft subtitles — external VTT overlay, can be restyled"}
-                >
-                  S-SUB
-                </button>
-                {/* H-SUB toggle */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSubTypeFilter("hard");
-                    if (hardSubServers.length > 0 && !hardSubServers.some((s) => s.id === effectiveActiveServerId)) {
-                      const firstHard = hardSubServers[0];
-                      if (firstHard) {
-                        queueSession({ episodeNumber: session.episode.number, provider: firstHard.provider, server: firstHard.id, dubbed: false });
-                      }
-                    }
-                  }}
-                  disabled={hardSubServers.length === 0}
-                  className={`text-[9px] font-black tracking-widest px-1.5 py-0.5 rounded transition-all border ${
-                    hardSubServers.length === 0
-                      ? "bg-transparent text-white/20 border-white/8 cursor-not-allowed"
-                      : subTypeFilter === "hard"
-                        ? "bg-[rgba(251,191,36,0.18)] text-[rgba(251,191,36,1)] border-[rgba(251,191,36,0.4)]"
-                        : "bg-transparent text-white/35 border-white/12 hover:text-white/55 hover:border-white/20"
-                  }`}
-                  title={hardSubServers.length === 0 ? "No hard sub stream available for this episode" : "Hard subtitles — burnt into the video, cannot be restyled"}
-                >
-                  H-SUB
-                </button>
-              </div>
+        {/* Server panel — Anivexa-style grouping, AnimePlay theme */}
+        <div className="rounded-xl border border-white/8 bg-black/20 p-3 md:p-4 space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <div
+              className="inline-flex items-center gap-2 rounded-full border px-4 py-2 text-[11px] font-black uppercase tracking-wider"
+              style={{ color: accentColor, borderColor: accentStyle(0.45), background: accentStyle(0.12) }}
+            >
+              <Tv2 className="h-3.5 w-3.5" aria-hidden="true" />
+              Internal
+              <span className="rounded-full px-2 py-0.5 text-[10px] text-white" style={{ background: accentStyle(0.35) }}>
+                {internalServerCount}
+              </span>
             </div>
-
-            {/* Row 2: server buttons */}
-            <div className="space-y-1.5 pl-10">
-              {(() => {
-                const serversToShow = subTypeFilter === "hard" ? hardSubServers : softSubServers;
-                const hlsServers = serversToShow.filter((entry) => !isEmbedServerOption(entry.id));
-                const embedServers = serversToShow.filter((entry) => isEmbedServerOption(entry.id));
-                if (serversToShow.length === 0) {
-                  return (
-                    <div className="flex flex-wrap gap-1.5">
-                      <ServerButton
-                        label={`Try ${humanizeProviderId(mainFallback)} sub`}
-                        active={false}
-                        onClick={() => queueSession({ episodeNumber: session.episode.number, provider: mainFallback, server: null, dubbed: false })}
-                      />
-                    </div>
-                  );
-                }
-                return (
-                  <>
-                    {hlsServers.length > 0 && (
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[10px] font-bold text-white/30 uppercase tracking-wider w-9 shrink-0">HLS</span>
-                        <div className="flex flex-wrap gap-1.5">
-                          {hlsServers.map((entry) => (
-                            <ServerButton
-                              key={entry.id}
-                              label={entry.label}
-                              subType={entry.subType}
-                              active={!session.dubbed && effectiveActiveServerId === entry.id}
-                              onClick={() => queueSession({ episodeNumber: session.episode.number, provider: entry.provider, server: entry.id, dubbed: false })}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {embedServers.length > 0 && (
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[10px] font-bold text-white/30 uppercase tracking-wider w-9 shrink-0">Embed</span>
-                        <div className="flex flex-wrap gap-1.5">
-                          {embedServers.map((entry) => (
-                            <ServerButton
-                              key={entry.id}
-                              label={entry.label}
-                              subType={entry.subType}
-                              active={!session.dubbed && effectiveActiveServerId === entry.id}
-                              onClick={() => queueSession({ episodeNumber: session.episode.number, provider: entry.provider, server: entry.id, dubbed: false })}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </>
-                );
-              })()}
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-[11px] font-black uppercase tracking-wider text-white/55">
+              <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+              External
+              <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/70">
+                {externalServerCount}
+              </span>
             </div>
           </div>
 
-          {/* Dub servers — hidden entirely when no dub is available */}
-          {hasDub && (
-          <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-[11px] font-bold text-white/40 w-12 uppercase tracking-wider shrink-0">Dub</span>
-            <div className="space-y-1.5">
-              {dubServers.length > 0 ? (() => {
-                const hlsServers = dubServers.filter((entry) => !isEmbedServerOption(entry.id));
-                const embedServers = dubServers.filter((entry) => isEmbedServerOption(entry.id));
-                return (
-                  <>
-                    {hlsServers.length > 0 && (
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[10px] font-bold text-white/30 uppercase tracking-wider w-9 shrink-0">HLS</span>
-                        <div className="flex flex-wrap gap-1.5">
-                          {hlsServers.map((entry) => (
-                            <ServerButton
-                              key={entry.id}
-                              label={entry.label}
-                              active={session.dubbed && effectiveActiveServerId === entry.id && !isDesidub}
-                              onClick={() => queueSession({ episodeNumber: session.episode.number, provider: entry.provider, server: entry.id, dubbed: true })}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {embedServers.length > 0 && (
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[10px] font-bold text-white/30 uppercase tracking-wider w-9 shrink-0">Embed</span>
-                        <div className="flex flex-wrap gap-1.5">
-                          {embedServers.map((entry) => (
-                            <ServerButton
-                              key={entry.id}
-                              label={entry.label}
-                              active={session.dubbed && effectiveActiveServerId === entry.id && !isDesidub}
-                              onClick={() => queueSession({ episodeNumber: session.episode.number, provider: entry.provider, server: entry.id, dubbed: true })}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </>
-                );
-              })() : (
-                <div className="flex flex-wrap gap-1.5">
-                  <ServerButton
-                    label={`Try ${humanizeProviderId(mainFallback)} dub`}
-                    active={false}
-                    onClick={() => queueSession({ episodeNumber: session.episode.number, provider: mainFallback, server: null, dubbed: true })}
-                  />
-                </div>
-              )}
-            </div>
+          <div className="space-y-3">
+            {renderServerRow("Hard Subs", internalHardSubServers, { emptyLabel: `Try ${humanizeProviderId(mainFallback)} sub` })}
+            {renderServerRow("Soft Subs", internalSoftSubServers, { emptyLabel: `Try ${humanizeProviderId(mainFallback)} sub` })}
+            {hasDub && renderServerRow("Dub", internalDubServers, { dubbed: true, emptyLabel: `Try ${humanizeProviderId(mainFallback)} dub`, accent: "#4ade80" })}
+            {showHindi && renderServerRow("Hindi", hindiServers, { dubbed: true, provider: "desidub", emptyLabel: "DesiDub", accent: "#ff5500" })}
           </div>
-          )}
 
-          {/* Hindi servers */}
-          {showHindi && (
-            <div className="flex items-center gap-3 flex-wrap">
-              <span className="text-[11px] font-bold text-[#ff5500]/80 w-12 uppercase tracking-wider shrink-0">Hindi</span>
-              <div className="flex flex-wrap gap-1.5">
-                {hindiServers.length > 0 ? (
-                  hindiServers.map((entry) => (
-                    <ServerButton
-                      key={entry.id}
-                      label={entry.label}
-                      active={isDesidub && effectiveActiveServerId === entry.id}
-                      onClick={() => queueSession({ episodeNumber: session.episode.number, provider: "desidub", server: entry.id, dubbed: true })}
-                    />
-                  ))
-                ) : (
-                  <ServerButton
-                    label="DesiDub"
-                    active={false}
-                    onClick={() => queueSession({ episodeNumber: session.episode.number, provider: "desidub", server: null, dubbed: true })}
-                  />
-                )}
-              </div>
+          {externalServerCount > 0 && (
+            <div className="space-y-3 border-t border-white/[0.06] pt-3">
+              {renderServerRow("Sub Embeds", externalSubServers)}
+              {hasDub && renderServerRow("Dub Embeds", externalDubServers, { dubbed: true, accent: "#4ade80" })}
             </div>
           )}
         </div>

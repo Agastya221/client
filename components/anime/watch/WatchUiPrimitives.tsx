@@ -47,12 +47,16 @@ export function ServerButton({
   active,
   onClick,
   subType,
+  tag,
+  accentColor = "#8b5cf6",
 }: {
   label: string;
   active: boolean;
   onClick: () => void;
   /** If set, shows a S-SUB or H-SUB badge chip on the button */
   subType?: "soft" | "hard";
+  tag?: string;
+  accentColor?: string;
 }) {
   return (
     <button
@@ -60,11 +64,24 @@ export function ServerButton({
       onClick={onClick}
       className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[11px] font-bold transition-all border ${
         active
-          ? "bg-violet-500/18 text-violet-200 border-violet-400/55 shadow-[0_0_0_1px_rgba(167,139,250,0.22)]"
-          : "bg-white/[0.04] text-white/62 border-white/10 hover:bg-violet-500/10 hover:text-violet-100 hover:border-violet-300/30"
+          ? "text-white shadow-[0_0_0_1px_rgba(255,255,255,0.08)]"
+          : "bg-white/[0.04] text-white/62 border-white/10 hover:bg-white/[0.08] hover:text-white hover:border-white/20"
       }`}
+      style={active ? {
+        background: `${accentColor}24`,
+        borderColor: `${accentColor}88`,
+        boxShadow: `0 0 0 1px ${accentColor}30, 0 0 18px ${accentColor}18`,
+      } : undefined}
     >
       {label}
+      {tag && (
+        <span
+          className="text-[9px] font-black tracking-widest px-1.5 py-0.5 rounded-full border"
+          style={{ background: `${accentColor}20`, color: accentColor, borderColor: `${accentColor}40` }}
+        >
+          {tag}
+        </span>
+      )}
       {subType === "soft" && (
         <span
           className="text-[9px] font-black tracking-widest px-1.5 py-0.5 rounded-full"
