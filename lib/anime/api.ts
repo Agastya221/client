@@ -47,6 +47,23 @@ export const ANIVEXA_WORKER_URL = (process.env.NEXT_PUBLIC_ANIVEXA_WORKER_URL ||
 
 type AniviexaProvider = "reanime" | "allmanga" | "anikoto" | "animegg" | "anineko";
 const ANIVEXA_PROVIDERS: AniviexaProvider[] = ["reanime", "allmanga", "anikoto", "animegg", "anineko"];
+const ANIVEXA_PROVIDER_SET = new Set<ProviderId>(ANIVEXA_PROVIDERS);
+type AnivexaWorkerProvider = AniviexaProvider | "animepahe" | "anidbapp";
+const ANIVEXA_WORKER_PROVIDERS: AnivexaWorkerProvider[] = ["animegg", "anineko", "allmanga", "anikoto", "reanime", "animepahe", "anidbapp"];
+const ANIVEXA_WORKER_WATCH_ALIAS: Partial<Record<AnivexaWorkerProvider, AnivexaWorkerProvider>> = {
+  anikoto: "anikoto",
+};
+const ANIVEXA_DISPLAY_NAMES: Record<AnivexaWorkerProvider, string> = {
+  animegg: "Nexus",
+  allmanga: "Lunar",
+  anineko: "Prism",
+  anikoto: "Solaris",
+  reanime: "Frost",
+  animepahe: "Sally",
+  anidbapp: "Atlas",
+};
+const ANIVEXA_HARD_SUB_PROVIDERS = new Set<AnivexaWorkerProvider>(["animegg", "anineko", "allmanga", "animepahe"]);
+const ANIVEXA_HLS_ONLY_PROVIDERS = new Set<AnivexaWorkerProvider>(["anikoto"]);
 
 export function resolveAnimeApiBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
   const configuredBaseUrl = String(env.ANIME_API_BASE_URL || env.NEXT_PUBLIC_ANIME_API_BASE_URL || "").trim();
@@ -92,6 +109,23 @@ type ProviderWatchPayload = {
   activeServerId: string | null;
   intro?: { start: number; end: number } | null;
   outro?: { start: number; end: number } | null;
+};
+
+type AnivexaAggregateBucket = {
+  provider: AnivexaWorkerProvider;
+  label: string;
+  internal: any[];
+  embed: any[];
+  subtitles: any[];
+  payload: any;
+  download: string | null;
+  subType: "soft" | "hard";
+};
+
+type AnivexaAggregateData = {
+  buckets: AnivexaAggregateBucket[];
+  serverOptions: ServerOption[];
+  fetchedAt: number;
 };
 
 type AnimeDetailModelOptions = {
@@ -236,8 +270,13 @@ function cloneCatalogAnime(anime: CatalogAnime, providerIds: Partial<Record<Prov
 }
 
 function parseAnilistPassthroughId(providerId: string): number | null {
-  if (!providerId.startsWith("anilist:")) return null;
-  return numberOrNull(providerId.slice("anilist:".length));
+  if (providerId.startsWith("anilist:")) {
+    return numberOrNull(providerId.slice("anilist:".length));
+  }
+  if (providerId.startsWith("anilist~")) {
+    return numberOrNull(providerId.slice("anilist~".length));
+  }
+  return null;
 }
 
 /**
@@ -3147,7 +3186,18 @@ async function fetchAniviexaWatchSession(
   if (!base) throw new Error("NEXT_PUBLIC_ANIVEXA_WORKER_URL is not configured");
 
   const audio = dubbed ? "dub" : "sub";
+  const preferredMode = requestedGatewayMode(requestedServer);
   const url = `${base}/watch/${provider}/${anilistId}/${audio}/${provider}-${episodeNum}`;
+
+  recordLog("info", "anime.anivexa.watch.request", {
+    provider,
+    anilistId,
+    episodeNumber: episodeNum,
+    audio,
+    requestedServer: requestedServer || "auto",
+    preferredMode: preferredMode || "auto",
+    workerPath: `/watch/${provider}/${anilistId}/${audio}/${provider}-${episodeNum}`,
+  });
 
   const response = await fetch(url, {
     headers: { Accept: "application/json", "User-Agent": "AnimeKAI-Frontend/1.0" },
@@ -3155,50 +3205,77 @@ async function fetchAniviexaWatchSession(
   });
   if (!response.ok) {
     const body = await response.text().catch(() => "");
+    recordLog("warn", "anime.anivexa.watch.http_error", {
+      provider,
+      anilistId,
+      episodeNumber: episodeNum,
+      audio,
+      status: response.status,
+    }, body.slice(0, 180));
     throw new Error(`Anivexa/${provider} ${response.status}: ${body.slice(0, 120)}`);
   }
 
   const data = (await response.json()) as Record<string, any>;
 
-  // Normalize response envelope
-  const audioPayload = (dubbed ? [data.sdub, data.hdub, data.dub] : [data.ssub, data.hsub, data.sub])
-    .find((c) => c && typeof c === "object") || null;
-  const payload = audioPayload || data.result || data.data || data;
+  const envelopeCandidates = (dubbed
+    ? [
+        { key: "sdub", payload: data.sdub, subType: undefined as "soft" | "hard" | undefined },
+        { key: "hdub", payload: data.hdub, subType: undefined as "soft" | "hard" | undefined },
+        { key: "dub", payload: data.dub, subType: undefined as "soft" | "hard" | undefined },
+      ]
+    : [
+        { key: "ssub", payload: data.ssub, subType: "soft" as const },
+        { key: "hsub", payload: data.hsub, subType: "hard" as const },
+        { key: "sub", payload: data.sub, subType: provider === "anikoto" ? "soft" as const : "hard" as const },
+      ])
+    .filter((entry) => entry.payload && typeof entry.payload === "object");
+  const fallbackPayload = data.result || data.data || data;
+  const selectedEnvelopeCandidates = envelopeCandidates.length
+    ? envelopeCandidates
+    : [{ key: "root", payload: fallbackPayload, subType: dubbed ? undefined : (provider === "anikoto" ? "soft" as const : "hard" as const) }];
 
-  const rawStreams: any[] = ensureArray(payload.streams || data.streams);
-  const streams = rawStreams.filter((s) => !s.audio || s.audio === audio);
-  const activeStreams = streams.length > 0 ? streams : rawStreams;
+  const rawStreams: any[] = selectedEnvelopeCandidates.flatMap((entry) =>
+    ensureArray(entry.payload.streams || []).map((stream: any) => ({
+      ...stream,
+      __payload: entry.payload,
+      __envelopeKey: entry.key,
+      __subType: entry.subType,
+    })),
+  );
+  const fallbackStreams = rawStreams.length > 0 ? rawStreams : ensureArray(data.streams).map((stream: any) => ({
+    ...stream,
+    __payload: fallbackPayload,
+    __envelopeKey: "root",
+    __subType: dubbed ? undefined : (provider === "anikoto" ? "soft" as const : "hard" as const),
+  }));
+  const streams = fallbackStreams.filter((s) => !s.audio || s.audio === audio);
+  const activeStreams = streams.length > 0 ? streams : fallbackStreams;
+  recordLog("info", "anime.anivexa.watch.payload", {
+    provider,
+    anilistId,
+    episodeNumber: episodeNum,
+    audio,
+    rawStreamCount: rawStreams.length,
+    activeStreamCount: activeStreams.length,
+    rawSubtitleCount: selectedEnvelopeCandidates.reduce((count, entry) => count + ensureArray(entry.payload.subtitles).length, 0),
+    envelope: selectedEnvelopeCandidates.map((entry) => entry.key).join(","),
+  });
 
-  const rawSubtitles = ensureArray(payload.subtitles || data.subtitles);
-  const subtitles: SubtitleTrack[] = rawSubtitles
-    .filter((s: any) => {
-      const fmt = String(s.format || "").toLowerCase();
-      if (fmt === "ass" || fmt === "ssa") return false;
-      return Boolean(s.file || s.url);
-    })
-    .map((s: any) => ({
-      label: String(s.label || s.language || s.lang || "Subtitle"),
-      lang: String(s.language || s.lang || s.label || "Unknown"),
-      url: String(s.file || s.url || ""),
-      isDefault: Boolean(s.default),
-    }))
-    .filter((s) => s.url);
-
-  const provLabel = provider.charAt(0).toUpperCase() + provider.slice(1);
+  const provLabel = compactProviderLabel(provider as ProviderId);
   const serverOptions: ServerOption[] = [];
   const seenIds = new Set<string>();
-
-  const sType: "soft" | "hard" | undefined = dubbed ? undefined : (provider === "anikoto" ? "soft" : "hard");
 
   activeStreams.forEach((s: any, i: number) => {
     const typeStr = s.type || "embed";
     const serverName = s.server || "HD";
     const suffix = s.quality || (s.url?.length > 10 ? s.url.slice(-6) : String(i));
-    const serverId = `${provider}-${serverName.toLowerCase().replace(/\s+/g, "-")}-${typeStr}-${suffix}`.replace(/[^a-z0-9-]/g, "");
+    const sType: "soft" | "hard" | undefined = dubbed ? undefined : (s.__subType || (provider === "anikoto" ? "soft" : "hard"));
+    const typePart = sType || audio;
+    const serverId = `${provider}-${typePart}-${serverName.toLowerCase().replace(/\s+/g, "-")}-${typeStr}-${suffix}`.replace(/[^a-z0-9-]/g, "");
     if (!seenIds.has(serverId)) {
       serverOptions.push({
         id: serverId,
-        label: `${provLabel} ${serverName} ${s.quality ? `(${s.quality})` : `(${typeStr.toUpperCase()})`}`,
+        label: compactStreamServerLabel(provider as ProviderId, serverName, typeStr, s.quality),
         provider: provider as ProviderId,
         category: audio,
         subType: sType,
@@ -3213,37 +3290,331 @@ async function fetchAniviexaWatchSession(
       label: `${provLabel} Default`,
       provider: provider as ProviderId,
       category: audio,
-      subType: sType,
+      subType: dubbed ? undefined : (provider === "anikoto" ? "soft" : "hard"),
     });
   }
 
-  const activeId = serverOptions[0].id;
+  let activeId = serverOptions[0].id;
   let selectedStream: any = activeStreams[0] || null;
   if (requestedServer) {
     const matchIdx = serverOptions.findIndex((opt) => opt.id === requestedServer);
-    if (matchIdx >= 0) selectedStream = activeStreams[matchIdx] ?? selectedStream;
+    if (matchIdx >= 0) {
+      selectedStream = activeStreams[matchIdx] ?? selectedStream;
+      activeId = serverOptions[matchIdx].id;
+    } else if (preferredMode === "hard" || preferredMode === "soft") {
+      const modeIdx = serverOptions.findIndex((opt) => opt.subType === preferredMode);
+      const modeStream = modeIdx >= 0 ? activeStreams[modeIdx] : null;
+      if (modeStream) {
+        selectedStream = modeStream;
+        activeId = serverOptions[modeIdx].id;
+      } else {
+        selectedStream = null;
+        activeId = requestedServer;
+      }
+    } else {
+      recordLog("warn", "anime.anivexa.watch.server_not_found", {
+        provider,
+        anilistId,
+        episodeNumber: episodeNum,
+        requestedServer,
+        availableServers: serverOptions.map((opt) => opt.id).join(",").slice(0, 180),
+      });
+    }
   }
+
+  const selectedReferer = selectedStream?.referer || selectedStream?.referrer || null;
+  const workerProxyUrl = (assetUrl: string, referer?: string | null) => {
+    const refererParam = referer ? `&referer=${encodeURIComponent(String(referer))}` : "";
+    return `${base}/proxy?url=${encodeURIComponent(assetUrl)}${refererParam}`;
+  };
+
+  const selectedPayload = selectedStream?.__payload || selectedEnvelopeCandidates[0]?.payload || fallbackPayload;
+  const rawSubtitles = ensureArray(selectedPayload.subtitles || data.subtitles);
+  const subtitleLangCounts = new Map<string, number>();
+  const subtitles: SubtitleTrack[] = rawSubtitles
+    .filter((s: any) => {
+      const fmt = String(s.format || "").toLowerCase();
+      if (fmt === "ass" || fmt === "ssa") return false;
+      return Boolean(s.file || s.url);
+    })
+    .map((s: any) => {
+      const rawUrl = String(s.file || s.url || "");
+      const label = String(s.label || s.language || s.lang || "Subtitle");
+      const baseLang = String(s.language || s.lang || s.label || "Unknown");
+      const seen = subtitleLangCounts.get(baseLang) || 0;
+      subtitleLangCounts.set(baseLang, seen + 1);
+      return {
+        label: seen > 0 ? `${label} ${seen + 1}` : label,
+        lang: seen > 0 ? `${baseLang}-${seen + 1}` : baseLang,
+        url: rawUrl ? workerProxyUrl(rawUrl, s.referer || s.referrer || selectedReferer) : "",
+        isDefault: seen === 0,
+      };
+    })
+    .filter((s) => s.url);
 
   let source: StreamSource | null = null;
   if (selectedStream?.url) {
     const streamUrl = selectedStream.url;
     const isM3U8 = streamUrl.includes(".m3u8") || selectedStream.type === "hls";
     const isEmbed = selectedStream.type === "embed" || streamUrl.includes("/e/") || streamUrl.includes("/embed/");
+    const selectedLabel = serverOptions.find((opt) => opt.id === activeId)?.label || `${provLabel} HD`;
     source = {
       kind: isEmbed ? "iframe" : (isM3U8 ? "hls" : "video"),
-      label: `${provLabel} ${requestedServer || "HD"}`,
+      label: selectedLabel,
       url: streamUrl,
-      proxiedUrl: isM3U8 ? `${base}/proxy?url=${encodeURIComponent(streamUrl)}` : streamUrl,
+      proxiedUrl: isM3U8 ? workerProxyUrl(streamUrl, selectedReferer) : streamUrl,
       iframeUrl: isEmbed ? streamUrl : null,
       isM3U8,
       requiresProxy: isM3U8,
     };
   }
 
-  const introStart = payload.intro_start ?? payload.intro?.start ?? data.intro_start ?? null;
-  const introEnd = payload.intro_end ?? payload.intro?.end ?? data.intro_end ?? null;
-  const outroStart = payload.outro_start ?? payload.outro?.start ?? data.outro_start ?? null;
-  const outroEnd = payload.outro_end ?? payload.outro?.end ?? data.outro_end ?? null;
+  recordLog("info", "anime.anivexa.watch.selected", {
+    provider,
+    anilistId,
+    episodeNumber: episodeNum,
+    audio,
+    activeServerId: activeId,
+    selectedType: selectedStream?.type || "none",
+    selectedServer: selectedStream?.server || "unknown",
+    sourceKind: source?.kind || "none",
+    isM3U8: Boolean(source?.isM3U8),
+    requiresProxy: Boolean(source?.requiresProxy),
+    subtitleCount: subtitles.length,
+    serverCount: serverOptions.length,
+  });
+
+  const introStart = selectedPayload.intro_start ?? selectedPayload.intro?.start ?? data.intro_start ?? null;
+  const introEnd = selectedPayload.intro_end ?? selectedPayload.intro?.end ?? data.intro_end ?? null;
+  const outroStart = selectedPayload.outro_start ?? selectedPayload.outro?.start ?? data.outro_start ?? null;
+  const outroEnd = selectedPayload.outro_end ?? selectedPayload.outro?.end ?? data.outro_end ?? null;
+
+  return {
+    source,
+    subtitles,
+    serverOptions,
+    activeServerId: activeId,
+    intro: introStart != null ? { start: Number(introStart), end: Number(introEnd ?? (Number(introStart) + 90)) } : null,
+    outro: outroStart != null ? { start: Number(outroStart), end: Number(outroEnd ?? (Number(outroStart) + 90)) } : null,
+  };
+}
+
+async function fetchAnivexaAggregateData(
+  anilistId: string,
+  episodeNum: number,
+  dubbed: boolean,
+  uiProvider: ProviderId,
+): Promise<AnivexaAggregateData> {
+  const base = ANIVEXA_WORKER_URL;
+  if (!base) throw new Error("NEXT_PUBLIC_ANIVEXA_WORKER_URL is not configured");
+
+  const audio = dubbed ? "dub" : "sub";
+  const cacheKey = `anivexa-aggregate:${anilistId}:ep${episodeNum}:${audio}`;
+
+  return cacheFetch(cacheKey, async () => {
+    recordLog("info", "anime.anivexa.aggregate.fetch", {
+      anilistId,
+      episodeNumber: episodeNum,
+      audio,
+      providers: ANIVEXA_WORKER_PROVIDERS.join(","),
+    });
+
+    const providerResults = await Promise.allSettled(
+      ANIVEXA_WORKER_PROVIDERS.map(async (provider): Promise<AnivexaAggregateBucket | null> => {
+        const watchProvider = ANIVEXA_WORKER_WATCH_ALIAS[provider] || provider;
+        const url = `${base}/watch/${watchProvider}/${anilistId}/${audio}/${watchProvider}-${episodeNum}`;
+        const response = await fetch(url, {
+          headers: { Accept: "application/json", "User-Agent": "AnimeKAI-Frontend/1.0" },
+          signal: AbortSignal.timeout(16_000),
+        });
+        if (!response.ok) {
+          const body = await response.text().catch(() => "");
+          recordLog("warn", "anime.anivexa.aggregate.provider_error", {
+            provider,
+            status: response.status,
+          }, body.slice(0, 160));
+          return null;
+        }
+        const data = await response.json() as Record<string, any>;
+        const normalized = normalizeAnivexaWatchPayload(data, provider, dubbed);
+        const activeStreams = normalized.streams.filter((stream) => !stream.audio || stream.audio === audio);
+        const internal = activeStreams.filter(isAnivexaInternalStream);
+        const embed = ANIVEXA_HLS_ONLY_PROVIDERS.has(provider) ? [] : activeStreams.filter(isAnivexaEmbedStream);
+        if (internal.length === 0 && embed.length === 0) return null;
+
+        const firstPlayable = internal[0] || embed[0];
+        const subType = dubbed ? "hard" : anivexaSubTypeForProvider(provider, firstPlayable, normalized.subtitles);
+        return {
+          provider,
+          label: ANIVEXA_DISPLAY_NAMES[provider],
+          internal,
+          embed,
+          subtitles: normalized.subtitles,
+          payload: firstPlayable?.__payload || normalized.payloads[0]?.payload || normalized.fallbackPayload,
+          download: normalized.download || null,
+          subType,
+        };
+      }),
+    );
+
+    const buckets = providerResults
+      .map((result) => result.status === "fulfilled" ? result.value : null)
+      .filter((bucket): bucket is AnivexaAggregateBucket => Boolean(bucket));
+
+    const serverOptions: ServerOption[] = [];
+    for (const bucket of buckets) {
+      if (bucket.internal.length > 0) {
+        serverOptions.push({
+          id: `anivexa2-${bucket.provider}-hls-${dubbed ? "dub" : bucket.subType}`,
+          label: bucket.label,
+          provider: uiProvider,
+          category: audio,
+          subType: dubbed ? undefined : bucket.subType,
+        });
+      }
+      if (bucket.embed.length > 0) {
+        serverOptions.push({
+          id: `anivexa2-${bucket.provider}-embed-${dubbed ? "dub" : bucket.subType}`,
+          label: bucket.label,
+          provider: uiProvider,
+          category: audio,
+          subType: dubbed ? undefined : bucket.subType,
+        });
+      }
+    }
+
+    recordLog("info", "anime.anivexa.aggregate.fetch.complete", {
+      anilistId,
+      episodeNumber: episodeNum,
+      audio,
+      serverCount: serverOptions.length,
+      providers: buckets.map((bucket) => `${bucket.provider}:${bucket.subType}:${bucket.internal.length}/${bucket.embed.length}`).join(","),
+    });
+
+    return {
+      buckets,
+      serverOptions,
+      fetchedAt: Date.now(),
+    };
+  }, {
+    freshMs: 20 * 60 * 1000,
+    staleMs: 40 * 60 * 1000,
+    expireMs: 60 * 60 * 1000,
+    shouldCache: (value) => {
+      const aggregate = value as AnivexaAggregateData;
+      return Array.isArray(aggregate?.buckets) &&
+        aggregate.buckets.some((bucket) => bucket.internal.length > 0 || bucket.embed.length > 0);
+    },
+  });
+}
+
+async function fetchAnivexaAggregateWatchSession(
+  anilistId: string,
+  episodeNum: number,
+  dubbed: boolean,
+  requestedServer: string | null | undefined,
+  uiProvider: ProviderId,
+): Promise<ProviderWatchPayload> {
+  const base = ANIVEXA_WORKER_URL;
+  if (!base) throw new Error("NEXT_PUBLIC_ANIVEXA_WORKER_URL is not configured");
+
+  const audio = dubbed ? "dub" : "sub";
+  const requestedMode = requestedAnivexaAggregateMode(requestedServer);
+  const requestedWorkerProvider = requestedAnivexaAggregateProvider(requestedServer);
+
+  recordLog("info", "anime.anivexa.aggregate.request", {
+    anilistId,
+    episodeNumber: episodeNum,
+    audio,
+    requestedServer: requestedServer || "auto",
+    requestedMode: requestedMode || "auto",
+    requestedWorkerProvider: requestedWorkerProvider || "auto",
+  });
+
+  const aggregate = await fetchAnivexaAggregateData(anilistId, episodeNum, dubbed, uiProvider);
+  const buckets = aggregate.buckets;
+  const serverOptions = aggregate.serverOptions.map((option) => ({ ...option, provider: uiProvider }));
+
+  const modeForPick = requestedMode === "dub" ? null : requestedMode;
+  let selectedBucket =
+    (requestedWorkerProvider
+      ? buckets.find((bucket) =>
+          bucket.provider === requestedWorkerProvider &&
+          (dubbed || !modeForPick || bucket.subType === modeForPick) &&
+          bucket.internal.length > 0)
+      : null) ||
+    (modeForPick
+      ? buckets.find((bucket) => bucket.subType === modeForPick && bucket.internal.length > 0)
+      : null) ||
+    buckets.find((bucket) => bucket.internal.length > 0) ||
+    buckets.find((bucket) => bucket.embed.length > 0) ||
+    null;
+
+  const selectedType = selectedBucket?.internal.length ? "hls" : "embed";
+  const selectedStream = selectedType === "hls" ? selectedBucket?.internal[0] : selectedBucket?.embed[0];
+  const activeId = selectedBucket
+    ? `anivexa2-${selectedBucket.provider}-${selectedType}-${dubbed ? "dub" : selectedBucket.subType}`
+    : requestedServer || null;
+
+  const workerProxyUrl = (assetUrl: string, referer?: string | null) => {
+    const refererParam = referer ? `&referer=${encodeURIComponent(String(referer))}` : "";
+    return `${base}/proxy?url=${encodeURIComponent(assetUrl)}${refererParam}`;
+  };
+  const selectedReferer = selectedStream?.referer || selectedStream?.referrer || null;
+  const rawSubtitles = selectedBucket?.subtitles || [];
+  const subtitleLangCounts = new Map<string, number>();
+  const subtitles: SubtitleTrack[] = rawSubtitles
+    .filter((s: any) => {
+      const fmt = String(s.format || "").toLowerCase();
+      return fmt !== "ass" && fmt !== "ssa" && Boolean(s.file || s.url);
+    })
+    .map((s: any) => {
+      const rawUrl = String(s.file || s.url || "");
+      const label = String(s.label || s.language || s.lang || "Subtitle");
+      const baseLang = String(s.language || s.lang || s.label || "und");
+      const seen = subtitleLangCounts.get(baseLang) || 0;
+      subtitleLangCounts.set(baseLang, seen + 1);
+      return {
+        label: seen > 0 ? `${label} ${seen + 1}` : label,
+        lang: seen > 0 ? `${baseLang}-${seen + 1}` : baseLang,
+        url: rawUrl ? workerProxyUrl(rawUrl, s.referer || s.referrer || selectedReferer) : "",
+        isDefault: seen === 0,
+      };
+    })
+    .filter((s) => s.url);
+
+  let source: StreamSource | null = null;
+  if (selectedStream?.url) {
+    const streamUrl = selectedStream.url;
+    const isM3U8 = streamUrl.includes(".m3u8") || selectedStream.type === "hls" || selectedStream.type === "hls-redirect";
+    const isEmbed = selectedType === "embed" || selectedStream.type === "embed";
+    source = {
+      kind: isEmbed ? "iframe" : (isM3U8 ? "hls" : "video"),
+      label: selectedBucket?.label || "Anivexa",
+      url: streamUrl,
+      proxiedUrl: isM3U8 ? workerProxyUrl(streamUrl, selectedReferer) : streamUrl,
+      iframeUrl: isEmbed ? streamUrl : null,
+      isM3U8,
+      requiresProxy: isM3U8,
+    };
+  }
+
+  const selectedPayload = selectedBucket?.payload || {};
+  const introStart = selectedPayload.intro_start ?? selectedPayload.intro?.start ?? null;
+  const introEnd = selectedPayload.intro_end ?? selectedPayload.intro?.end ?? null;
+  const outroStart = selectedPayload.outro_start ?? selectedPayload.outro?.start ?? null;
+  const outroEnd = selectedPayload.outro_end ?? selectedPayload.outro?.end ?? null;
+
+  recordLog("info", "anime.anivexa.aggregate.selected", {
+    anilistId,
+    episodeNumber: episodeNum,
+    audio,
+    requestedServer: requestedServer || "auto",
+    activeServerId: activeId || "none",
+    sourceKind: source?.kind || "none",
+    serverCount: serverOptions.length,
+    providers: buckets.map((bucket) => `${bucket.provider}:${bucket.subType}:${bucket.internal.length}/${bucket.embed.length}`).join(","),
+  });
 
   return {
     source,
@@ -3270,7 +3641,27 @@ async function fetchReanimeDirectWatchSession(
   if (!base) throw new Error("NEXT_PUBLIC_ANIVEXA_WORKER_URL is not configured");
 
   const audio = dubbed ? "dub" : "sub";
-  const workerUrl = `${base}/watch/reanime/${anilistId}/${audio}/reanime-${episodeNum}`;
+  const gatewayMode = requestedGatewayMode(requestedServer);
+  const requestedReanimeType =
+    gatewayMode === "soft" ? "s-sub" :
+    gatewayMode === "hard" ? "sub" :
+    gatewayMode === "dub" ? "dub" :
+    requestedServer?.endsWith("-s-sub") ? "s-sub" :
+    requestedServer?.endsWith("-s-dub") ? "s-dub" :
+    requestedServer?.endsWith("-sub") ? "sub" :
+    requestedServer?.endsWith("-dub") ? "dub" :
+    null;
+  const typeQuery = requestedReanimeType ? `?type=${encodeURIComponent(requestedReanimeType)}` : "";
+  const workerUrl = `${base}/watch/reanime/${anilistId}/${audio}/reanime-${episodeNum}${typeQuery}`;
+
+  recordLog("info", "anime.anivexa.reanime.request", {
+    anilistId,
+    episodeNumber: episodeNum,
+    audio,
+    requestedServer: requestedServer || "auto",
+    requestedType: requestedReanimeType || "auto",
+    workerPath: `/watch/reanime/${anilistId}/${audio}/reanime-${episodeNum}`,
+  });
 
   const response = await fetch(workerUrl, {
     headers: { Accept: "application/json", "User-Agent": "AnimeKAI-Frontend/1.0" },
@@ -3278,10 +3669,26 @@ async function fetchReanimeDirectWatchSession(
   });
   if (!response.ok) {
     const body = await response.text().catch(() => "");
+    recordLog("warn", "anime.anivexa.reanime.http_error", {
+      anilistId,
+      episodeNumber: episodeNum,
+      audio,
+      status: response.status,
+    }, body.slice(0, 180));
     throw new Error(`Anivexa/reanime ${response.status}: ${body.slice(0, 120)}`);
   }
 
   const data = (await response.json()) as Record<string, any>;
+  recordLog("info", "anime.anivexa.reanime.payload", {
+    anilistId,
+    episodeNumber: episodeNum,
+    audio,
+    streamCount: ensureArray(data.streams || []).length,
+    subtitleCount: ensureArray(data.subtitles || []).length,
+    allServerCount: ensureArray(data.allServers || data.data?.allServers).length,
+    hasRedirect: Boolean(data.redirect_url),
+    hasStreamUrl: Boolean(data.stream_url),
+  });
 
   // Intro / Outro from worker data
   const introStart = data.intro_start ?? data.intro?.start ?? null;
@@ -3304,7 +3711,7 @@ async function fetchReanimeDirectWatchSession(
     const serverId = `reanime-${(s.name || "HD").toLowerCase().replace(/\s+/g, "-") || String(i)}-${typeStr}`;
     return {
       id: serverId,
-      label: `Reanime ${s.name || "HD"} (${sType === "soft" ? "Soft" : "Hard"})`,
+      label: `Re ${s.name || "HD"}`,
       provider: "reanime" as ProviderId,
       category: audio,
       subType: dubbed ? undefined : sType,
@@ -3334,10 +3741,13 @@ async function fetchReanimeDirectWatchSession(
   const workerStreamEntry = streams.find((s: any) =>
     s.type === "hls-redirect" || (typeof s.url === "string" && s.url.includes("/stream/"))
   );
-  const workerStreamUrl: string =
+  let workerStreamUrl: string =
     workerStreamEntry?.url ||
     data.redirect_url ||
-    `${base}/stream/reanime/${anilistId}/${audio}/${episodeNum}`;
+    `${base}/stream/reanime/${anilistId}/${audio}/${episodeNum}${typeQuery}`;
+  if (requestedReanimeType && !workerStreamUrl.includes("type=")) {
+    workerStreamUrl += `${workerStreamUrl.includes("?") ? "&" : "?"}type=${encodeURIComponent(requestedReanimeType)}`;
+  }
 
   // The worker's /stream/ endpoint has Access-Control-Allow-Origin: * so HLS.js
   // in the browser can fetch it directly — no Next.js proxy needed.
@@ -3368,6 +3778,18 @@ async function fetchReanimeDirectWatchSession(
       isDefault: Boolean(s.default),
     }))
     .filter((s: SubtitleTrack) => Boolean(s.url));
+
+  recordLog("info", "anime.anivexa.reanime.selected", {
+    anilistId,
+    episodeNumber: episodeNum,
+    audio,
+    activeServerId: activeId,
+    serverCount: serverOptions.length,
+    subtitleCount: subtitles.length,
+    sourceKind: source.kind,
+    isM3U8: Boolean(source.isM3U8),
+    sourceUrlKind: workerStreamUrl.includes("/stream/reanime/") ? "worker-stream" : "direct",
+  });
 
   return { source, subtitles, serverOptions, activeServerId: activeId, intro, outro };
 }
@@ -3455,7 +3877,6 @@ async function fetchProviderFastWatch(
 }
 
 const CUSTOM_SERVERS = [
-  "scraper-sub", "scraper-dub",
   "megaplay-sub", "megaplay-dub",
   "animeplay-sub", "animeplay-dub",
   "tryembed-sub", "tryembed-dub",
@@ -3467,10 +3888,149 @@ function isCustomEmbed(server: string | null | undefined): boolean {
   return (CUSTOM_SERVERS as readonly string[]).includes(server);
 }
 
-/** Default to Server 1 (megaplay) on auto or no server specified. */
+/** Default to Server 1 (megaplay) when an embed server is explicitly needed. */
 function defaultCustomServer(server: string | null | undefined, dubbed: boolean | undefined): string {
   if (server && server !== "auto") return server;
   return dubbed ? "megaplay-dub" : "megaplay-sub";
+}
+
+function explicitCustomServer(server: string | null | undefined): string | null {
+  return server && server !== "auto" && isCustomEmbed(server) ? server : null;
+}
+
+function buildStreamProviderOrder(preferredProvider: ProviderId, activeProvider: ProviderId): ProviderId[] {
+  if (ANIVEXA_PROVIDER_SET.has(preferredProvider)) {
+    return [preferredProvider];
+  }
+  return buildProviderOrder(preferredProvider, activeProvider);
+}
+
+function compactProviderLabel(provider: ProviderId): string {
+  switch (provider) {
+    case "reanime": return "Re";
+    case "allmanga": return "Manga";
+    case "anikoto": return "Koto";
+    case "animegg": return "GG";
+    case "anineko": return "Neko";
+    case "animekai": return "Kai";
+    case "gogoanime": return "Gogo";
+    case "desidub": return "Hindi";
+    case "hianime": return "Hi";
+    default: return provider;
+  }
+}
+
+function compactStreamServerLabel(provider: ProviderId, serverName: string, type: string, quality?: string | null): string {
+  const providerLabel = compactProviderLabel(provider);
+  const cleanedServer = serverName
+    .replace(/-embed$/i, "")
+    .replace(/^mega?play$/i, "Mega")
+    .replace(/^vidwish$/i, "Vid")
+    .replace(/^animegg$/i, "")
+    .trim();
+  const detail = quality || (type === "embed" ? "Embed" : type === "hls" ? "HLS" : type.toUpperCase());
+  return [providerLabel, cleanedServer, detail].filter(Boolean).join(" ");
+}
+
+function requestedGatewayMode(server: string | null | undefined): "soft" | "hard" | "dub" | null {
+  if (!server?.startsWith("anivexa-")) return null;
+  if (server.endsWith("-hsub")) return "hard";
+  if (server.endsWith("-ssub")) return "soft";
+  if (server.endsWith("-dub")) return "dub";
+  if (server.endsWith("-sub")) return "soft";
+  return null;
+}
+
+function requestedAnivexaAggregateMode(server: string | null | undefined): "soft" | "hard" | "dub" | null {
+  if (!server) return null;
+  if (server.startsWith("anivexa2-")) {
+    if (server.endsWith("-hard")) return "hard";
+    if (server.endsWith("-soft")) return "soft";
+    if (server.endsWith("-dub")) return "dub";
+    return null;
+  }
+  return requestedGatewayMode(server);
+}
+
+function requestedAnivexaAggregateProvider(server: string | null | undefined): AnivexaWorkerProvider | null {
+  if (!server) return null;
+  if (server.startsWith("anivexa2-")) {
+    const [, provider] = server.match(/^anivexa2-([a-z0-9]+)-/) || [];
+    return ANIVEXA_WORKER_PROVIDERS.includes(provider as AnivexaWorkerProvider)
+      ? provider as AnivexaWorkerProvider
+      : null;
+  }
+  if (server.startsWith("anivexa-")) {
+    const [, provider] = server.match(/^anivexa-([a-z0-9]+)-/) || [];
+    return ANIVEXA_WORKER_PROVIDERS.includes(provider as AnivexaWorkerProvider)
+      ? provider as AnivexaWorkerProvider
+      : null;
+  }
+  return null;
+}
+
+function anivexaProviderForUi(provider: ProviderId): ProviderId {
+  return provider === "desidub" ? "animekai" : provider;
+}
+
+function normalizeAnivexaWatchPayload(data: Record<string, any>, provider: AnivexaWorkerProvider, dubbed: boolean) {
+  const envelopes = dubbed
+    ? [
+        { key: "sdub", payload: data.sdub, subType: undefined as "soft" | "hard" | undefined },
+        { key: "hdub", payload: data.hdub, subType: undefined as "soft" | "hard" | undefined },
+        { key: "dub", payload: data.dub, subType: undefined as "soft" | "hard" | undefined },
+      ]
+    : [
+        { key: "ssub", payload: data.ssub, subType: "soft" as const },
+        { key: "hsub", payload: data.hsub, subType: "hard" as const },
+        { key: "sub", payload: data.sub, subType: undefined as "soft" | "hard" | undefined },
+      ];
+
+  const usableEnvelopes = envelopes.filter((entry) => entry.payload && typeof entry.payload === "object");
+  const fallbackPayload = data.result || data.data || data;
+  const selected = usableEnvelopes.length
+    ? usableEnvelopes
+    : [{ key: "root", payload: fallbackPayload, subType: undefined as "soft" | "hard" | undefined }];
+
+  const streams = selected.flatMap((entry) =>
+    ensureArray(entry.payload.streams || []).map((stream: any) => ({
+      ...stream,
+      __payload: entry.payload,
+      __envelopeKey: entry.key,
+      __subType: entry.subType,
+    })),
+  );
+  const fallbackStreams = streams.length > 0
+    ? streams
+    : ensureArray(data.streams).map((stream: any) => ({
+        ...stream,
+        __payload: fallbackPayload,
+        __envelopeKey: "root",
+        __subType: undefined,
+      }));
+  const subtitles = selected.flatMap((entry) => ensureArray(entry.payload.subtitles || []));
+  const rootSubtitles = subtitles.length > 0 ? subtitles : ensureArray(data.subtitles);
+  const download = selected.find((entry) => entry.payload.download)?.payload.download || data.download || null;
+
+  return { streams: fallbackStreams, subtitles: rootSubtitles, download, payloads: selected, fallbackPayload };
+}
+
+function isAnivexaInternalStream(stream: any): boolean {
+  const url = String(stream?.url || "");
+  const type = String(stream?.type || "").toLowerCase();
+  return Boolean(url) && (type === "hls" || type === "mp4" || type === "hls-redirect" || (type === "embed" && /\.m3u8?(\?|$)/i.test(url)));
+}
+
+function isAnivexaEmbedStream(stream: any): boolean {
+  const url = String(stream?.url || "");
+  const type = String(stream?.type || "").toLowerCase();
+  return Boolean(url) && type === "embed" && !/\.m3u8?(\?|$)/i.test(url);
+}
+
+function anivexaSubTypeForProvider(provider: AnivexaWorkerProvider, stream: any, subtitles: any[]): "soft" | "hard" {
+  if (stream.__subType === "hard" || stream.__subType === "soft") return stream.__subType;
+  if (ANIVEXA_HARD_SUB_PROVIDERS.has(provider)) return "hard";
+  return subtitles.length > 0 ? "soft" : "hard";
 }
 
 function appendCustomEmbedServers(
@@ -3479,23 +4039,11 @@ function appendCustomEmbedServers(
   activeProvider: ProviderId,
 ): ServerOption[] {
   if (!anime.malId && !anime.anilistId) {
-    return serverOptions;
+    const routeAnilistId = parseAnilistPassthroughId(anime.id) || parseAnilistPassthroughId(anime.providerId);
+    if (!routeAnilistId) return serverOptions;
   }
 
   const customOptions: ServerOption[] = [
-    {
-      id: "scraper-sub",
-      label: "Scraper (HLS)",
-      provider: activeProvider,
-      category: "sub",
-      subType: "hard",
-    },
-    {
-      id: "scraper-dub",
-      label: "Scraper (HLS)",
-      provider: activeProvider,
-      category: "dub",
-    },
     {
       id: "megaplay-sub",
       label: "Server 1",
@@ -3546,33 +4094,37 @@ function appendCustomEmbedServers(
     },
   ];
 
-  // Add Anivexa provider gateway buttons (only when anilistId is available and the
-  // provider isn't already represented by real session server options).
-  if (anime.anilistId) {
+  // Add Anivexa aggregate gateway buttons. These are resolved into the current
+  // working worker-provider list on click, matching the demo's server picker.
+  const gatewayAnilistId = anime.anilistId || parseAnilistPassthroughId(anime.id) || parseAnilistPassthroughId(anime.providerId);
+  const hasResolvedAnivexaOptions = serverOptions.some((opt) => opt.id.startsWith("anivexa2-"));
+  if (gatewayAnilistId && !hasResolvedAnivexaOptions) {
+    const gatewayUiProvider = anivexaProviderForUi(activeProvider);
     const ANIVEXA_GATEWAYS = [
-      { provider: "reanime" as ProviderId, label: "Reanime" },
-      { provider: "allmanga" as ProviderId, label: "AllManga" },
-      { provider: "anikoto" as ProviderId, label: "AniKoto" },
-      { provider: "animegg" as ProviderId, label: "AnimeGG" },
-      { provider: "anineko" as ProviderId, label: "AniNeko" },
+      { provider: "animegg" as AnivexaWorkerProvider, subType: "hard" as const },
+      { provider: "allmanga" as AnivexaWorkerProvider, subType: "hard" as const },
+      { provider: "anineko" as AnivexaWorkerProvider, subType: "hard" as const },
+      { provider: "anikoto" as AnivexaWorkerProvider, subType: "soft" as const },
+      { provider: "reanime" as AnivexaWorkerProvider, subType: "soft" as const },
     ];
     for (const gw of ANIVEXA_GATEWAYS) {
-      const alreadyPresent = serverOptions.some((opt) => opt.provider === gw.provider);
+      const alreadyPresent = serverOptions.some((opt) => opt.id.startsWith(`anivexa2-${gw.provider}-`));
       if (!alreadyPresent) {
         customOptions.push({
-          id: `anivexa-${gw.provider}-sub`,
-          label: gw.label,
-          provider: gw.provider,
+          id: `anivexa2-${gw.provider}-hls-${gw.subType}`,
+          label: ANIVEXA_DISPLAY_NAMES[gw.provider],
+          provider: gatewayUiProvider,
           category: "sub",
-        });
-        customOptions.push({
-          id: `anivexa-${gw.provider}-dub`,
-          label: gw.label,
-          provider: gw.provider,
-          category: "dub",
+          subType: gw.subType,
         });
       }
     }
+    customOptions.push({
+      id: "anivexa2-auto-hls-dub",
+      label: "Auto",
+      provider: gatewayUiProvider,
+      category: "dub",
+    });
   }
 
   const filtered = serverOptions.filter(
@@ -3658,7 +4210,7 @@ export async function getWatchSession(input: {
         mergeEpisodeProviders: true,
       });
       const preferredProvider = input.provider || detail.activeProvider;
-      const order = buildProviderOrder(preferredProvider, detail.activeProvider);
+      const order = buildStreamProviderOrder(preferredProvider, detail.activeProvider);
       const targetEpisode =
         detail.episodes.find((episode) => episode.number === Number(input.episodeNumber || 1)) ||
         detail.episodes[0];
@@ -3671,8 +4223,8 @@ export async function getWatchSession(input: {
         if (canUseDirectEmbed(detail.anime)) {
           const epNum = Number(input.episodeNumber || 1);
           const synEp = makeSyntheticEpisode(epNum);
-          const effectiveServer = defaultCustomServer(input.server, input.dubbed);
-          const source = resolveCustomEmbedSource(effectiveServer, detail.anime, epNum);
+          const effectiveServer = explicitCustomServer(input.server);
+          const source = effectiveServer ? resolveCustomEmbedSource(effectiveServer, detail.anime, epNum) : null;
           return {
             anime: detail.anime,
             episode: synEp,
@@ -3681,7 +4233,7 @@ export async function getWatchSession(input: {
             provider: preferredProvider,
             availableProviders: [],
             attempts: detail.attempts,
-            watchAttempts: [{ provider: preferredProvider, server: effectiveServer, ok: Boolean(source), reason: source ? "Playback ready (embed)" : "No embed source" }],
+            watchAttempts: [{ provider: preferredProvider, server: effectiveServer || input.server || "auto", ok: Boolean(source), reason: source ? "Playback ready (embed)" : "No embed source" }],
             source,
             subtitles: [],
             serverOptions: appendCustomEmbedServers([], detail.anime, preferredProvider),
@@ -3714,9 +4266,9 @@ export async function getWatchSession(input: {
         };
       }
 
-      const effectiveServer = defaultCustomServer(input.server, input.dubbed);
+      const effectiveServer = explicitCustomServer(input.server);
 
-      if (isCustomEmbed(effectiveServer)) {
+      if (effectiveServer) {
         const source = resolveCustomEmbedSource(effectiveServer, detail.anime, targetEpisode.number);
         if (source) {
           let originalServerOptions: ServerOption[] = [];
@@ -3752,12 +4304,13 @@ export async function getWatchSession(input: {
         }
       }
 
+      const anivexaAnilistId = detail.anime.anilistId || parseAnilistPassthroughId(input.animeId);
       for (const provider of order) {
         const providerEpisodeId =
           (provider === preferredProvider && input.episodeId) ||
           targetEpisode.idByProvider[provider] ||
           (provider === "gogoanime" ? `${detail.anime.title}|${detail.anime.subtitle || ""}::${targetEpisode.number}` : null) ||
-          (ANIVEXA_PROVIDERS.includes(provider as AniviexaProvider) && detail.anime.anilistId ? `${detail.anime.anilistId}::${targetEpisode.number}` : null);
+          (ANIVEXA_PROVIDERS.includes(provider as AniviexaProvider) && anivexaAnilistId ? `${anivexaAnilistId}::${targetEpisode.number}` : null);
         if (!providerEpisodeId) {
           watchAttempts.push({ provider, ok: false, reason: "Episode unavailable in provider" });
           recordCounter("anime.provider.failure", 1, { mode: "full", provider, reason: "episode_unavailable" });
@@ -3873,7 +4426,7 @@ export async function getFastWatchSession(input: {
             mergeEpisodeProviders: true,
           });
           const preferredProvider = input.provider || detail.activeProvider;
-          const order = buildProviderOrder(preferredProvider, detail.activeProvider);
+          const order = buildStreamProviderOrder(preferredProvider, detail.activeProvider);
           const targetEpisode =
             detail.episodes.find((episode) => episode.number === Number(input.episodeNumber || 1)) ||
             detail.episodes[0];
@@ -3886,8 +4439,8 @@ export async function getFastWatchSession(input: {
             if (canUseDirectEmbed(detail.anime)) {
               const epNum = Number(input.episodeNumber || 1);
               const synEp = makeSyntheticEpisode(epNum);
-              const effectiveServer2 = defaultCustomServer(input.server, input.dubbed);
-              const source2 = resolveCustomEmbedSource(effectiveServer2, detail.anime, epNum);
+              const effectiveServer2 = explicitCustomServer(input.server);
+              const source2 = effectiveServer2 ? resolveCustomEmbedSource(effectiveServer2, detail.anime, epNum) : null;
               return {
                 anime: detail.anime,
                 episode: synEp,
@@ -3896,7 +4449,7 @@ export async function getFastWatchSession(input: {
                 provider: preferredProvider,
                 availableProviders: [],
                 attempts: detail.attempts,
-                watchAttempts: [{ provider: preferredProvider, server: effectiveServer2, ok: Boolean(source2), reason: source2 ? "Playback ready (embed)" : "No embed source" }],
+                watchAttempts: [{ provider: preferredProvider, server: effectiveServer2 || input.server || "auto", ok: Boolean(source2), reason: source2 ? "Playback ready (embed)" : "No embed source" }],
                 source: source2,
                 subtitles: [],
                 serverOptions: appendCustomEmbedServers([], detail.anime, preferredProvider),
@@ -3929,9 +4482,9 @@ export async function getFastWatchSession(input: {
             };
           }
 
-          const effectiveServer = defaultCustomServer(input.server, input.dubbed);
+          const effectiveServer = explicitCustomServer(input.server);
 
-          if (isCustomEmbed(effectiveServer)) {
+          if (effectiveServer) {
             const source = resolveCustomEmbedSource(effectiveServer, detail.anime, targetEpisode.number);
             if (source) {
               let originalServerOptions: ServerOption[] = [];
@@ -3967,13 +4520,14 @@ export async function getFastWatchSession(input: {
             }
           }
 
+          const anivexaAnilistId = detail.anime.anilistId || parseAnilistPassthroughId(input.animeId);
           for (const provider of order) {
             // GogoAnime uses title::episodeNumber composite key (no pre-mapping needed)
             const providerEpisodeId =
               (provider === preferredProvider && input.episodeId) ||
               targetEpisode.idByProvider[provider] ||
               (provider === "gogoanime" ? `${detail.anime.title}|${detail.anime.subtitle || ""}::${targetEpisode.number}` : null) ||
-              (ANIVEXA_PROVIDERS.includes(provider as AniviexaProvider) && detail.anime.anilistId ? `${detail.anime.anilistId}::${targetEpisode.number}` : null);
+              (ANIVEXA_PROVIDERS.includes(provider as AniviexaProvider) && anivexaAnilistId ? `${anivexaAnilistId}::${targetEpisode.number}` : null);
             if (!providerEpisodeId) {
               watchAttempts.push({ provider, ok: false, reason: "Episode unavailable in provider" });
               recordCounter("anime.provider.failure", 1, { mode: "fast", provider, reason: "episode_unavailable" });
@@ -4393,14 +4947,12 @@ export async function getQuickWatchSession(input: {
   //
   // This means the watch page loads INSTANTLY for ~99% of anime.
   // The backend is only needed for DesiDub (Hindi) or legacy provider HLS streams.
-  const effectiveServerForEmbed = defaultCustomServer(input.server, input.dubbed);
+  const effectiveServerForEmbed = explicitCustomServer(input.server);
   const isDirectEmbedRoute =
-    isCustomEmbed(effectiveServerForEmbed) &&
-    canUseDirectEmbed(detail.anime) &&
-    // Only bypass status API if the user isn't forcing a specific non-embed server
-    (input.server == null || input.server === "auto" || isCustomEmbed(input.server));
+    Boolean(effectiveServerForEmbed) &&
+    canUseDirectEmbed(detail.anime);
 
-  if (isDirectEmbedRoute) {
+  if (isDirectEmbedRoute && effectiveServerForEmbed) {
     const source = resolveCustomEmbedSource(effectiveServerForEmbed, detail.anime, targetEpisode2.number);
     return {
       anime: detail.anime,
@@ -4500,7 +5052,7 @@ export async function resolveStreamSource(input: {
         mergeEpisodeProviders: true,
       });
       const preferredProvider = input.provider || detail.activeProvider;
-      const order = buildProviderOrder(preferredProvider, detail.activeProvider);
+      const order = buildStreamProviderOrder(preferredProvider, detail.activeProvider);
       const targetEpisode =
         detail.episodes.find((ep) => ep.number === Number(input.episodeNumber || 1)) ||
         detail.episodes[0];
@@ -4520,10 +5072,40 @@ export async function resolveStreamSource(input: {
       // Use resolvedEp instead of targetEpisode below
       // (rename to avoid redeclaration in same scope)
       const resolvedTargetEp = resolvedEp;
+      const anivexaAnilistId = detail.anime.anilistId || parseAnilistPassthroughId(input.animeId);
 
-      const effectiveServer = defaultCustomServer(input.server, input.dubbed);
+      const effectiveServer = explicitCustomServer(input.server);
 
-      if (isCustomEmbed(effectiveServer)) {
+      const shouldUseAnivexaAggregate =
+        Boolean(input.server?.startsWith("anivexa2-") || input.server?.startsWith("anivexa-"));
+      if (shouldUseAnivexaAggregate && anivexaAnilistId) {
+        const session = await fetchAnivexaAggregateWatchSession(
+          String(anivexaAnilistId),
+          resolvedTargetEp.number,
+          Boolean(input.dubbed),
+          input.server || null,
+          anivexaProviderForUi(preferredProvider),
+        );
+        const serverOptions = appendCustomEmbedServers(session.serverOptions, detail.anime, anivexaProviderForUi(preferredProvider));
+        const watchAttempts: WatchAttempt[] = [{
+          provider: preferredProvider,
+          server: input.server || undefined,
+          ok: Boolean(session.source),
+          reason: session.source ? "Anivexa aggregate playback ready" : "No playable Anivexa source",
+        }];
+        return {
+          source: session.source,
+          subtitles: session.subtitles,
+          serverOptions,
+          activeServerId: session.activeServerId,
+          provider: preferredProvider,
+          intro: session.intro || null,
+          outro: session.outro || null,
+          watchAttempts,
+        };
+      }
+
+      if (effectiveServer) {
         const source = resolveCustomEmbedSource(effectiveServer, detail.anime, resolvedTargetEp.number);
         if (source) {
           let originalServerOptions: ServerOption[] = [];
@@ -4557,7 +5139,7 @@ export async function resolveStreamSource(input: {
           (provider === preferredProvider && input.episodeId) ||
           resolvedTargetEp.idByProvider[provider] ||
           (provider === "gogoanime" ? `${detail.anime.title}|${detail.anime.subtitle || ""}::${resolvedTargetEp.number}` : null) ||
-          (ANIVEXA_PROVIDERS.includes(provider as AniviexaProvider) && detail.anime.anilistId ? `${detail.anime.anilistId}::${resolvedTargetEp.number}` : null);
+          (ANIVEXA_PROVIDERS.includes(provider as AniviexaProvider) && anivexaAnilistId ? `${anivexaAnilistId}::${resolvedTargetEp.number}` : null);
         if (!providerEpisodeId) {
           watchAttempts.push({ provider, ok: false, reason: "Episode unavailable in provider" });
           recordCounter("anime.provider.failure", 1, { mode: "resolve", provider, reason: "episode_unavailable" });
@@ -4568,6 +5150,18 @@ export async function resolveStreamSource(input: {
           if (!session.source) {
             watchAttempts.push({ provider, server: input.server || undefined, ok: false, reason: "No playable source" });
             recordCounter("anime.provider.failure", 1, { mode: "resolve", provider, reason: "no_source" });
+            if (provider === preferredProvider) {
+              return {
+                source: null,
+                subtitles: session.subtitles,
+                serverOptions: appendCustomEmbedServers(session.serverOptions, detail.anime, provider),
+                activeServerId: session.activeServerId,
+                provider,
+                intro: session.intro || null,
+                outro: session.outro || null,
+                watchAttempts,
+              };
+            }
             continue;
           }
 

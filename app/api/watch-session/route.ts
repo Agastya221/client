@@ -18,6 +18,10 @@ function parseDubbed(value: string | null): boolean {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const animeId = searchParams.get("animeId");
+  const episodeNumber = parseEpisodeNumber(searchParams.get("episodeNumber"));
+  const provider = normalizeProviderParam(searchParams.get("provider"));
+  const dubbed = parseDubbed(searchParams.get("dub"));
+  const server = searchParams.get("server");
 
   if (!animeId) {
     return NextResponse.json(
@@ -27,22 +31,43 @@ export async function GET(request: Request) {
   }
 
   try {
+    recordLog("info", "anime.watch_session.request", {
+      animeId,
+      episodeNumber: episodeNumber || "auto",
+      provider: provider || "auto",
+      dubbed: dubbed ? "dub" : "sub",
+      server: server || "auto",
+    });
+
     const session = await measureAsync(
       "route.watch_session",
       {
         route: "/api/watch-session",
-        provider: normalizeProviderParam(searchParams.get("provider")) || "auto",
+        provider: provider || "auto",
       },
       async () =>
         getQuickWatchSession({
           animeId,
-          episodeNumber: parseEpisodeNumber(searchParams.get("episodeNumber")),
-          provider: normalizeProviderParam(searchParams.get("provider")),
+          episodeNumber,
+          provider,
           episodeId: searchParams.get("episodeId"),
-          dubbed: parseDubbed(searchParams.get("dub")),
-          server: searchParams.get("server"),
+          dubbed,
+          server,
         }),
     );
+
+    recordLog("info", "anime.watch_session.response", {
+      animeId,
+      episodeNumber: session.episode.number,
+      requestedProvider: provider || "auto",
+      provider: session.provider,
+      activeServerId: session.activeServerId || "none",
+      sourceKind: session.source?.kind || "none",
+      stale: Boolean(session.stale),
+      serverCount: session.serverOptions.length,
+      subtitleCount: session.subtitles.length,
+      watchAttempts: session.watchAttempts.map((attempt) => `${attempt.provider}:${attempt.ok ? "ok" : "fail"}:${attempt.reason}`).join(" | ").slice(0, 180),
+    });
 
     return NextResponse.json(session, {
       headers: {

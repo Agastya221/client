@@ -58,16 +58,16 @@ export function ServerButton({
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-bold transition-colors border ${
+      className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[11px] font-bold transition-all border ${
         active
-          ? "bg-[#4ade80] text-black border-[#4ade80]/60 shadow-[0_0_10px_rgba(74,222,128,0.2)]"
-          : "bg-white/[0.04] text-white/60 border-white/8 hover:bg-white/8 hover:text-white hover:border-white/15"
+          ? "bg-violet-500/18 text-violet-200 border-violet-400/55 shadow-[0_0_0_1px_rgba(167,139,250,0.22)]"
+          : "bg-white/[0.04] text-white/62 border-white/10 hover:bg-violet-500/10 hover:text-violet-100 hover:border-violet-300/30"
       }`}
     >
       {label}
       {subType === "soft" && (
         <span
-          className="text-[9px] font-black tracking-widest px-1 py-0.5 rounded"
+          className="text-[9px] font-black tracking-widest px-1.5 py-0.5 rounded-full"
           style={{ background: "rgba(34,211,238,0.15)", color: "rgba(34,211,238,0.9)", border: "1px solid rgba(34,211,238,0.25)" }}
         >
           S-SUB
@@ -75,7 +75,7 @@ export function ServerButton({
       )}
       {subType === "hard" && (
         <span
-          className="text-[9px] font-black tracking-widest px-1 py-0.5 rounded"
+          className="text-[9px] font-black tracking-widest px-1.5 py-0.5 rounded-full"
           style={{ background: "rgba(251,191,36,0.12)", color: "rgba(251,191,36,0.85)", border: "1px solid rgba(251,191,36,0.25)" }}
         >
           H-SUB

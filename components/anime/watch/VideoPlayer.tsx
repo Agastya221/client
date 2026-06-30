@@ -17,6 +17,7 @@ interface VideoPlayerProps {
   onReady?: () => void;
   onTimeUpdate?: (time: number) => void;
   onEpisodeEnd?: () => void;
+  onPlaybackError?: () => void;
 }
 
 /**
@@ -35,6 +36,7 @@ export default function VideoPlayer({
   onReady,
   onTimeUpdate,
   onEpisodeEnd,
+  onPlaybackError,
 }: VideoPlayerProps) {
   return (
     <AnimePlayer
@@ -49,6 +51,7 @@ export default function VideoPlayer({
       onReady={onReady}
       onTimeUpdate={onTimeUpdate}
       onEpisodeEnd={onEpisodeEnd}
+      onPlaybackError={onPlaybackError}
     />
   );
 }

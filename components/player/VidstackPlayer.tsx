@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MediaPlayer, MediaProvider, isVideoProvider, type MediaProviderAdapter } from "@vidstack/react";
 import { defaultLayoutIcons, DefaultVideoLayout } from "@vidstack/react/player/layouts/default";
 import "@vidstack/react/player/styles/default/theme.css";
@@ -99,7 +99,14 @@ export default function VidstackPlayer({
     onReady?.();
   }, [onReady]);
 
-  // Set up an 8-second timeout to fall back to custom embeds if stream playback doesn't start
+  const streamUrl = source.proxiedUrl || source.url;
+  const activeSubtitles = useMemo(() => isHardSubStream ? [] : subtitles, [isHardSubStream, subtitles]);
+  const streamType = source.kind === "hls" || source.isM3U8 || streamUrl?.includes(".m3u8")
+    ? "application/x-mpegurl"
+    : "video/mp4";
+
+  // Do not timeout HLS startup. Some worker/CDN HLS manifests take longer than
+  // 8 seconds but still play; Anivexa only falls back on actual fatal errors.
   useEffect(() => {
     playStartedRef.current = false;
     if (fallbackTimerRef.current) {
@@ -107,13 +114,13 @@ export default function VidstackPlayer({
       fallbackTimerRef.current = null;
     }
 
-    if (onError) {
+    if (onError && streamType !== "application/x-mpegurl") {
       fallbackTimerRef.current = setTimeout(() => {
         if (!playStartedRef.current) {
-          console.warn("HLS playback did not start within 8 seconds, falling back to embeds...");
+          console.warn("Video playback did not start within 20 seconds, falling back...");
           onError();
         }
-      }, 8000);
+      }, 20000);
     }
 
     return () => {
@@ -122,7 +129,7 @@ export default function VidstackPlayer({
         fallbackTimerRef.current = null;
       }
     };
-  }, [source.url, onError]);
+  }, [source.url, streamType, onError]);
 
   // ── AniSkip Integration ────────────────────────────────────────
   useEffect(() => {
@@ -151,8 +158,20 @@ export default function VidstackPlayer({
     }
   }, []);
 
-  const streamUrl = source.proxiedUrl || source.url;
-  const activeSubtitles = isHardSubStream ? [] : subtitles;
+  useEffect(() => {
+    console.info(JSON.stringify({
+      at: new Date().toISOString(),
+      scope: "vidstack-player",
+      event: "source_loaded",
+      sourceKind: source.kind,
+      streamUrl,
+      streamType,
+      isHardSubStream,
+      subtitleCount: subtitles.length,
+      activeSubtitleCount: activeSubtitles.length,
+      subtitles: activeSubtitles.map((sub) => ({ label: sub.label, lang: sub.lang, url: sub.url })),
+    }));
+  }, [source.kind, streamUrl, streamType, isHardSubStream, subtitles, activeSubtitles]);
 
   return (
     <div className="player-wrapper">
@@ -170,7 +189,7 @@ export default function VidstackPlayer({
 
       <MediaPlayer
         className="w-full h-full aspect-video rounded-lg overflow-hidden border border-white/10 shadow-[0_0_30px_rgba(0,0,0,0.8)] bg-black"
-        src={streamUrl ? { src: streamUrl, type: "application/x-mpegurl" } : undefined}
+        src={streamUrl ? { src: streamUrl, type: streamType } : undefined}
         onTimeUpdate={(event) => {
           const time = event.currentTime;
           setCurrentTime(time);
@@ -179,6 +198,7 @@ export default function VidstackPlayer({
         onDurationChange={(duration) => setDuration(duration)}
         onEnded={() => onEpisodeEnd?.()}
         onPlay={() => {
+          console.info(JSON.stringify({ at: new Date().toISOString(), scope: "vidstack-player", event: "play", streamUrl }));
           setPlaying(true);
           playStartedRef.current = true;
           if (fallbackTimerRef.current) {
@@ -188,6 +208,7 @@ export default function VidstackPlayer({
         }}
         onPause={() => setPlaying(false)}
         onCanPlay={() => {
+          console.info(JSON.stringify({ at: new Date().toISOString(), scope: "vidstack-player", event: "can_play", streamUrl }));
           playStartedRef.current = true;
           if (fallbackTimerRef.current) {
             clearTimeout(fallbackTimerRef.current);
@@ -195,7 +216,10 @@ export default function VidstackPlayer({
           }
           onReady?.();
         }}
-        onError={() => onError?.()}
+        onError={() => {
+          console.warn(JSON.stringify({ at: new Date().toISOString(), scope: "vidstack-player", event: "error", streamUrl, sourceKind: source.kind }));
+          onError?.();
+        }}
         onProviderSetup={onProviderSetup}
         crossorigin="anonymous"
         playsInline

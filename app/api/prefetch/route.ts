@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getFastWatchSession, warmAnimeWatchWindow } from "@/lib/anime/api";
+import { getFastWatchSession, resolveStreamSource, warmAnimeWatchWindow } from "@/lib/anime/api";
 import { normalizeProviderParam } from "@/lib/anime/fallback";
 import { measureAsync, recordCounter, recordLog } from "@/lib/observability";
 
@@ -23,6 +23,28 @@ export const dynamic = "force-dynamic";
 const inflightWarms = new Set<string>();
 const MAX_CONCURRENT_WARMS = 3;
 const MAX_EPISODES_PER_REQUEST = 3;
+
+async function warmResolveSource(input: {
+  animeId: string;
+  episodeNumber: number;
+  provider?: string;
+  dubbed?: boolean;
+}): Promise<boolean> {
+  const timeout = AbortSignal.timeout(18_000);
+  await Promise.race([
+    resolveStreamSource({
+      animeId: input.animeId,
+      episodeNumber: Number(input.episodeNumber || 1),
+      provider: normalizeProviderParam(input.provider || ""),
+      dubbed: Boolean(input.dubbed),
+      server: Boolean(input.dubbed) ? "anivexa2-animegg-hls-dub" : "anivexa2-animegg-hls-hard",
+    }),
+    new Promise((_, reject) => {
+      timeout.addEventListener("abort", () => reject(new Error("resolve-source prefetch timeout")), { once: true });
+    }),
+  ]);
+  return true;
+}
 
 export async function POST(request: Request) {
   try {
@@ -74,7 +96,26 @@ export async function POST(request: Request) {
               dubbedModes: [Boolean(body.dubbed)],
             }),
         );
-        return NextResponse.json({ warmed: result.warmed, total: result.attempted, available: result.available });
+        let sourceWarmed = 0;
+        if (body?.resolveSources === true) {
+          const sourceResults = await Promise.allSettled(
+            body.episodeNumbers.slice(0, MAX_EPISODES_PER_REQUEST).map((episodeNumber: number) =>
+              warmResolveSource({
+                animeId: body.animeId,
+                provider: body.provider,
+                episodeNumber,
+                dubbed: body.dubbed,
+              }),
+            ),
+          );
+          sourceWarmed = sourceResults.filter((entry) => entry.status === "fulfilled" && entry.value).length;
+        }
+        return NextResponse.json({
+          warmed: result.warmed,
+          sourceWarmed,
+          total: result.attempted,
+          available: result.available,
+        });
       } finally {
         inflightWarms.delete(warmKey);
       }
@@ -98,6 +139,9 @@ export async function POST(request: Request) {
             timeout.addEventListener("abort", () => reject(new Error("prefetch timeout")), { once: true });
           }),
         ]);
+        if (body?.resolveSources === true) {
+          await warmResolveSource(ep);
+        }
         return true;
       })
     );

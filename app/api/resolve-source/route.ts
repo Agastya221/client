@@ -35,6 +35,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "animeId is required" }, { status: 400 });
     }
 
+    recordLog("info", "anime.resolve_source.request", {
+      animeId,
+      episodeNumber: episodeNumber || "auto",
+      provider: normalizeProviderParam(provider || "") || "auto",
+      dubbed: dubbed ? "dub" : "sub",
+      server: server || "auto",
+    });
+
     const result = await measureAsync(
       "route.resolve_source",
       {
@@ -51,6 +59,20 @@ export async function POST(request: NextRequest) {
           server: server || null,
         }),
     );
+
+    recordLog("info", "anime.resolve_source.response", {
+      animeId,
+      episodeNumber: episodeNumber || "auto",
+      requestedProvider: normalizeProviderParam(provider || "") || "auto",
+      provider: result.provider,
+      activeServerId: result.activeServerId || "none",
+      sourceKind: result.source?.kind || "none",
+      isM3U8: Boolean(result.source?.isM3U8),
+      hasProxy: Boolean(result.source?.proxiedUrl),
+      subtitleCount: result.subtitles.length,
+      serverCount: result.serverOptions.length,
+      watchAttempts: result.watchAttempts.map((attempt) => `${attempt.provider}:${attempt.ok ? "ok" : "fail"}:${attempt.reason}`).join(" | ").slice(0, 180),
+    });
 
     return NextResponse.json(result);
   } catch (error) {

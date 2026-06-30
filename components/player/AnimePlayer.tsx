@@ -16,6 +16,16 @@ const FALLBACK_SERVERS: Record<string, string[]> = {
   "mostream.us": ["megaplay.buzz", "animeplay.cfd", "tryembed.us.cc"],
 };
 
+function playerDebug(event: string, details: Record<string, unknown> = {}): void {
+  if (typeof window === "undefined") return;
+  console.info(JSON.stringify({
+    at: new Date().toISOString(),
+    scope: "anime-player",
+    event,
+    ...details,
+  }));
+}
+
 /**
  * Build a fallback iframe URL for the next server, reusing the same
  * AniList ID and episode number from the original URL.
@@ -63,6 +73,7 @@ interface AnimePlayerProps {
   onEpisodeEnd?: () => void;
   onTimeUpdate?: (time: number) => void;
   onReady?: () => void;
+  onPlaybackError?: () => void;
 }
 
 /**
@@ -84,6 +95,7 @@ export default function AnimePlayer({
   onEpisodeEnd,
   onTimeUpdate,
   onReady,
+  onPlaybackError,
 }: AnimePlayerProps) {
   const [fallbackUrl, setFallbackUrl] = useState<string | null>(null);
   const [failedHosts, setFailedHosts] = useState<Set<string>>(new Set());
@@ -122,9 +134,19 @@ export default function AnimePlayer({
 
   // Called by VidstackPlayer/IframePlayer when playback fails
   const handlePlayerError = useCallback(() => {
+    playerDebug("player_error", {
+      sourceKind: source?.kind || "none",
+      sourceUrl: source?.url || null,
+      proxiedUrl: source?.proxiedUrl || null,
+      iframeUrl: sourceIframeUrl,
+      fallbackUrl,
+      failedHosts: Array.from(failedHosts),
+    });
+
     // If HLS failed but we have a provider-direct iframe URL (e.g. flixcloud embed),
     // fall through to iframe player instead of immediately marking as failed.
     if (sourceIframeUrl && !fallbackUrl) {
+      playerDebug("player_error.try_provider_iframe", { iframeUrl: sourceIframeUrl });
       // Let the iframe try — the render logic below will pick it up
       setFallbackUrl(sourceIframeUrl);
       return;
@@ -132,6 +154,7 @@ export default function AnimePlayer({
 
     if (DISABLE_CUSTOM_EMBEDS) {
       console.warn("All playback sources exhausted (custom embeds disabled).");
+      onPlaybackError?.();
       setAllFailed(true);
       return;
     }
@@ -141,6 +164,7 @@ export default function AnimePlayer({
       const lang = dubbed ? "dub" : "sub";
       // Use malId (representing either malId or anilistId) to construct fallback
       const fallback = `https://megaplay.buzz/stream/ani/${malId || 0}/${episodeNumber}/${lang}`;
+      playerDebug("player_error.try_custom_embed_fallback", { fallback });
       setFallbackUrl(fallback);
       return;
     }
@@ -154,20 +178,24 @@ export default function AnimePlayer({
       setFailedHosts((prev) => new Set(prev).add(currentHost));
 
       if (nextHosts.length === 0) {
+        onPlaybackError?.();
         setAllFailed(true);
         return;
       }
 
       const nextUrl = buildFallbackUrl(iframeUrl, nextHosts[0]);
       if (nextUrl) {
+        playerDebug("player_error.try_next_embed_host", { currentHost, nextHost: nextHosts[0], nextUrl });
         setFallbackUrl(nextUrl);
       } else {
+        onPlaybackError?.();
         setAllFailed(true);
       }
     } catch {
+      onPlaybackError?.();
       setAllFailed(true);
     }
-  }, [iframeUrl, sourceIframeUrl, fallbackUrl, failedHosts, malId, episodeNumber, dubbed]);
+  }, [iframeUrl, sourceIframeUrl, fallbackUrl, failedHosts, malId, episodeNumber, dubbed, onPlaybackError]);
 
   // ── No source at all ──────────────────────────────────────────────────────
   if (!source) {
@@ -227,6 +255,13 @@ export default function AnimePlayer({
   const isHls = source.kind !== "iframe" && (source.isM3U8 || source.kind === "hls" || Boolean(hlsUrl?.includes(".m3u8"))) && !fallbackUrl;
 
   if (isHls && hlsUrl) {
+    playerDebug("render_hls", {
+      hlsUrl,
+      sourceKind: source.kind,
+      isM3U8: source.isM3U8,
+      subtitleCount: subtitles.length,
+      isHardSubStream,
+    });
     return (
       <VidstackPlayer
         source={source}
@@ -251,6 +286,11 @@ export default function AnimePlayer({
     // play-signal events. The 20s timer would always fire and mark the player as failed
     // even when video is playing fine. Users can manually switch servers if needed.
     const isProviderEmbed = source?.kind === "iframe";
+    playerDebug("render_iframe", {
+      iframeUrl,
+      isProviderEmbed,
+      sourceKind: source?.kind,
+    });
     return (
       <IframePlayer
         key="custom-iframe-player"
@@ -265,6 +305,12 @@ export default function AnimePlayer({
 
   // ── Direct video URL fallback ──────────────────────────────────────────
   if (hlsUrl && !fallbackUrl) {
+    playerDebug("render_video", {
+      url: hlsUrl,
+      sourceKind: source.kind,
+      subtitleCount: subtitles.length,
+      isHardSubStream,
+    });
     return (
       <VidstackPlayer
         source={source}

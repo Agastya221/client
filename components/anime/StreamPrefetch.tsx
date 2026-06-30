@@ -40,6 +40,7 @@ export default function StreamPrefetch({
         animeId,
         provider,
         episodeNumbers: [1],
+        resolveSources: true,
       }),
       signal: controller.signal,
     }).catch(() => {

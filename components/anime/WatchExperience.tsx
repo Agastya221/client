@@ -85,11 +85,37 @@ function hasDirectPlaybackSource(session: WatchSessionModel): boolean {
    making episode switching feel instant. */
 
 const CUSTOM_EMBED_BASES = ["megaplay", "animeplay", "tryembed", "mostream"] as const;
+const WORKER_PROVIDER_IDS = ["reanime", "allmanga", "anikoto", "animegg", "anineko"] as const;
 
 function isCustomEmbedServer(serverId: string | null): boolean {
   if (!serverId) return false;
   const base = serverId.split("-")[0];
   return CUSTOM_EMBED_BASES.some((b) => base === b);
+}
+
+function isWorkerProvider(provider: ProviderId | null | undefined): boolean {
+  return Boolean(provider && (WORKER_PROVIDER_IDS as readonly string[]).includes(provider));
+}
+
+function isWorkerServerOption(serverId: string | null | undefined): boolean {
+  if (!serverId) return false;
+  if (serverId.startsWith("anivexa-") || serverId.startsWith("anivexa2-")) return true;
+  const base = serverId.split("-")[0];
+  return (WORKER_PROVIDER_IDS as readonly string[]).includes(base);
+}
+
+function isEmbedServerOption(serverId: string): boolean {
+  return serverId.includes("-embed") || serverId.endsWith("-embed") || isCustomEmbedServer(serverId);
+}
+
+function watchDebug(event: string, details: Record<string, unknown> = {}): void {
+  if (typeof window === "undefined") return;
+  console.info(JSON.stringify({
+    at: new Date().toISOString(),
+    scope: "anime-watch-client",
+    event,
+    ...details,
+  }));
 }
 
 function buildCustomEmbedUrl(
@@ -503,6 +529,7 @@ export default function WatchExperience({ initialSession, recommendations = null
   const hoverPrefetchKeyRef = useRef<string | null>(null);
   const pendingSessionKeyRef = useRef<string | null>(null);
   const nearEndPrefetchedRef = useRef<string | null>(null);
+  const sessionRequestSeqRef = useRef(0);
   const [deferredRecommendations, setDeferredRecommendations] = useState<AnilistMedia[] | null>(initialRecommendations);
   const [resolvedCurrentUserId, setResolvedCurrentUserId] = useState<string | null>(currentUserId ?? null);
 
@@ -714,7 +741,94 @@ export default function WatchExperience({ initialSession, recommendations = null
   }, [focusMode]);
 
   const fetchSession = async (request: SessionRequest): Promise<WatchSessionModel> => {
+    watchDebug("watch_session_fetch.start", {
+      animeId: session.anime.id,
+      episodeNumber: request.episodeNumber,
+      provider: request.provider,
+      dubbed: request.dubbed,
+      server: request.server,
+    });
     return loadWatchSession(session.anime.id, request);
+  };
+
+  const resolveCurrentSource = async (request: SessionRequest): Promise<WatchSessionModel> => {
+    const startedAt = performance.now();
+    watchDebug("resolve_source.start", {
+      animeId: session.anime.id,
+      episodeNumber: request.episodeNumber,
+      provider: request.provider,
+      dubbed: request.dubbed,
+      server: request.server,
+    });
+
+    const response = await fetch("/api/resolve-source", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({
+        animeId: session.anime.id,
+        episodeNumber: request.episodeNumber,
+        provider: request.provider,
+        dubbed: request.dubbed,
+        server: request.server,
+      }),
+    });
+
+    const payload = await response.json().catch(() => null) as
+      | {
+          source?: WatchSessionModel["source"];
+          subtitles?: WatchSessionModel["subtitles"];
+          serverOptions?: WatchSessionModel["serverOptions"];
+          activeServerId?: WatchSessionModel["activeServerId"];
+          provider?: WatchSessionModel["provider"];
+          intro?: WatchSessionModel["intro"];
+          outro?: WatchSessionModel["outro"];
+          watchAttempts?: WatchSessionModel["watchAttempts"];
+        }
+      | { error?: string }
+      | null;
+
+    if (!response.ok) {
+      throw new Error(
+        payload && "error" in payload && payload.error
+          ? payload.error
+          : `Resolve source failed with ${response.status}`,
+      );
+    }
+
+    if (!payload || !("source" in payload)) {
+      throw new Error("Resolve source returned an invalid payload.");
+    }
+
+    watchDebug("resolve_source.done", {
+      animeId: session.anime.id,
+      episodeNumber: request.episodeNumber,
+      requestedProvider: request.provider,
+      provider: payload.provider,
+      activeServerId: payload.activeServerId,
+      sourceKind: payload.source?.kind || "none",
+      isM3U8: Boolean(payload.source?.isM3U8),
+      subtitleCount: payload.subtitles?.length || 0,
+      serverCount: payload.serverOptions?.length || 0,
+      durationMs: Math.round(performance.now() - startedAt),
+    });
+
+    return {
+      ...session,
+      provider: payload.provider || request.provider || session.provider,
+      source: payload.source || null,
+      subtitles: payload.subtitles || [],
+      serverOptions: payload.serverOptions?.length ? payload.serverOptions : session.serverOptions,
+      activeServerId: payload.activeServerId || null,
+      intro: payload.intro ?? null,
+      outro: payload.outro ?? null,
+      watchAttempts: payload.watchAttempts || session.watchAttempts,
+      dubbed: request.dubbed ?? session.dubbed,
+      stale: false,
+      fallback: false,
+      message: payload.source ? null : "No playable source returned.",
+      fallbackHistory: payload.source ? [] : ["Resolve source returned no playable stream"],
+    };
   };
 
   const clearPendingCommit = () => {
@@ -725,9 +839,20 @@ export default function WatchExperience({ initialSession, recommendations = null
   };
 
   const commitSession = (nextSession: WatchSessionModel) => {
+    watchDebug("session.commit", {
+      animeId: nextSession.anime.id,
+      episodeNumber: nextSession.episode.number,
+      provider: nextSession.provider,
+      activeServerId: nextSession.activeServerId,
+      sourceKind: nextSession.source?.kind || "none",
+      stale: Boolean(nextSession.stale),
+      subtitleCount: nextSession.subtitles.length,
+      serverCount: nextSession.serverOptions.length,
+    });
     clearPendingCommit();
     pendingSessionKeyRef.current = null;
     setPendingSession(null);
+    const requestSeq = ++sessionRequestSeqRef.current;
     setIsSessionLoading(false);
     setOptimisticServerId(null); // real server id is now in session — clear optimistic
 
@@ -754,9 +879,12 @@ export default function WatchExperience({ initialSession, recommendations = null
     }, 4000);
   };
 
-  const applySession = async (request: SessionRequest): Promise<WatchSessionModel> => {
+  const applySession = async (request: SessionRequest, requestSeq?: number): Promise<WatchSessionModel> => {
     // Fall back to server fetch
     const nextSession = await fetchSession(request);
+    if (requestSeq !== undefined && sessionRequestSeqRef.current !== requestSeq) {
+      return nextSession;
+    }
     stageOrCommitSession(nextSession);
     return nextSession;
   };
@@ -780,6 +908,17 @@ export default function WatchExperience({ initialSession, recommendations = null
       server: request.server ?? null,
     };
 
+    watchDebug("queue_session", {
+      animeId: session.anime.id,
+      currentEpisode: session.episode.number,
+      currentProvider: session.provider,
+      currentServer: session.activeServerId,
+      requestedEpisode: normalizedRequest.episodeNumber,
+      requestedProvider: normalizedRequest.provider,
+      requestedServer: normalizedRequest.server,
+      requestedDubbed: normalizedRequest.dubbed,
+    });
+
     if (
       normalizedRequest.episodeNumber === session.episode.number &&
       normalizedRequest.provider === session.provider &&
@@ -797,10 +936,10 @@ export default function WatchExperience({ initialSession, recommendations = null
     hoverPrefetchKeyRef.current = null;
     pendingSessionKeyRef.current = null;
     setPendingSession(null);
+    const requestSeq = ++sessionRequestSeqRef.current;
 
-    // ⚡ Optimistic server selection — turn the button green immediately on click
-    // so the user gets instant visual feedback that their selection was registered.
-    // The actual embed will load behind it. Cleared in commitSession.
+    // Optimistic server selection gives instant feedback while the resolver runs.
+    // The real active server is committed only after the request completes.
     if (normalizedRequest.server) {
       setOptimisticServerId(normalizedRequest.server);
     } else if (normalizedRequest.dubbed !== session.dubbed) {
@@ -812,6 +951,11 @@ export default function WatchExperience({ initialSession, recommendations = null
     // ⚡ Try client-side local session first
     const localSession = tryBuildLocalSession(session, normalizedRequest);
     if (localSession) {
+      watchDebug("queue_session.local_embed", {
+        provider: localSession.provider,
+        activeServerId: localSession.activeServerId,
+        sourceKind: localSession.source?.kind || "none",
+      });
       const serverChanged = normalizedRequest.server && normalizedRequest.server !== session.activeServerId;
       const dubChanged = normalizedRequest.dubbed !== session.dubbed;
       if (serverChanged || dubChanged) {
@@ -824,15 +968,111 @@ export default function WatchExperience({ initialSession, recommendations = null
       return;
     }
 
+    const shouldResolveWorkerSource =
+      (isWorkerProvider(normalizedRequest.provider) || isWorkerServerOption(normalizedRequest.server)) &&
+      (
+        normalizedRequest.provider !== session.provider ||
+        !normalizedRequest.server ||
+        isWorkerServerOption(normalizedRequest.server)
+      );
+
+    if (shouldResolveWorkerSource) {
+      watchDebug("queue_session.worker_resolve", {
+        provider: normalizedRequest.provider,
+        server: normalizedRequest.server,
+        serverSentToResolver: normalizedRequest.server,
+      });
+      setIsSessionLoading(true);
+      void resolveCurrentSource(normalizedRequest)
+        .then((nextSession) => {
+          if (sessionRequestSeqRef.current !== requestSeq) return;
+          commitSession(nextSession);
+        })
+        .catch((error) => {
+          if (sessionRequestSeqRef.current !== requestSeq) return;
+          watchDebug("queue_session.worker_resolve_error", {
+            provider: normalizedRequest.provider,
+            server: normalizedRequest.server,
+            message: error instanceof Error ? error.message : "Unable to resolve worker stream.",
+          });
+          setPlaybackMessage(error instanceof Error ? error.message : "Unable to resolve worker stream.");
+          setIsSessionLoading(false);
+          setOptimisticServerId(null);
+        });
+      return;
+    }
+
     // Otherwise, do a server-side load
     setIsSessionLoading(true);
-    void applySession(normalizedRequest)
+    void applySession(normalizedRequest, requestSeq)
       .catch((error) => {
+        if (sessionRequestSeqRef.current !== requestSeq) return;
+        watchDebug("queue_session.watch_session_error", {
+          provider: normalizedRequest.provider,
+          server: normalizedRequest.server,
+          message: error instanceof Error ? error.message : "Unable to refresh watch session.",
+        });
         setPlaybackMessage(error instanceof Error ? error.message : "Unable to refresh watch session.");
         setIsSessionLoading(false);
         setOptimisticServerId(null); // revert optimistic on error
       })
       .finally(() => undefined);
+  };
+
+  const handlePlaybackError = () => {
+    if (isSessionLoading) return;
+
+    const activeServerId = pendingSession?.activeServerId || session.activeServerId;
+    const language = session.dubbed ? "dub" : "sub";
+    if (isWorkerProvider(session.provider)) {
+      watchDebug("playback_error.worker_provider_no_auto_fallback", {
+        provider: session.provider,
+        activeServerId,
+        language,
+      });
+      setPlaybackMessage(`${humanizeProviderId(session.provider)} stream failed. Choose another visible provider/server to test it manually.`);
+      return;
+    }
+
+    const scraperCandidates = session.serverOptions.filter((entry) => {
+      const sameLanguage = language === "dub"
+        ? entry.category === "dub"
+        : entry.category === "sub" || !entry.category;
+      return sameLanguage && entry.id !== activeServerId && !isCustomEmbedServer(entry.id);
+    });
+
+    const currentIndex = scraperCandidates.findIndex((entry) => entry.id === activeServerId);
+    const orderedCandidates =
+      currentIndex >= 0
+        ? [...scraperCandidates.slice(currentIndex + 1), ...scraperCandidates.slice(0, currentIndex)]
+        : scraperCandidates;
+    const next = orderedCandidates[0];
+
+    if (!next) {
+      watchDebug("playback_error.no_scraper_candidate", {
+        provider: session.provider,
+        activeServerId,
+        language,
+      });
+      setPlaybackMessage("Scraper stream failed and no other scraper provider is available for this mode. Try a visible provider/server manually.");
+      return;
+    }
+
+    watchDebug("playback_error.try_next_scraper", {
+      failedProvider: session.provider,
+      failedServer: activeServerId,
+      nextProvider: next.provider,
+      nextServer: next.id,
+      nextLabel: next.label,
+    });
+
+    setPlaybackMessage(`Scraper stream failed. Trying ${next.label}...`);
+    queueSession({
+      episodeNumber: session.episode.number,
+      provider: next.provider,
+      server: next.id,
+      dubbed: session.dubbed,
+    });
   };
 
   const prefetchEpisode = (episodeNumber: number) => {
@@ -935,48 +1175,61 @@ export default function WatchExperience({ initialSession, recommendations = null
     nearEndPrefetchedRef.current = null;
   }, [session.episode.number]);
 
-  /* ── Background Resolve Polling ──────────────── */
+  /* ── Background Source Resolve ───────────────── */
   useEffect(() => {
     if (!session.stale) return;
 
     let timeoutId: ReturnType<typeof setTimeout>;
+    let cancelled = false;
     let attempts = 0;
-    const delays = [1000, 2000, 3000, 5000, 5000];
+    const requestSeq = ++sessionRequestSeqRef.current;
+    const delays = [0, 1500, 3000, 5000, 5000];
 
-    const poll = async () => {
+    const resolve = async () => {
       const delay = delays[Math.min(attempts, delays.length - 1)];
       attempts++;
-      
+
       timeoutId = setTimeout(async () => {
         try {
-          const nextSession = await fetchSession({
+          const nextSession = await resolveCurrentSource({
             episodeNumber: session.episode.number,
             provider: session.provider,
             dubbed: session.dubbed,
             server: session.activeServerId,
           });
-          
-          if (nextSession.stale) {
-            poll();
-          } else {
-            // Re-merge session to clear stale state and show video
-            commitSession(nextSession);
-          }
+          if (!cancelled && sessionRequestSeqRef.current === requestSeq) commitSession(nextSession);
         } catch (error) {
+          if (cancelled || sessionRequestSeqRef.current !== requestSeq) return;
           setPlaybackMessage(error instanceof Error ? error.message : "Failed to poll watch session");
+          if (attempts < delays.length) {
+            resolve();
+          } else {
+            commitSession({
+              ...session,
+              stale: false,
+              fallback: false,
+              message: error instanceof Error ? error.message : "Failed to resolve stream source.",
+              fallbackHistory: ["Resolve source failed after multiple attempts"],
+            });
+          }
         }
       }, delay);
     };
 
-    poll();
+    resolve();
 
-    return () => clearTimeout(timeoutId);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
   }, [session.stale, session.anime.id, session.episode.number, session.provider, session.dubbed, session.activeServerId]);
 
   /* ── Server buttons helper ───────────────────── */
   // Priority: optimistic click → pending staged session → committed session
   const effectiveActiveServerId = optimisticServerId || pendingSession?.activeServerId || session.activeServerId;
   const { isDesidub, subServers, softSubServers, hardSubServers, dubServers, hindiServers } = summarizeServerGroups(session.serverOptions);
+  const effectiveActiveServer = session.serverOptions.find((entry) => entry.id === effectiveActiveServerId);
+  const activeIsHardSub = effectiveActiveServer?.subType === "hard" || effectiveActiveServerId === "hls-hardsub" || (effectiveActiveServerId?.endsWith("-hard") ?? false);
   const mainFallback = session.availableProviders.find((p) => p !== "desidub") || "animekai";
   const showHindi = session.availableProviders.includes("desidub") || session.provider === "desidub";
 
@@ -1064,7 +1317,7 @@ export default function WatchExperience({ initialSession, recommendations = null
                 dubbed={session.dubbed}
                 intro={session.intro}
                 outro={session.outro}
-                isHardSubStream={effectiveActiveServerId === "hls-hardsub" || (effectiveActiveServerId?.endsWith("-hard") ?? false)}
+                isHardSubStream={activeIsHardSub}
                 onReady={() => setLoadedSurfaceKey(activePlayerSurfaceKey)}
                 onEpisodeEnd={() => {
                   if (nextEpisode) {
@@ -1076,6 +1329,7 @@ export default function WatchExperience({ initialSession, recommendations = null
                     });
                   }
                 }}
+                onPlaybackError={handlePlaybackError}
               />
             </div>
           )}
@@ -1373,25 +1627,57 @@ export default function WatchExperience({ initialSession, recommendations = null
             </div>
 
             {/* Row 2: server buttons */}
-            <div className="flex flex-wrap gap-1.5 pl-10">
+            <div className="space-y-1.5 pl-10">
               {(() => {
                 const serversToShow = subTypeFilter === "hard" ? hardSubServers : softSubServers;
-                return serversToShow.length > 0 ? (
-                  serversToShow.map((entry) => (
-                    <ServerButton
-                      key={entry.id}
-                      label={entry.label}
-                      subType={entry.subType}
-                      active={!session.dubbed && effectiveActiveServerId === entry.id}
-                      onClick={() => queueSession({ episodeNumber: session.episode.number, provider: entry.provider, server: entry.id, dubbed: false })}
-                    />
-                  ))
-                ) : (
-                  <ServerButton
-                    label={`Try ${humanizeProviderId(mainFallback)} sub`}
-                    active={false}
-                    onClick={() => queueSession({ episodeNumber: session.episode.number, provider: mainFallback, server: null, dubbed: false })}
-                  />
+                const hlsServers = serversToShow.filter((entry) => !isEmbedServerOption(entry.id));
+                const embedServers = serversToShow.filter((entry) => isEmbedServerOption(entry.id));
+                if (serversToShow.length === 0) {
+                  return (
+                    <div className="flex flex-wrap gap-1.5">
+                      <ServerButton
+                        label={`Try ${humanizeProviderId(mainFallback)} sub`}
+                        active={false}
+                        onClick={() => queueSession({ episodeNumber: session.episode.number, provider: mainFallback, server: null, dubbed: false })}
+                      />
+                    </div>
+                  );
+                }
+                return (
+                  <>
+                    {hlsServers.length > 0 && (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] font-bold text-white/30 uppercase tracking-wider w-9 shrink-0">HLS</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {hlsServers.map((entry) => (
+                            <ServerButton
+                              key={entry.id}
+                              label={entry.label}
+                              subType={entry.subType}
+                              active={!session.dubbed && effectiveActiveServerId === entry.id}
+                              onClick={() => queueSession({ episodeNumber: session.episode.number, provider: entry.provider, server: entry.id, dubbed: false })}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {embedServers.length > 0 && (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] font-bold text-white/30 uppercase tracking-wider w-9 shrink-0">Embed</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {embedServers.map((entry) => (
+                            <ServerButton
+                              key={entry.id}
+                              label={entry.label}
+                              subType={entry.subType}
+                              active={!session.dubbed && effectiveActiveServerId === entry.id}
+                              onClick={() => queueSession({ episodeNumber: session.episode.number, provider: entry.provider, server: entry.id, dubbed: false })}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
                 );
               })()}
             </div>
@@ -1401,22 +1687,52 @@ export default function WatchExperience({ initialSession, recommendations = null
           {hasDub && (
           <div className="flex items-center gap-3 flex-wrap">
             <span className="text-[11px] font-bold text-white/40 w-12 uppercase tracking-wider shrink-0">Dub</span>
-            <div className="flex flex-wrap gap-1.5">
-              {dubServers.length > 0 ? (
-                dubServers.map((entry) => (
+            <div className="space-y-1.5">
+              {dubServers.length > 0 ? (() => {
+                const hlsServers = dubServers.filter((entry) => !isEmbedServerOption(entry.id));
+                const embedServers = dubServers.filter((entry) => isEmbedServerOption(entry.id));
+                return (
+                  <>
+                    {hlsServers.length > 0 && (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] font-bold text-white/30 uppercase tracking-wider w-9 shrink-0">HLS</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {hlsServers.map((entry) => (
+                            <ServerButton
+                              key={entry.id}
+                              label={entry.label}
+                              active={session.dubbed && effectiveActiveServerId === entry.id && !isDesidub}
+                              onClick={() => queueSession({ episodeNumber: session.episode.number, provider: entry.provider, server: entry.id, dubbed: true })}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {embedServers.length > 0 && (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] font-bold text-white/30 uppercase tracking-wider w-9 shrink-0">Embed</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {embedServers.map((entry) => (
+                            <ServerButton
+                              key={entry.id}
+                              label={entry.label}
+                              active={session.dubbed && effectiveActiveServerId === entry.id && !isDesidub}
+                              onClick={() => queueSession({ episodeNumber: session.episode.number, provider: entry.provider, server: entry.id, dubbed: true })}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+              })() : (
+                <div className="flex flex-wrap gap-1.5">
                   <ServerButton
-                    key={entry.id}
-                    label={entry.label}
-                    active={session.dubbed && effectiveActiveServerId === entry.id && !isDesidub}
-                    onClick={() => queueSession({ episodeNumber: session.episode.number, provider: entry.provider, server: entry.id, dubbed: true })}
+                    label={`Try ${humanizeProviderId(mainFallback)} dub`}
+                    active={false}
+                    onClick={() => queueSession({ episodeNumber: session.episode.number, provider: mainFallback, server: null, dubbed: true })}
                   />
-                ))
-              ) : (
-                <ServerButton
-                  label={`Try ${humanizeProviderId(mainFallback)} dub`}
-                  active={false}
-                  onClick={() => queueSession({ episodeNumber: session.episode.number, provider: mainFallback, server: null, dubbed: true })}
-                />
+                </div>
               )}
             </div>
           </div>
