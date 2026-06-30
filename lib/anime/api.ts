@@ -4913,6 +4913,75 @@ export async function getQuickWatchSession(input: {
   }
   // ─── END DB-FIRST HLS PATH ────────────────────────────────────────────────
 
+  const anivexaAnilistId = detail.anime.anilistId || parseAnilistPassthroughId(input.animeId);
+  const shouldUseAnivexaAggregate =
+    Boolean(
+      anivexaAnilistId &&
+      ANIVEXA_PROVIDERS.includes(preferredProvider as AniviexaProvider) &&
+      (!input.server || input.server === "auto" || input.server.startsWith("anivexa2-") || input.server.startsWith("anivexa-"))
+    );
+
+  if (shouldUseAnivexaAggregate && anivexaAnilistId) {
+    try {
+      const session = await fetchAnivexaAggregateWatchSession(
+        String(anivexaAnilistId),
+        targetEpisode2.number,
+        Boolean(input.dubbed),
+        input.server || null,
+        anivexaProviderForUi(preferredProvider),
+      );
+
+      if (session.source) {
+        return {
+          anime: detail.anime,
+          episode: targetEpisode2,
+          episodes: detail.episodes,
+          seasons: detail.seasons,
+          provider: preferredProvider,
+          availableProviders: episodeAvailableProviders,
+          attempts: detail.attempts,
+          watchAttempts: [{
+            provider: preferredProvider,
+            server: session.activeServerId || input.server || "auto",
+            ok: true,
+            reason: "Anivexa aggregate auto-selected source",
+          }],
+          source: session.source,
+          subtitles: session.subtitles,
+          serverOptions: appendCustomEmbedServers(session.serverOptions, detail.anime, anivexaProviderForUi(preferredProvider)),
+          activeServerId: session.activeServerId,
+          dubbed: Boolean(input.dubbed),
+          intro: session.intro || null,
+          outro: session.outro || null,
+          fallbackHistory: [],
+          stale: false,
+          fallback: false,
+          message: null,
+        };
+      }
+
+      recordLog("warn", "anime.anivexa.quick.no_source", {
+        animeId: input.animeId,
+        anilistId: anivexaAnilistId,
+        episodeNumber: targetEpisode2.number,
+        provider: preferredProvider,
+        serverCount: session.serverOptions.length,
+      });
+    } catch (error) {
+      recordLog(
+        "warn",
+        "anime.anivexa.quick.failed",
+        {
+          animeId: input.animeId,
+          anilistId: anivexaAnilistId,
+          episodeNumber: targetEpisode2.number,
+          provider: preferredProvider,
+        },
+        error instanceof Error ? error.message : "Unable to resolve Anivexa aggregate watch session",
+      );
+    }
+  }
+
   if (input.server === "scraper-sub" || input.server === "scraper-dub") {
     return {
       anime: detail.anime,

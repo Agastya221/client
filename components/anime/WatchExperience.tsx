@@ -1470,6 +1470,8 @@ export default function WatchExperience({ initialSession, recommendations = null
         />
       )}
     <div className={`space-y-0 ${focusMode ? "relative z-50" : ""}`}>
+      <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_380px] xl:items-start xl:gap-5">
+        <div className="min-w-0">
       {/* ── VIDEO PLAYER ────────────────────────── */}
       <div className="rounded-t-2xl overflow-hidden border border-white/8 border-b-0 bg-black relative">
         <div className="relative aspect-video overflow-hidden bg-black">
@@ -1850,12 +1852,23 @@ export default function WatchExperience({ initialSession, recommendations = null
         </div>
       </div>
 
-      <div className="mt-4 grid gap-5 lg:grid-cols-[340px_minmax(0,1fr)] lg:items-start">
-        <aside className="hidden lg:block lg:sticky lg:top-20">
-          {episodePanel}
-        </aside>
+      <div className="mt-5 space-y-5">
+        <div className="hidden xl:block space-y-5">
+          <WatchAnimeDetailsPanel session={session} heroImage={heroImage} />
 
-        <div className="space-y-5 min-w-0">
+          <SeasonRail seasons={session.seasons} activeHref={session.anime.href} accentColor={accentColor} />
+
+          <CommentSection
+            animeId={session.anime.id}
+            episodeNumber={session.episode.number}
+            currentUserId={resolvedCurrentUserId}
+            onTimestampClick={() => {
+              document.querySelector("iframe")?.scrollIntoView({ behavior: "smooth", block: "center" });
+            }}
+          />
+        </div>
+
+        <div className="space-y-5 xl:hidden">
           <CommentSection
             animeId={session.anime.id}
             episodeNumber={session.episode.number}
@@ -1865,9 +1878,7 @@ export default function WatchExperience({ initialSession, recommendations = null
             }}
           />
 
-          <div className="lg:hidden">
-            {episodePanel}
-          </div>
+          {episodePanel}
 
           <WatchAnimeDetailsPanel session={session} heroImage={heroImage} />
 
@@ -1875,6 +1886,13 @@ export default function WatchExperience({ initialSession, recommendations = null
 
           <WatchRecommendationsPanel recommendations={deferredRecommendations} />
         </div>
+      </div>
+        </div>
+
+        <aside className="hidden xl:block xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto xl:pr-1 hide-scrollbar space-y-5">
+          {episodePanel}
+          <WatchRecommendationsPanel recommendations={deferredRecommendations} variant="sidebar" />
+        </aside>
       </div>
     </div>
     </>

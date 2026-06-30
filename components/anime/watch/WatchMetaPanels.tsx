@@ -159,20 +159,24 @@ export function WatchAnimeDetailsPanel({
 
 export function WatchRecommendationsPanel({
   recommendations,
+  variant = "grid",
 }: {
   recommendations: AnilistMedia[] | null;
+  variant?: "grid" | "sidebar";
 }) {
+  const compact = variant === "sidebar";
+
   if (recommendations === null) {
     return (
-      <div className="sticky top-20 space-y-4">
-        <h2 className="text-[11px] font-black uppercase tracking-widest text-white/40">
+      <div className={compact ? "rounded-2xl border border-white/8 bg-[#111113] p-4 space-y-4" : "sticky top-20 space-y-4"}>
+        <h2 className={compact ? "text-base font-bold text-white" : "text-[11px] font-black uppercase tracking-widest text-white/40"}>
           Loading Recommendations
         </h2>
-        <div className="grid grid-cols-2 gap-3">
+        <div className={compact ? "space-y-3" : "grid grid-cols-2 gap-3"}>
           {Array.from({ length: 4 }).map((_, index) => (
             <div
               key={index}
-              className="aspect-[2/3] rounded-xl border border-white/5 bg-white/[0.03] animate-pulse"
+              className={compact ? "h-16 rounded-xl border border-white/5 bg-white/[0.03] animate-pulse" : "aspect-[2/3] rounded-xl border border-white/5 bg-white/[0.03] animate-pulse"}
             />
           ))}
         </div>
@@ -181,12 +185,64 @@ export function WatchRecommendationsPanel({
   }
 
   return (
-    <div className="sticky top-20 space-y-4">
-      <h2 className="text-[11px] font-black uppercase tracking-widest text-white/40">
-        {recommendations.length > 0 ? "Recommended for You" : "Trending Now"}
+    <div className={compact ? "rounded-2xl border border-white/8 bg-[#111113] p-4 space-y-4" : "sticky top-20 space-y-4"}>
+      <h2 className={compact ? "text-base font-bold text-white" : "text-[11px] font-black uppercase tracking-widest text-white/40"}>
+        {compact ? "More like this" : recommendations.length > 0 ? "Recommended for You" : "Trending Now"}
       </h2>
 
-      {recommendations.length > 0 && (
+      {compact && recommendations.length > 0 && (
+        <div className="space-y-3">
+          {recommendations.slice(0, 10).map((rec) => {
+            const recTitle = anilistTitle(rec);
+            const recRating = anilistRating(rec);
+            const recFormat = anilistFormat(rec);
+            const recHref = `/anime/${encodeAnilistRouteId(rec.id)}`;
+            const recImage = rec.coverImage.extraLarge || rec.coverImage.large;
+            const recColor = rec.coverImage.color || "#ff5500";
+            return (
+              <Link
+                key={rec.id}
+                href={recHref}
+                className="group/rec flex items-center gap-3 rounded-xl p-1.5 transition-colors hover:bg-white/[0.04]"
+              >
+                <div className="h-14 w-20 shrink-0 overflow-hidden rounded-lg bg-[#1a1c22]">
+                  <img
+                    src={recImage}
+                    alt={recTitle}
+                    className="h-full w-full object-cover transition-transform duration-500 group-hover/rec:scale-105"
+                    loading="lazy"
+                  />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3 className="line-clamp-2 text-[13px] font-bold leading-tight text-white/85 transition-colors group-hover/rec:text-white">
+                    {recTitle}
+                  </h3>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] font-semibold text-white/35">
+                    <span>{recFormat}</span>
+                    {rec.episodes && (
+                      <>
+                        <span aria-hidden="true">&middot;</span>
+                        <span>{rec.episodes} EPS</span>
+                      </>
+                    )}
+                    {recRating && (
+                      <>
+                        <span aria-hidden="true">&middot;</span>
+                        <span className="inline-flex items-center gap-0.5" style={{ color: recColor }}>
+                          <Star className="h-2.5 w-2.5 fill-current" aria-hidden="true" />
+                          {recRating}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+
+      {!compact && recommendations.length > 0 && (
         <div className="grid grid-cols-2 gap-3">
           {recommendations.slice(0, 8).map((rec) => {
             const recTitle = anilistTitle(rec);
