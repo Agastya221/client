@@ -34,6 +34,8 @@ export async function GET(request: Request) {
         // Safe to ignore invalid referer for Origin header
       }
     }
+    const range = request.headers.get("range");
+    if (range) headers["Range"] = range;
 
     const response = await fetch(targetUrl, {
       headers,
@@ -60,12 +62,13 @@ export async function GET(request: Request) {
       // Directly stream video segments/subtitles/keys
       const responseHeaders = new Headers(corsHeaders);
       if (contentType) responseHeaders.set("Content-Type", contentType);
-      
-      const contentLength = response.headers.get("content-length");
-      if (contentLength) responseHeaders.set("Content-Length", contentLength);
+      for (const header of ["accept-ranges", "content-length", "content-range"]) {
+        const value = response.headers.get(header);
+        if (value) responseHeaders.set(header, value);
+      }
 
       return new Response(response.body, {
-        status: 200,
+        status: response.status,
         headers: responseHeaders,
       });
     }

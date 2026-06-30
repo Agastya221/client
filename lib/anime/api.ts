@@ -62,7 +62,7 @@ const ANIVEXA_DISPLAY_NAMES: Record<AnivexaWorkerProvider, string> = {
   animepahe: "Sally",
   anidbapp: "Atlas",
 };
-const ANIVEXA_HARD_SUB_PROVIDERS = new Set<AnivexaWorkerProvider>(["animegg", "anineko", "allmanga"]);
+const ANIVEXA_HARD_SUB_PROVIDERS = new Set<AnivexaWorkerProvider>(["animegg", "allmanga"]);
 const ANIVEXA_HLS_ONLY_PROVIDERS = new Set<AnivexaWorkerProvider>(["anikoto"]);
 const ANIVEXA_TRANSPORT_PRIORITY: Record<NonNullable<ServerOption["transport"]>, number> = {
   hls: 0,
@@ -3231,13 +3231,13 @@ async function fetchAniviexaWatchSession(
     : [
         { key: "ssub", payload: data.ssub, subType: "soft" as const },
         { key: "hsub", payload: data.hsub, subType: "hard" as const },
-        { key: "sub", payload: data.sub, subType: provider === "anikoto" ? "soft" as const : "hard" as const },
+        { key: "sub", payload: data.sub, subType: undefined as "soft" | "hard" | undefined },
       ])
     .filter((entry) => entry.payload && typeof entry.payload === "object");
   const fallbackPayload = data.result || data.data || data;
   const selectedEnvelopeCandidates = envelopeCandidates.length
     ? envelopeCandidates
-    : [{ key: "root", payload: fallbackPayload, subType: dubbed ? undefined : (provider === "anikoto" ? "soft" as const : "hard" as const) }];
+    : [{ key: "root", payload: fallbackPayload, subType: undefined as "soft" | "hard" | undefined }];
 
   const rawStreams: any[] = selectedEnvelopeCandidates.flatMap((entry) =>
     ensureArray(entry.payload.streams || []).map((stream: any) => ({
@@ -3245,13 +3245,15 @@ async function fetchAniviexaWatchSession(
       __payload: entry.payload,
       __envelopeKey: entry.key,
       __subType: entry.subType,
+      __subtitles: extractAnivexaStreamSubtitles(stream),
     })),
   );
   const fallbackStreams = rawStreams.length > 0 ? rawStreams : ensureArray(data.streams).map((stream: any) => ({
     ...stream,
     __payload: fallbackPayload,
     __envelopeKey: "root",
-    __subType: dubbed ? undefined : (provider === "anikoto" ? "soft" as const : "hard" as const),
+    __subType: undefined,
+    __subtitles: extractAnivexaStreamSubtitles(stream),
   }));
   const streams = fallbackStreams.filter((s) => !s.audio || s.audio === audio);
   const activeStreams = streams.length > 0 ? streams : fallbackStreams;
@@ -3274,7 +3276,9 @@ async function fetchAniviexaWatchSession(
     const typeStr = s.type || "embed";
     const serverName = s.server || "HD";
     const suffix = s.quality || (s.url?.length > 10 ? s.url.slice(-6) : String(i));
-    const sType: "soft" | "hard" | undefined = dubbed ? undefined : (s.__subType || (provider === "anikoto" ? "soft" : "hard"));
+    const sType: "soft" | "hard" | undefined = dubbed
+      ? undefined
+      : anivexaSubTypeForProvider(provider, s, ensureArray(s.__payload?.subtitles || data.subtitles));
     const transport = anivexaStreamTransport(s) || "embed";
     const typePart = sType || audio;
     const serverId = `${provider}-${typePart}-${serverName.toLowerCase().replace(/\s+/g, "-")}-${transport}-${suffix}`.replace(/[^a-z0-9-]/g, "");
@@ -3297,7 +3301,7 @@ async function fetchAniviexaWatchSession(
       label: `${provLabel} Default`,
       provider: provider as ProviderId,
       category: audio,
-      subType: dubbed ? undefined : (provider === "anikoto" ? "soft" : "hard"),
+      subType: dubbed ? undefined : "soft",
     });
   }
 
@@ -3334,7 +3338,11 @@ async function fetchAniviexaWatchSession(
     buildProxyUrl(API_BASE_URL, assetUrl, referer);
 
   const selectedPayload = selectedStream?.__payload || selectedEnvelopeCandidates[0]?.payload || fallbackPayload;
-  const rawSubtitles = ensureArray(selectedPayload.subtitles || data.subtitles);
+  const rawSubtitles = dedupeAnivexaSubtitles([
+    ...ensureArray(selectedPayload.subtitles),
+    ...ensureArray(selectedStream?.__subtitles),
+    ...ensureArray(data.subtitles),
+  ]);
   const subtitleLangCounts = new Map<string, number>();
   const subtitles: SubtitleTrack[] = rawSubtitles
     .filter((s: any) => {
@@ -3445,7 +3453,9 @@ async function fetchAnivexaAggregateData(
         const data = await response.json() as Record<string, any>;
         const normalized = normalizeAnivexaWatchPayload(data, provider, dubbed);
         const activeStreams = normalized.streams.filter((stream) => !stream.audio || stream.audio === audio);
-        const internal = sortAnivexaInternalStreams(activeStreams.filter(isAnivexaInternalStream));
+        const internal = sortAnivexaInternalStreams(activeStreams
+          .filter(isAnivexaInternalStream)
+          .filter((stream) => dubbed || anivexaSubTypeForProvider(provider, stream, normalized.subtitles) === "hard" || anivexaStreamHasUsableSubtitles(stream, normalized.subtitles)));
         const embed = ANIVEXA_HLS_ONLY_PROVIDERS.has(provider) ? [] : activeStreams.filter(isAnivexaEmbedStream);
         if (internal.length === 0 && embed.length === 0) return null;
 
@@ -4028,6 +4038,7 @@ function normalizeAnivexaWatchPayload(data: Record<string, any>, provider: Anive
       __payload: entry.payload,
       __envelopeKey: entry.key,
       __subType: entry.subType,
+      __subtitles: extractAnivexaStreamSubtitles(stream),
     })),
   );
   const fallbackStreams = streams.length > 0
@@ -4037,9 +4048,15 @@ function normalizeAnivexaWatchPayload(data: Record<string, any>, provider: Anive
         __payload: fallbackPayload,
         __envelopeKey: "root",
         __subType: undefined,
+        __subtitles: extractAnivexaStreamSubtitles(stream),
       }));
   const subtitles = selected.flatMap((entry) => ensureArray(entry.payload.subtitles || []));
-  const rootSubtitles = subtitles.length > 0 ? subtitles : ensureArray(data.subtitles);
+  const streamSubtitles = fallbackStreams.flatMap((stream: any) => ensureArray(stream.__subtitles));
+  const rootSubtitles = dedupeAnivexaSubtitles([
+    ...subtitles,
+    ...streamSubtitles,
+    ...ensureArray(data.subtitles),
+  ]);
   const download = selected.find((entry) => entry.payload.download)?.payload.download || data.download || null;
 
   return { streams: fallbackStreams, subtitles: rootSubtitles, download, payloads: selected, fallbackPayload };
@@ -4082,8 +4099,78 @@ function requestedAnivexaAggregateTransport(server: string | null | undefined): 
 
 function anivexaSubTypeForProvider(provider: AnivexaWorkerProvider, stream: any, subtitles: any[]): "soft" | "hard" {
   if (stream.__subType === "hard" || stream.__subType === "soft") return stream.__subType;
+  if (ensureArray(stream.__subtitles).length > 0 || subtitles.length > 0) return "soft";
   if (ANIVEXA_HARD_SUB_PROVIDERS.has(provider)) return "hard";
-  return subtitles.length > 0 ? "soft" : "hard";
+  return "soft";
+}
+
+function anivexaStreamHasUsableSubtitles(stream: any, subtitles: any[]): boolean {
+  return ensureArray(stream.__subtitles).length > 0 ||
+    subtitles.some((subtitle) => Boolean(subtitle?.file || subtitle?.url));
+}
+
+function extractAnivexaStreamSubtitles(stream: any): any[] {
+  const explicit = ensureArray(stream?.subtitles || stream?.tracks)
+    .filter((track: any) => Boolean(track?.file || track?.url));
+  const inferred: any[] = [];
+  const candidates = [
+    String(stream?.referer || ""),
+    String(stream?.referrer || ""),
+    String(stream?.url || ""),
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = new URL(candidate);
+      const values = [
+        ...parsed.searchParams.getAll("sub"),
+        ...parsed.searchParams.getAll("subtitle"),
+        ...parsed.searchParams.getAll("subtitles"),
+        ...parsed.searchParams.getAll("track"),
+      ];
+      for (const value of values) {
+        if (!value) continue;
+        const decoded = decodeURIComponent(value);
+        if (!/^https?:\/\//i.test(decoded)) continue;
+        inferred.push({
+          file: decoded,
+          url: decoded,
+          label: anivexaSubtitleLabel(decoded),
+          language: anivexaSubtitleLang(decoded),
+          format: decoded.split("?")[0].toLowerCase().endsWith(".srt") ? "srt" : "vtt",
+          referer: parsed.origin,
+        });
+      }
+    } catch {
+      // Ignore malformed provider URLs.
+    }
+  }
+
+  return dedupeAnivexaSubtitles([...explicit, ...inferred]);
+}
+
+function dedupeAnivexaSubtitles(subtitles: any[]): any[] {
+  const seen = new Set<string>();
+  return subtitles.filter((subtitle) => {
+    const url = String(subtitle?.file || subtitle?.url || "");
+    if (!url || seen.has(url)) return false;
+    seen.add(url);
+    return true;
+  });
+}
+
+function anivexaSubtitleLang(url: string): string {
+  const lower = url.toLowerCase();
+  if (/(^|[_./-])eng?([_.-]|$)/.test(lower) || lower.includes("english")) return "en";
+  if (/(^|[_./-])jpn?([_.-]|$)/.test(lower) || lower.includes("japanese")) return "ja";
+  return "und";
+}
+
+function anivexaSubtitleLabel(url: string): string {
+  const lang = anivexaSubtitleLang(url);
+  if (lang === "en") return "English";
+  if (lang === "ja") return "Japanese";
+  return "Subtitle";
 }
 
 function appendCustomEmbedServers(
