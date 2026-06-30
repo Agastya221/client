@@ -510,6 +510,7 @@ export default function WatchExperience({ initialSession, recommendations = null
   const [playbackMessage, setPlaybackMessage] = useState<string | null>(initialSession.message || null);
   const [episodeQuery, setEpisodeQuery] = useState("");
   const [showEpisodeList, setShowEpisodeList] = useState(false);
+  const [showEmbedServers, setShowEmbedServers] = useState(() => Boolean(initialSession.activeServerId && isEmbedServerOption(initialSession.activeServerId)));
   const [focusMode, setFocusMode] = useState(false);
   const [loadedSurfaceKey, setLoadedSurfaceKey] = useState<string | null>(null);
   // Optimistic server selection: turns the button green immediately on click
@@ -1218,6 +1219,8 @@ export default function WatchExperience({ initialSession, recommendations = null
   /* ── Server buttons helper ───────────────────── */
   // Priority: optimistic click → pending staged session → committed session
   const effectiveActiveServerId = optimisticServerId || pendingSession?.activeServerId || session.activeServerId;
+  const activeIsEmbedServer = Boolean(effectiveActiveServerId && isEmbedServerOption(effectiveActiveServerId));
+  const embedServersOpen = showEmbedServers || activeIsEmbedServer;
   const { isDesidub, subServers, softSubServers, hardSubServers, dubServers, hindiServers } = summarizeServerGroups(session.serverOptions);
   const effectiveActiveServer = session.serverOptions.find((entry) => entry.id === effectiveActiveServerId);
   const activeIsHardSub = effectiveActiveServer?.subType === "hard" || effectiveActiveServerId === "hls-hardsub" || (effectiveActiveServerId?.endsWith("-hard") ?? false);
@@ -1272,27 +1275,30 @@ export default function WatchExperience({ initialSession, recommendations = null
       <div className="grid gap-2 sm:grid-cols-[92px_1fr] sm:items-center">
         <span className="text-[11px] font-bold text-white/45 sm:text-right">{label}:</span>
         <div className="flex flex-wrap gap-2">
-          {entries.length > 0 ? entries.map((entry) => (
-            <ServerButton
-              key={entry.id}
-              label={entry.label}
-              subType={entry.subType}
-              tag={isEmbedServerOption(entry.id) ? "Embed" : "HLS"}
-              accentColor={options.accent || accentColor}
-              active={Boolean(
-                effectiveActiveServerId === entry.id &&
-                (options.provider === "desidub"
-                  ? isDesidub
-                  : Boolean(options.dubbed) === Boolean(session.dubbed) && (!options.dubbed || !isDesidub))
-              )}
-              onClick={() => queueSession({
-                episodeNumber: session.episode.number,
-                provider: options.provider || entry.provider,
-                server: entry.id,
-                dubbed: Boolean(options.dubbed),
-              })}
-            />
-          )) : (
+          {entries.length > 0 ? entries.map((entry) => {
+            const isEmbedEntry = isEmbedServerOption(entry.id);
+            return (
+              <ServerButton
+                key={entry.id}
+                label={entry.label}
+                subType={isEmbedEntry ? undefined : entry.subType}
+                tag={isEmbedEntry ? "Embed" : "HLS"}
+                accentColor={options.accent || accentColor}
+                active={Boolean(
+                  effectiveActiveServerId === entry.id &&
+                  (options.provider === "desidub"
+                    ? isDesidub
+                    : Boolean(options.dubbed) === Boolean(session.dubbed) && (!options.dubbed || !isDesidub))
+                )}
+                onClick={() => queueSession({
+                  episodeNumber: session.episode.number,
+                  provider: options.provider || entry.provider,
+                  server: entry.id,
+                  dubbed: Boolean(options.dubbed),
+                })}
+              />
+            );
+          }) : (
             <ServerButton
               label={options.emptyLabel || "Try another source"}
               active={false}
@@ -1309,6 +1315,142 @@ export default function WatchExperience({ initialSession, recommendations = null
       </div>
     );
   };
+
+  const episodePanel = (
+    <div className="rounded-2xl border border-white/8 bg-[#111113] overflow-hidden">
+      <div className="border-b border-white/5 px-4 py-3 space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-bold text-white">Episodes</h2>
+            <p className="mt-0.5 text-[11px] text-white/35">
+              Playing Episode {session.episode.number}
+              {session.episode.title && session.episode.title !== `Episode ${session.episode.number}` ? ` · ${session.episode.title}` : ""}
+            </p>
+          </div>
+          <span className="text-[10px] font-bold text-white/45 bg-white/5 px-2 py-1 rounded-full shrink-0">
+            {languageFilteredEpisodes.length}
+          </span>
+        </div>
+
+        {nextEpisode ? (
+          <button
+            type="button"
+            onClick={() => goToEpisode(nextEpisode.number)}
+            onMouseEnter={() => prefetchEpisode(nextEpisode.number)}
+            onFocus={() => prefetchEpisode(nextEpisode.number)}
+            className="w-full rounded-xl border px-3 py-2.5 text-left transition-all hover:brightness-110"
+            style={{ background: accentStyle(0.1), borderColor: accentStyle(0.28) }}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: accentColor }}>
+                Next Episode
+              </span>
+              <ChevronRight className="h-4 w-4" style={{ color: accentColor }} aria-hidden="true" />
+            </div>
+            <p className="mt-1 text-sm font-bold text-white">
+              EP {nextEpisode.number}
+              {nextEpisode.title && nextEpisode.title !== `Episode ${nextEpisode.number}` ? ` · ${nextEpisode.title}` : ""}
+            </p>
+          </button>
+        ) : (
+          <div className="rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2.5">
+            <p className="text-[10px] font-black uppercase tracking-widest text-white/35">Latest available episode</p>
+            <p className="mt-1 text-sm font-bold text-white">You are caught up</p>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30" aria-hidden="true" />
+            <input
+              type="text"
+              placeholder="Filter episodes..."
+              value={episodeQuery}
+              onChange={(e) => setEpisodeQuery(e.target.value)}
+              className="w-full bg-white/[0.04] border border-white/8 rounded-xl text-sm text-white/80 pl-9 pr-3 py-2.5 outline-none focus:border-white/18"
+            />
+          </div>
+          <button
+            type="button"
+            className="h-10 w-10 rounded-xl border border-white/8 bg-white/[0.04] text-white/60 hover:text-white transition-colors inline-flex items-center justify-center"
+            style={showEpisodeList ? { background: accentStyle(0.1), color: accentColor, borderColor: accentStyle(0.25) } : undefined}
+            onClick={() => setShowEpisodeList(!showEpisodeList)}
+            aria-label={showEpisodeList ? "Show episode grid" : "Show episode list"}
+          >
+            {showEpisodeList ? <ChevronDown className="w-4 h-4 rotate-180" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
+          </button>
+        </div>
+      </div>
+
+      <div className="px-4 py-3">
+        {filteredEpisodes.length === 0 ? (
+          <p className="text-white/40 text-sm text-center py-4">
+            No episodes match "{episodeQuery}"
+          </p>
+        ) : showEpisodeList ? (
+          <div
+            className="max-h-[520px] overflow-y-auto hide-scrollbar -mx-4"
+            ref={(el) => {
+              if (el) {
+                const active = el.querySelector('[data-active-episode="true"]');
+                if (active) active.scrollIntoView({ block: "center", behavior: "instant" });
+              }
+            }}
+          >
+            {filteredEpisodes.map((episode) => {
+              const active = episode.number === session.episode.number;
+              const watched = watchedEpisodes.has(episode.number);
+              return (
+                <button
+                  key={episode.number}
+                  type="button"
+                  onClick={() => goToEpisode(episode.number)}
+                  onMouseEnter={() => prefetchEpisode(episode.number)}
+                  onFocus={() => prefetchEpisode(episode.number)}
+                  data-active-episode={active ? "true" : undefined}
+                  className={`group/ep w-full flex items-center gap-3 px-4 py-2.5 text-left transition-all border-b border-white/[0.03] last:border-0 ${
+                    active
+                      ? "border-l-2"
+                      : watched
+                        ? "border-l-2 border-l-emerald-500/30 hover:bg-white/[0.03]"
+                        : "hover:bg-white/[0.03]"
+                  }`}
+                  style={active ? { background: accentStyle(0.08), borderLeftColor: accentColor } : undefined}
+                >
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 ${
+                    active ? "text-white" : watched ? "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/20" : "bg-white/5 text-white/50"
+                  }`} style={active ? { backgroundColor: accentColor } : undefined}>
+                    {watched && !active ? "✓" : episode.number}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-[13px] font-semibold truncate leading-snug ${
+                      active ? "text-white" : watched ? "text-white/50 group-hover/ep:text-white/80" : "text-white/80 group-hover/ep:text-white"
+                    }`}>
+                      {episode.title}
+                    </p>
+                    <div className="flex items-center gap-1.5 mt-1">
+                      {episode.isSubbed && <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded" style={{ background: accentStyle(0.1), color: accentColor }}>Sub</span>}
+                      {episode.isDubbed && <span className="text-[9px] font-bold uppercase bg-[#4ade80]/10 text-[#4ade80] px-1.5 py-0.5 rounded">Dub</span>}
+                      {watched && !active && <span className="text-[9px] font-bold uppercase text-emerald-400/50">Watched</span>}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <EpisodeNumberGrid
+            episodes={filteredEpisodes}
+            activeNumber={session.episode.number}
+            onSelect={goToEpisode}
+            onHover={prefetchEpisode}
+            watchedSet={watchedEpisodes}
+            accentColor={accentColor}
+          />
+        )}
+      </div>
+    </div>
+  );
 
   /* ════════════════════════════════════════════════
      RENDER
@@ -1614,24 +1756,35 @@ export default function WatchExperience({ initialSession, recommendations = null
                 {internalServerCount}
               </span>
             </div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-[11px] font-black uppercase tracking-wider text-white/55">
-              <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-              External
-              <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/70">
-                {externalServerCount}
-              </span>
-            </div>
+            {externalServerCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowEmbedServers((value) => !value)}
+                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-[11px] font-black uppercase tracking-wider text-white/65 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white"
+                aria-expanded={embedServersOpen}
+                aria-controls="embed-server-options"
+                title="External embed servers"
+                style={embedServersOpen ? { color: accentColor, borderColor: accentStyle(0.35), background: accentStyle(0.08) } : undefined}
+              >
+                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                Embed
+                <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/70">
+                  {externalServerCount}
+                </span>
+                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${embedServersOpen ? "rotate-180" : ""}`} aria-hidden="true" />
+              </button>
+            )}
           </div>
 
           <div className="space-y-3">
-            {renderServerRow("Hard Subs", internalHardSubServers, { emptyLabel: `Try ${humanizeProviderId(mainFallback)} sub` })}
-            {renderServerRow("Soft Subs", internalSoftSubServers, { emptyLabel: `Try ${humanizeProviderId(mainFallback)} sub` })}
-            {hasDub && renderServerRow("Dub", internalDubServers, { dubbed: true, emptyLabel: `Try ${humanizeProviderId(mainFallback)} dub`, accent: "#4ade80" })}
-            {showHindi && renderServerRow("Hindi", hindiServers, { dubbed: true, provider: "desidub", emptyLabel: "DesiDub", accent: "#ff5500" })}
+            {renderServerRow("Hard Subs", internalHardSubServers)}
+            {renderServerRow("Soft Subs", internalSoftSubServers)}
+            {hasDub && renderServerRow("Dub", internalDubServers, { dubbed: true, accent: "#4ade80" })}
+            {showHindi && renderServerRow("Hindi", hindiServers, { dubbed: true, provider: "desidub", accent: "#ff5500" })}
           </div>
 
-          {externalServerCount > 0 && (
-            <div className="space-y-3 border-t border-white/[0.06] pt-3">
+          {externalServerCount > 0 && embedServersOpen && (
+            <div id="embed-server-options" className="space-y-3 border-t border-white/[0.06] pt-3">
               {renderServerRow("Sub Embeds", externalSubServers)}
               {hasDub && renderServerRow("Dub Embeds", externalDubServers, { dubbed: true, accent: "#4ade80" })}
             </div>
@@ -1697,140 +1850,12 @@ export default function WatchExperience({ initialSession, recommendations = null
         </div>
       </div>
 
-      {/* ── EPISODE GRID ─────────────────────────── */}
-      <div className="rounded-b-2xl border border-white/8 border-t-0 bg-[#111113] overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-bold text-white">Episodes</h2>
-            <span className="text-[10px] font-bold text-white/30 bg-white/5 px-2 py-0.5 rounded-full">
-              {languageFilteredEpisodes.length}
-            </span>
-            {session.dubbed && dubCountKnown && (
-              <span className="text-[9px] font-bold text-[#4ade80]/60 bg-[#4ade80]/8 border border-[#4ade80]/15 px-2 py-0.5 rounded-full">
-                {dubCount} DUB
-              </span>
-            )}
-            {session.dubbed && !dubCountKnown && (
-              <span className="text-[9px] font-bold text-amber-400/60 bg-amber-400/8 border border-amber-400/15 px-2 py-0.5 rounded-full">
-                Dub availability varies
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-white/30" aria-hidden="true" />
-              <input
-                type="text"
-                placeholder="Find…"
-                value={episodeQuery}
-                onChange={(e) => setEpisodeQuery(e.target.value)}
-                className="bg-white/[0.04] border border-white/8 rounded-lg text-xs text-white/80 pl-7 pr-3 py-1.5 w-28 focus:w-40 transition-all outline-none"
-                style={{ '--tw-ring-color': accentStyle(0.4) } as React.CSSProperties}
-              />
-            </div>
-            <button
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-colors border ${
-                showEpisodeList
-                  ? ""
-                  : "bg-white/[0.04] text-white/50 border-white/8 hover:text-white"
-              }`}
-              style={showEpisodeList ? { background: accentStyle(0.1), color: accentColor, borderColor: accentStyle(0.25) } : undefined}
-              onClick={() => setShowEpisodeList(!showEpisodeList)}
-            >
-              <ChevronDown className={`w-3 h-3 transition-transform ${showEpisodeList ? "rotate-180" : ""}`} aria-hidden="true" />
-              List
-            </button>
-          </div>
-        </div>
+      <div className="mt-4 grid gap-5 lg:grid-cols-[340px_minmax(0,1fr)] lg:items-start">
+        <aside className="hidden lg:block lg:sticky lg:top-20">
+          {episodePanel}
+        </aside>
 
-
-        {/* Number grid */}
-        <div className="px-4 py-3">
-          {filteredEpisodes.length === 0 ? (
-            <p className="text-white/40 text-sm text-center py-4">
-              No episodes match "{episodeQuery}"
-            </p>
-          ) : (
-            <EpisodeNumberGrid
-              episodes={filteredEpisodes}
-              activeNumber={session.episode.number}
-              onSelect={goToEpisode}
-              onHover={prefetchEpisode}
-              watchedSet={watchedEpisodes}
-              accentColor={accentColor}
-            />
-          )}
-        </div>
-
-        {/* Expandable list view */}
-        {showEpisodeList && (
-          <div
-            className="max-h-[400px] overflow-y-auto hide-scrollbar border-t border-white/5"
-            ref={(el) => {
-              if (el) {
-                const active = el.querySelector('[data-active-episode="true"]');
-                if (active) active.scrollIntoView({ block: "center", behavior: "instant" });
-              }
-            }}
-          >
-            {filteredEpisodes.map((episode) => {
-              const active = episode.number === session.episode.number;
-              const watched = watchedEpisodes.has(episode.number);
-              return (
-                <button
-                  key={episode.number}
-                  type="button"
-                  onClick={() => goToEpisode(episode.number)}
-                  onMouseEnter={() => prefetchEpisode(episode.number)}
-                  onFocus={() => prefetchEpisode(episode.number)}
-                  data-active-episode={active ? "true" : undefined}
-                  className={`group/ep w-full flex items-center gap-3 px-4 py-2.5 text-left transition-all border-b border-white/[0.03] last:border-0 ${
-                    active
-                      ? "border-l-2"
-                      : watched
-                        ? "border-l-2 border-l-emerald-500/30 hover:bg-white/[0.03]"
-                        : "hover:bg-white/[0.03]"
-                  }`}
-                  style={active ? { background: accentStyle(0.08), borderLeftColor: accentColor } : undefined}
-                >
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 ${
-                    active ? "text-white" : watched ? "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/20" : "bg-white/5 text-white/50"
-                  }`} style={active ? { backgroundColor: accentColor } : undefined}>
-                    {watched && !active ? "✓" : episode.number}
-                  </div>
-                  {episode.image && (
-                    <div className={`w-20 h-12 rounded-lg overflow-hidden shrink-0 border border-white/5 ${watched && !active ? "opacity-60" : ""}`}>
-                      <img src={episode.image} alt="" className="w-full h-full object-cover" loading="lazy" />
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-[13px] font-semibold truncate leading-snug ${
-                      active ? "text-white" : watched ? "text-white/50 group-hover/ep:text-white/80" : "text-white/80 group-hover/ep:text-white"
-                    }`}>
-                      {episode.title}
-                    </p>
-                    <div className="flex items-center gap-1.5 mt-1">
-                      {episode.isFiller && <span className="text-[9px] font-bold uppercase bg-yellow-500/10 text-yellow-500 px-1.5 py-0.5 rounded">Filler</span>}
-                      {episode.isSubbed && <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded" style={{ background: accentStyle(0.1), color: accentColor }}>Sub</span>}
-                      {episode.isDubbed && <span className="text-[9px] font-bold uppercase bg-[#4ade80]/10 text-[#4ade80] px-1.5 py-0.5 rounded">Dub</span>}
-                      {watched && !active && <span className="text-[9px] font-bold uppercase text-emerald-400/50 flex items-center gap-0.5">✓ Watched</span>}
-                    </div>
-                  </div>
-                  {active && <div className="w-2 h-2 rounded-full animate-pulse shrink-0" style={{ backgroundColor: accentColor }} />}
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* ── SEASONS ─────────────────────────────── */}
-      <SeasonRail seasons={session.seasons} activeHref={session.anime.href} accentColor={accentColor} />
-
-      {/* ── ANIME INFO + RECOMMENDATIONS ─────────── */}
-      <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_340px]">
-        <WatchAnimeDetailsPanel session={session} heroImage={heroImage}>
+        <div className="space-y-5 min-w-0">
           <CommentSection
             animeId={session.anime.id}
             episodeNumber={session.episode.number}
@@ -1839,8 +1864,15 @@ export default function WatchExperience({ initialSession, recommendations = null
               document.querySelector("iframe")?.scrollIntoView({ behavior: "smooth", block: "center" });
             }}
           />
-        </WatchAnimeDetailsPanel>
-        <div>
+
+          <div className="lg:hidden">
+            {episodePanel}
+          </div>
+
+          <WatchAnimeDetailsPanel session={session} heroImage={heroImage} />
+
+          <SeasonRail seasons={session.seasons} activeHref={session.anime.href} accentColor={accentColor} />
+
           <WatchRecommendationsPanel recommendations={deferredRecommendations} />
         </div>
       </div>

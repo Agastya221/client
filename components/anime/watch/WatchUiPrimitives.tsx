@@ -62,7 +62,7 @@ export function ServerButton({
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[11px] font-bold transition-all border ${
+      className={`inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-[10px] font-bold transition-all sm:text-[11px] ${
         active
           ? "text-white shadow-[0_0_0_1px_rgba(255,255,255,0.08)]"
           : "bg-white/[0.04] text-white/62 border-white/10 hover:bg-white/[0.08] hover:text-white hover:border-white/20"
@@ -73,10 +73,10 @@ export function ServerButton({
         boxShadow: `0 0 0 1px ${accentColor}30, 0 0 18px ${accentColor}18`,
       } : undefined}
     >
-      {label}
+      <span className="truncate">{label}</span>
       {tag && (
         <span
-          className="text-[9px] font-black tracking-widest px-1.5 py-0.5 rounded-full border"
+          className="shrink-0 rounded-full border px-1.5 py-0.5 text-[8px] font-black tracking-widest sm:text-[9px]"
           style={{ background: `${accentColor}20`, color: accentColor, borderColor: `${accentColor}40` }}
         >
           {tag}
@@ -84,7 +84,7 @@ export function ServerButton({
       )}
       {subType === "soft" && (
         <span
-          className="text-[9px] font-black tracking-widest px-1.5 py-0.5 rounded-full"
+          className="shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-black tracking-widest sm:text-[9px]"
           style={{ background: "rgba(34,211,238,0.15)", color: "rgba(34,211,238,0.9)", border: "1px solid rgba(34,211,238,0.25)" }}
         >
           S-SUB
@@ -92,7 +92,7 @@ export function ServerButton({
       )}
       {subType === "hard" && (
         <span
-          className="text-[9px] font-black tracking-widest px-1.5 py-0.5 rounded-full"
+          className="shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-black tracking-widest sm:text-[9px]"
           style={{ background: "rgba(251,191,36,0.12)", color: "rgba(251,191,36,0.85)", border: "1px solid rgba(251,191,36,0.25)" }}
         >
           H-SUB

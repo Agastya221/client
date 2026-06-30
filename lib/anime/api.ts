@@ -5033,7 +5033,11 @@ export async function resolveStreamSource(input: {
   outro?: { start: number; end: number } | null;
   watchAttempts: WatchAttempt[];
 }> {
-  const isAnivexaSourceRequest = Boolean(input.server?.startsWith("anivexa2-") || input.server?.startsWith("anivexa-"));
+  const isAnivexaSourceRequest = Boolean(
+    input.server?.startsWith("anivexa2-") ||
+    input.server?.startsWith("anivexa-") ||
+    (!input.server && input.provider && ANIVEXA_PROVIDERS.includes(input.provider as AniviexaProvider))
+  );
   const cacheKey = `stream:${input.animeId}:ep${input.episodeNumber || 1}:${input.dubbed ? "dub" : "sub"}:${input.server || "auto"}:${input.provider || "auto"}`;
 
   return cacheFetch(cacheKey, async () => measureAsync(
@@ -5074,7 +5078,11 @@ export async function resolveStreamSource(input: {
       const effectiveServer = explicitCustomServer(input.server);
 
       const shouldUseAnivexaAggregate =
-        Boolean(input.server?.startsWith("anivexa2-") || input.server?.startsWith("anivexa-"));
+        Boolean(
+          input.server?.startsWith("anivexa2-") ||
+          input.server?.startsWith("anivexa-") ||
+          (!input.server && ANIVEXA_PROVIDERS.includes(preferredProvider as AniviexaProvider))
+        );
       if (shouldUseAnivexaAggregate && anivexaAnilistId) {
         const session = await fetchAnivexaAggregateWatchSession(
           String(anivexaAnilistId),
