@@ -457,7 +457,9 @@ function sameServerOption(left: ServerOption, right: ServerOption): boolean {
     left.id === right.id &&
     left.label === right.label &&
     left.provider === right.provider &&
-    left.category === right.category
+    left.category === right.category &&
+    left.subType === right.subType &&
+    left.transport === right.transport
   );
 }
 
@@ -522,6 +524,7 @@ export default function WatchExperience({ initialSession, recommendations = null
   const pendingSessionKeyRef = useRef<string | null>(null);
   const nearEndPrefetchedRef = useRef<string | null>(null);
   const sessionRequestSeqRef = useRef(0);
+  const failedServerIdsRef = useRef<Set<string>>(new Set());
   const [deferredRecommendations, setDeferredRecommendations] = useState<AnilistMedia[] | null>(initialRecommendations);
   const [resolvedCurrentUserId, setResolvedCurrentUserId] = useState<string | null>(currentUserId ?? null);
 
@@ -1016,21 +1019,23 @@ export default function WatchExperience({ initialSession, recommendations = null
 
     const activeServerId = pendingSession?.activeServerId || session.activeServerId;
     const language = session.dubbed ? "dub" : "sub";
-    if (isWorkerProvider(session.provider)) {
-      watchDebug("playback_error.worker_provider_no_auto_fallback", {
-        provider: session.provider,
-        activeServerId,
-        language,
-      });
-      setPlaybackMessage(`${humanizeProviderId(session.provider)} stream failed. Choose another visible provider/server to test it manually.`);
-      return;
-    }
+    const activeServer = session.serverOptions.find((entry) => entry.id === activeServerId);
+    const failedKey = activeServerId
+      ? `${session.anime.id}|${session.episode.number}|${language}|${activeServerId}`
+      : null;
+    if (failedKey) failedServerIdsRef.current.add(failedKey);
 
     const scraperCandidates = session.serverOptions.filter((entry) => {
       const sameLanguage = language === "dub"
         ? entry.category === "dub"
         : entry.category === "sub" || !entry.category;
-      return sameLanguage && entry.id !== activeServerId && !isCustomEmbedServer(entry.id);
+      const failedCandidateKey = `${session.anime.id}|${session.episode.number}|${language}|${entry.id}`;
+      const sameSubMode = language === "dub" || !activeServer?.subType || entry.subType === activeServer.subType;
+      return sameLanguage &&
+        sameSubMode &&
+        entry.id !== activeServerId &&
+        !failedServerIdsRef.current.has(failedCandidateKey) &&
+        !isEmbedServerOption(entry.id);
     });
 
     const currentIndex = scraperCandidates.findIndex((entry) => entry.id === activeServerId);
@@ -1045,8 +1050,13 @@ export default function WatchExperience({ initialSession, recommendations = null
         provider: session.provider,
         activeServerId,
         language,
+        subType: activeServer?.subType || "any",
       });
-      setPlaybackMessage("Scraper stream failed and no other scraper provider is available for this mode. Try a visible provider/server manually.");
+      setPlaybackMessage(
+        activeServer?.subType === "hard"
+          ? "All internal hard-sub servers failed. Try an embed server or another audio mode."
+          : "All internal servers for this mode failed. Try an embed server or another audio mode.",
+      );
       return;
     }
 
@@ -1056,9 +1066,10 @@ export default function WatchExperience({ initialSession, recommendations = null
       nextProvider: next.provider,
       nextServer: next.id,
       nextLabel: next.label,
+      nextTransport: next.transport || "unknown",
     });
 
-    setPlaybackMessage(`Scraper stream failed. Trying ${next.label}...`);
+    setPlaybackMessage(`${activeServer?.subType === "hard" ? "Hard-sub" : "Stream"} failed. Trying ${next.label}...`);
     queueSession({
       episodeNumber: session.episode.number,
       provider: next.provider,
@@ -1066,6 +1077,10 @@ export default function WatchExperience({ initialSession, recommendations = null
       dubbed: session.dubbed,
     });
   };
+
+  useEffect(() => {
+    failedServerIdsRef.current.clear();
+  }, [session.anime.id, session.episode.number, session.dubbed]);
 
   const prefetchEpisode = (episodeNumber: number) => {
     if (episodeNumber === session.episode.number) return;
@@ -1277,12 +1292,17 @@ export default function WatchExperience({ initialSession, recommendations = null
         <div className="flex flex-wrap gap-2">
           {entries.length > 0 ? entries.map((entry) => {
             const isEmbedEntry = isEmbedServerOption(entry.id);
+            const transportTag = isEmbedEntry
+              ? "Embed"
+              : entry.transport === "mp4"
+                ? "MP4"
+                : "HLS";
             return (
               <ServerButton
                 key={entry.id}
                 label={entry.label}
                 subType={isEmbedEntry ? undefined : entry.subType}
-                tag={isEmbedEntry ? "Embed" : "HLS"}
+                tag={transportTag}
                 accentColor={options.accent || accentColor}
                 active={Boolean(
                   effectiveActiveServerId === entry.id &&

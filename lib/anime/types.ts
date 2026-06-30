@@ -151,6 +151,7 @@ export interface ServerOption {
   label: string;
   provider: ProviderId;
   category?: string;
+  transport?: "hls" | "mp4" | "embed";
   /** For HLS sub streams: "soft" = clean video + external VTT overlay;
    *  "hard" = subtitles burnt into the video (no VTT file). */
   subType?: "soft" | "hard";

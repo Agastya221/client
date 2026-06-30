@@ -117,10 +117,10 @@ export default function VidstackPlayer({
     if (onError && streamType !== "application/x-mpegurl") {
       fallbackTimerRef.current = setTimeout(() => {
         if (!playStartedRef.current) {
-          console.warn("Video playback did not start within 20 seconds, falling back...");
+          console.warn("Video playback did not start within 8 seconds, falling back...");
           onError();
         }
-      }, 20000);
+      }, 8000);
     }
 
     return () => {
