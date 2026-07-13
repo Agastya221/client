@@ -16,6 +16,8 @@ const FALLBACK_SERVERS: Record<string, string[]> = {
   "mostream.us": ["megaplay.buzz", "animeplay.cfd", "tryembed.us.cc"],
 };
 
+const DISABLE_CUSTOM_EMBEDS = true;
+
 function playerDebug(event: string, details: Record<string, unknown> = {}): void {
   if (typeof window === "undefined") return;
   console.info(JSON.stringify({
@@ -125,19 +127,21 @@ export default function AnimePlayer({
   }, [allFailed, onReady]);
 
   // The iframe URL to actually render: fallback takes priority over source URL
-  const iframeUrl = fallbackUrl ?? sourceIframeUrl;
+  const iframeUrl = fallbackUrl ?? (source?.kind === "iframe" ? sourceIframeUrl : null);
 
   // DISABLE_CUSTOM_EMBEDS blocks generic custom embed servers (megaplay, animeplay, etc.)
   // but should NOT block provider-direct embeds (flixcloud.cc/e/...) from Anivexa worker.
   // Provider embeds are set as iframeUrl on the source object directly.
-  const DISABLE_CUSTOM_EMBEDS = true;
+  const sourceKind = source?.kind;
+  const sourceUrl = source?.url;
+  const sourceProxiedUrl = source?.proxiedUrl;
 
   // Called by VidstackPlayer/IframePlayer when playback fails
   const handlePlayerError = useCallback(() => {
     playerDebug("player_error", {
-      sourceKind: source?.kind || "none",
-      sourceUrl: source?.url || null,
-      proxiedUrl: source?.proxiedUrl || null,
+      sourceKind: sourceKind || "none",
+      sourceUrl: sourceUrl || null,
+      proxiedUrl: sourceProxiedUrl || null,
       iframeUrl: sourceIframeUrl,
       fallbackUrl,
       failedHosts: Array.from(failedHosts),
@@ -195,7 +199,7 @@ export default function AnimePlayer({
       onPlaybackError?.();
       setAllFailed(true);
     }
-  }, [iframeUrl, sourceIframeUrl, fallbackUrl, failedHosts, malId, episodeNumber, dubbed, onPlaybackError]);
+  }, [iframeUrl, sourceIframeUrl, sourceKind, sourceUrl, sourceProxiedUrl, fallbackUrl, failedHosts, malId, episodeNumber, dubbed, onPlaybackError]);
 
   // ── No source at all ──────────────────────────────────────────────────────
   if (!source) {
@@ -319,6 +323,7 @@ export default function AnimePlayer({
         episodeNumber={episodeNumber}
         intro={intro}
         outro={outro}
+        isHardSubStream={isHardSubStream}
         onEpisodeEnd={onEpisodeEnd}
         onTimeUpdate={onTimeUpdate}
         onReady={onReady}

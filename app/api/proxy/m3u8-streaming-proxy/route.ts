@@ -1,6 +1,12 @@
-import { NextResponse } from "next/server";
-
 export const dynamic = "force-dynamic";
+
+function srtToVtt(input: string): string {
+  const body = input
+    .replace(/^\uFEFF/, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, "$1.$2");
+  return `WEBVTT\n\n${body}`;
+}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -12,17 +18,30 @@ export async function GET(request: Request) {
     return new Response("Missing url parameter", { status: 400 });
   }
 
+  let parsedTarget: URL;
+  try {
+    parsedTarget = new URL(targetUrl);
+    if (parsedTarget.protocol !== "https:" && parsedTarget.protocol !== "http:") {
+      throw new Error("Unsupported protocol");
+    }
+  } catch {
+    return new Response("Invalid url parameter", { status: 400 });
+  }
+
   // Wide-open CORS headers for player integration
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, OPTIONS",
     "Access-Control-Allow-Headers": "*",
+    "Access-Control-Expose-Headers": "Content-Length, Content-Range, Accept-Ranges, Content-Type",
   };
 
   try {
     const headers: Record<string, string> = {
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": isVideo ? "video/mp4,video/*,*/*;q=0.8" : "*/*",
+      "Accept-Language": "en-US,en;q=0.9",
     };
 
     if (referer) {
@@ -37,9 +56,11 @@ export async function GET(request: Request) {
     const range = request.headers.get("range");
     if (range) headers["Range"] = range;
 
-    const response = await fetch(targetUrl, {
-      headers,
-    });
+    let response = await fetch(targetUrl, { headers, cache: "no-store" });
+    if (response.status >= 500 && response.status <= 504) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      response = await fetch(targetUrl, { headers, cache: "no-store" });
+    }
 
     if (!response.ok) {
       return new Response(`Target returned status ${response.status}`, {
@@ -58,11 +79,33 @@ export async function GET(request: Request) {
       contentType.includes("application/x-mpegurl")
     );
 
+    const isSrtSubtitle = !isVideo && parsedTarget.pathname.toLowerCase().endsWith(".srt");
+    if (isSrtSubtitle) {
+      const responseHeaders = new Headers(corsHeaders);
+      responseHeaders.set("Content-Type", "text/vtt; charset=utf-8");
+      responseHeaders.set("Cache-Control", "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400");
+      responseHeaders.set("X-Content-Type-Options", "nosniff");
+      return new Response(srtToVtt(await response.text()), {
+        status: 200,
+        headers: responseHeaders,
+      });
+    }
+
     if (!isM3U8) {
       // Directly stream video segments/subtitles/keys
       const responseHeaders = new Headers(corsHeaders);
       if (contentType) responseHeaders.set("Content-Type", contentType);
-      for (const header of ["accept-ranges", "content-length", "content-range"]) {
+      const assetPath = parsedTarget.pathname.toLowerCase();
+      const isCacheableSegment = /\.(ts|m4s|aac|key|vtt|srt)$/.test(assetPath);
+      responseHeaders.set(
+        "Cache-Control",
+        isCacheableSegment && !range
+          ? "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400"
+          : "no-store",
+      );
+      responseHeaders.set("Vary", "Range");
+      responseHeaders.set("X-Content-Type-Options", "nosniff");
+      for (const header of ["accept-ranges", "content-length", "content-range", "content-disposition"]) {
         const value = response.headers.get(header);
         if (value) responseHeaders.set(header, value);
       }
@@ -75,7 +118,7 @@ export async function GET(request: Request) {
 
     // Rewrite HLS playlist URLs to go through the proxy
     const playlistText = await response.text();
-    const targetBaseUrl = new URL(targetUrl);
+    const targetBaseUrl = parsedTarget;
 
     const rewriteUrl = (urlStr: string) => {
       if (urlStr.startsWith("data:") || urlStr.startsWith("skd:")) {
@@ -119,6 +162,8 @@ export async function GET(request: Request) {
     const rewrittenText = rewrittenLines.join("\n");
     const responseHeaders = new Headers(corsHeaders);
     responseHeaders.set("Content-Type", contentType || "application/vnd.apple.mpegurl");
+    responseHeaders.set("Cache-Control", "public, max-age=15, s-maxage=60, stale-while-revalidate=300");
+    responseHeaders.set("X-Content-Type-Options", "nosniff");
 
     return new Response(rewrittenText, {
       status: 200,

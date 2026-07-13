@@ -407,7 +407,7 @@ test("resolveAnimeKaiWatchHref upgrades AniList banner links to direct animekai 
   }
 });
 
-test("AniList passthrough titles stay readable and unavailable when AnimeKai mapping misses", async () => {
+test("AniList passthrough titles stay watchable through direct providers when AnimeKai mapping misses", async () => {
   const originalFetch = globalThis.fetch;
   const calls: string[] = [];
 
@@ -476,7 +476,9 @@ test("AniList passthrough titles stay readable and unavailable when AnimeKai map
     const availability = await getAnimeKaiWatchAvailability("anilist~195600", ["Lost Future Project", "LFP"]);
 
     assert.equal(detail.anime.title, "Lost Future Project");
-    assert.deepEqual(detail.availableProviders, []);
+    assert.equal(detail.activeProvider, "anikoto");
+    assert.ok(detail.availableProviders.includes("anikoto"));
+    assert.ok(detail.availableProviders.includes("animegg"));
     assert.ok(detail.attempts.some((attempt) => attempt.message === "AniList direct lookup — no scraper needed"));
     assert.equal(availability.isAvailable, false);
     assert.equal(availability.watchHref, null);

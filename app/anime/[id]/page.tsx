@@ -17,6 +17,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import AddToListButton from "@/components/anime/AddToListButton";
+import StreamPrefetch from "@/components/anime/StreamPrefetch";
+import WatchIntentLink from "@/components/anime/WatchIntentLink";
 
 
 
@@ -114,6 +116,7 @@ async function AnilistDetailContent({
 
   return (
     <>
+      <StreamPrefetch animeId={routeId} episodeNumber={fromAiring ? latestEpisode : 1} />
 
       {/* Hero Section */}
       <section className="relative overflow-hidden">
@@ -210,15 +213,16 @@ async function AnilistDetailContent({
 
               {/* CTAs */}
               <div className="flex flex-wrap items-center gap-3 pt-2">
-                <Link
+                <WatchIntentLink
                   href={watchHref}
-                  prefetch
+                  animeId={routeId}
+                  episodeNumber={fromAiring ? latestEpisode : 1}
                   className="flex items-center gap-2.5 text-white font-black text-sm px-8 py-4 rounded-full transition-all hover:scale-105 shadow-xl"
                   style={{ backgroundColor: accentColor, boxShadow: `0 12px 32px ${accentColor}50` }}
                 >
                   <Play className="w-4 h-4 fill-current" />
                   WATCH NOW
-                </Link>
+                </WatchIntentLink>
                 <AddToListButton
                   animeId={`anilist~${anilistId}`}
                   title={title}
@@ -318,7 +322,7 @@ async function AnilistDetailContent({
               </div>
               <div className="grid grid-cols-2 gap-4">
                 {recommendations.slice(0, 6).map((rec) => (
-                  <AnilistCard key={rec.id} media={rec as any} />
+                  <AnilistCard key={rec.id} media={rec} />
                 ))}
               </div>
             </aside>

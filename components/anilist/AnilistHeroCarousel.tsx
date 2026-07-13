@@ -3,9 +3,10 @@
 import { type AnilistMedia, anilistTitle, anilistRating, encodeAnilistRouteId } from "@/lib/anilist/api";
 import type { CatalogAvailabilityHint } from "@/lib/anime/api";
 import { isBookmarked, saveBookmark, removeBookmark, subscribeToBookmarks } from "@/lib/anime/bookmarks";
+import WatchIntentLink from "@/components/anime/WatchIntentLink";
 import { Play, Bookmark, BookmarkCheck, ChevronLeft, ChevronRight, Star, Calendar, Tv } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 
 interface HeroCarouselProps {
   slides: AnilistMedia[];
@@ -14,18 +15,16 @@ interface HeroCarouselProps {
 }
 
 export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHints }: HeroCarouselProps) {
-  const deck = slides.slice(0, 10);
+  const deck = useMemo(() => slides.slice(0, 10), [slides]);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [isTransitioning, setIsTransitioning] = useState(false);
+  const [bookmarked, setBookmarked] = useState(false);
+  const [titleLogos, setTitleLogos] = useState<Record<number, string | null>>({});
+  const requestedLogoIdsRef = useRef(new Set<number>());
 
   const goTo = useCallback((index: number) => {
-    if (isTransitioning) return;
-    setIsTransitioning(true);
-    setTimeout(() => {
-      setActiveIndex(index);
-      setIsTransitioning(false);
-    }, 150);
-  }, [isTransitioning]);
+    if (deck.length === 0) return;
+    setActiveIndex((index + deck.length) % deck.length);
+  }, [deck.length]);
 
   const goPrev = useCallback(() => {
     if (deck.length <= 1) return;
@@ -43,6 +42,35 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
     return () => clearInterval(timer);
   }, [goNext, deck.length]);
 
+  useEffect(() => {
+    if (deck.length === 0) return;
+    const ids = [
+      deck[activeIndex]?.id,
+      deck[(activeIndex + 1) % deck.length]?.id,
+    ].filter((id): id is number => Boolean(id));
+
+    for (const id of ids) {
+      if (requestedLogoIdsRef.current.has(id)) continue;
+      requestedLogoIdsRef.current.add(id);
+      void fetch(`/api/anilist/title-logo?id=${id}`)
+        .then((response) => response.ok ? response.json() as Promise<{ logo?: string | null }> : null)
+        .then((payload) => {
+          setTitleLogos((current) => ({ ...current, [id]: payload?.logo || null }));
+        })
+        .catch(() => {
+          setTitleLogos((current) => ({ ...current, [id]: null }));
+        });
+    }
+
+    const nextSlide = deck[(activeIndex + 1) % deck.length];
+    const nextImageUrl = nextSlide?.bannerImage || nextSlide?.coverImage.extraLarge;
+    if (nextImageUrl) {
+      const image = new Image();
+      image.decoding = "async";
+      image.src = nextImageUrl;
+    }
+  }, [activeIndex, deck]);
+
   // Touch swipe support for mobile
   const touchStartX = useRef<number | null>(null);
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -52,14 +80,24 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
     if (touchStartX.current === null) return;
     const diff = touchStartX.current - e.changedTouches[0].clientX;
     if (Math.abs(diff) > 50) {
-      diff > 0 ? goNext() : goPrev();
+      if (diff > 0) goNext();
+      else goPrev();
     }
     touchStartX.current = null;
   };
 
-  if (!deck.length) return null;
+  const slide = deck[activeIndex] || null;
+  const animeId = slide ? `anilist~${slide.id}` : "";
 
-  const slide = deck[activeIndex];
+  useEffect(() => {
+    if (!animeId) return;
+    const sync = () => setBookmarked(isBookmarked(animeId));
+    sync();
+    return subscribeToBookmarks(sync);
+  }, [animeId]);
+
+  if (!slide) return null;
+
   const title = anilistTitle(slide);
   const rating = anilistRating(slide);
   const href = `/anime/${encodeAnilistRouteId(slide.id)}`;
@@ -69,15 +107,10 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
   const studios = slide.studios.nodes.map((s) => s.name).join(", ");
   const accentColor = slide.coverImage.color || "#ff5500";
   const isAiring = slide.status === "RELEASING";
-  const animeId = `anilist~${slide.id}`;
-  const [bookmarked, setBookmarked] = useState(false);
-
-  // Sync bookmark state
-  useEffect(() => {
-    const sync = () => setBookmarked(isBookmarked(animeId));
-    sync();
-    return subscribeToBookmarks(sync);
-  }, [animeId]);
+  const titleLogo = titleLogos[slide.id] || null;
+  const watchEpisode = slide.status === "RELEASING" && slide.nextAiringEpisode
+    ? Math.max(1, slide.nextAiringEpisode.episode - 1)
+    : 1;
 
   const toggleBookmark = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -108,30 +141,22 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
     >
       {/* ── DESKTOP LAYOUT (lg+) ───────────────────────────────────────────── */}
       <div className="hidden lg:block relative h-[92vh] overflow-hidden">
-        {/* Background images — full bleed */}
-        {deck.map((s, i) => (
-          <div
-            key={s.id}
-            className="absolute inset-0 transition-opacity duration-700"
-            style={{ opacity: i === activeIndex ? 1 : 0 }}
-          >
-            <img
-              src={s.bannerImage || s.coverImage.extraLarge}
-              alt={anilistTitle(s)}
-              className="w-full h-full object-cover object-center"
-            />
-            {/* Dark vignette on the left so text is readable */}
-            <div className="absolute inset-0 bg-gradient-to-r from-[#0a0b0c] from-[25%] via-[#0a0b0c]/50 via-[55%] to-transparent" />
-            {/* Soft fade at the very bottom into the page */}
-            <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-[#0a0b0c] to-transparent" />
-          </div>
-        ))}
+        {/* Only the active backdrop is mounted; the next slide is warmed off-DOM. */}
+        <div key={slide.id} className="absolute inset-0">
+          <img
+            src={slide.bannerImage || slide.coverImage.extraLarge}
+            alt={title}
+            className="w-full h-full object-cover object-center"
+            loading="eager"
+            decoding="async"
+            fetchPriority="high"
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#0a0b0c] from-[25%] via-[#0a0b0c]/50 via-[55%] to-transparent" />
+          <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-[#0a0b0c] to-transparent" />
+        </div>
 
         {/* Content — absolutely centred vertically, offset for navbar */}
-        <div
-          className="absolute inset-0 flex items-center px-16 xl:px-24 pt-16 pb-20"
-          style={{ opacity: isTransitioning ? 0 : 1, transition: "opacity 0.5s ease" }}
-        >
+        <div className="absolute inset-0 flex items-center px-16 xl:px-24 pt-16 pb-20">
           <div className="max-w-xl">
             {/* Badges */}
             <div className="flex items-center gap-2 mb-5 flex-wrap">
@@ -158,10 +183,21 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
               )}
             </div>
 
-            {/* Title — full on desktop, no clamp needed */}
-            <h1 className="text-5xl xl:text-6xl font-black text-white leading-tight tracking-tight mb-4" style={{ textShadow: "0 2px 20px rgba(0,0,0,0.8)" }}>
-              {title}
-            </h1>
+            <div className="mb-4 flex h-32 max-w-[34rem] items-end">
+              {titleLogo ? (
+                <img
+                  src={titleLogo}
+                  alt={title}
+                  className="max-h-32 max-w-full object-contain object-left-bottom drop-shadow-[0_8px_24px_rgba(0,0,0,0.85)]"
+                  decoding="async"
+                  onError={() => setTitleLogos((current) => ({ ...current, [slide.id]: null }))}
+                />
+              ) : (
+                <h1 className="text-5xl xl:text-6xl font-black text-white leading-tight" style={{ textShadow: "0 2px 20px rgba(0,0,0,0.8)" }}>
+                  {title}
+                </h1>
+              )}
+            </div>
 
             {/* Studio + genres */}
             {(studios || slide.genres.length > 0) && (
@@ -185,11 +221,14 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
             {/* CTAs */}
             <div className="flex items-center gap-3">
               {watchHref ? (
-                <Link href={watchHref} prefetch
+                <WatchIntentLink
+                  href={watchHref}
+                  animeId={animeId}
+                  episodeNumber={watchEpisode}
                   className="flex items-center gap-2.5 text-white font-black text-sm px-7 py-3.5 rounded-full transition-all duration-200 hover:scale-105 hover:shadow-lg shadow-md"
                   style={{ backgroundColor: accentColor, boxShadow: `0 8px 24px ${accentColor}50` }}>
                   <Play className="w-4 h-4 fill-current" aria-hidden="true" /> WATCH NOW
-                </Link>
+                </WatchIntentLink>
               ) : (
                 <Link href={href}
                   className="flex items-center gap-2.5 text-white font-black text-sm px-7 py-3.5 rounded-full transition-all duration-200 hover:scale-105 hover:shadow-lg shadow-md"
@@ -244,10 +283,7 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
         <div className="absolute top-0 left-0 right-0 h-16 z-10" />
 
         {/* Slide container — fills the fixed height */}
-        <div
-          className="absolute inset-0 transition-opacity duration-500"
-          style={{ opacity: isTransitioning ? 0 : 1 }}
-        >
+        <div className="absolute inset-0">
           {/* Background: cover image right side, fading left */}
           <div className="absolute inset-0 overflow-hidden">
             {/* Accent colour wash */}
@@ -261,6 +297,9 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
                 src={slide.coverImage.extraLarge || slide.bannerImage || ""}
                 alt={title}
                 className="w-full h-full object-cover object-top"
+                loading="eager"
+                decoding="async"
+                fetchPriority="high"
               />
               {/* Fade to the left */}
               <div className="absolute inset-0 bg-gradient-to-r from-[#0a0b0c] via-[#0a0b0c]/60 to-transparent" />
@@ -298,10 +337,21 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
               )}
             </div>
 
-            {/* Title — clamped to 2 lines to prevent layout shift */}
-            <h1 className="text-[18px] font-black text-white leading-tight tracking-tight mb-2 max-w-[55%] line-clamp-2">
-              {title}
-            </h1>
+            <div className="mb-2 flex h-16 max-w-[55%] items-end">
+              {titleLogo ? (
+                <img
+                  src={titleLogo}
+                  alt={title}
+                  className="max-h-16 max-w-full object-contain object-left-bottom drop-shadow-[0_5px_14px_rgba(0,0,0,0.85)]"
+                  decoding="async"
+                  onError={() => setTitleLogos((current) => ({ ...current, [slide.id]: null }))}
+                />
+              ) : (
+                <h1 className="text-[18px] font-black text-white leading-tight max-w-full line-clamp-2">
+                  {title}
+                </h1>
+              )}
+            </div>
 
             {/* Studio + genres */}
             {(studios || slide.genres.length > 0) && (
@@ -327,11 +377,14 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
             {/* CTA buttons */}
             <div className="flex items-center gap-2">
               {watchHref ? (
-                <Link href={watchHref} prefetch
+                <WatchIntentLink
+                  href={watchHref}
+                  animeId={animeId}
+                  episodeNumber={watchEpisode}
                   className="flex items-center gap-1.5 text-white font-black text-[11px] px-4 py-2.5 rounded-full transition-all duration-200 shadow-md"
                   style={{ backgroundColor: accentColor, boxShadow: `0 6px 16px ${accentColor}50` }}>
                   <Play className="w-3.5 h-3.5 fill-current" aria-hidden="true" />WATCH NOW
-                </Link>
+                </WatchIntentLink>
               ) : (
                 <Link href={href}
                   className="flex items-center gap-1.5 text-white font-black text-[11px] px-4 py-2.5 rounded-full transition-all duration-200 shadow-md"

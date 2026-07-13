@@ -1,7 +1,14 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MediaPlayer, MediaProvider, isVideoProvider, type MediaProviderAdapter } from "@vidstack/react";
+import Hls from "hls.js";
+import {
+  MediaPlayer,
+  MediaProvider,
+  isHLSProvider,
+  isVideoProvider,
+  type MediaProviderAdapter,
+} from "@vidstack/react";
 import { defaultLayoutIcons, DefaultVideoLayout } from "@vidstack/react/player/layouts/default";
 import "@vidstack/react/player/styles/default/theme.css";
 import "@vidstack/react/player/styles/default/layouts/video.css";
@@ -42,6 +49,8 @@ export default function VidstackPlayer({
 }: VidstackPlayerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const glowCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const playbackStartedRef = useRef(false);
+  const startupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [glowDataUrl, setGlowDataUrl] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -57,6 +66,23 @@ export default function VidstackPlayer({
       videoRef.current = provider.video;
     }
   };
+
+  const onProviderChange = useCallback((provider: MediaProviderAdapter | null) => {
+    if (!provider || !isHLSProvider(provider)) return;
+
+    // Use the app-bundled HLS runtime so playback does not wait on jsDelivr
+    // after the stream URL has already resolved.
+    provider.library = Hls;
+    provider.config = {
+      enableWorker: true,
+      lowLatencyMode: false,
+      startLevel: 0,
+      startFragPrefetch: true,
+      capLevelToPlayerSize: true,
+      maxBufferLength: 30,
+      maxMaxBufferLength: 60,
+    };
+  }, []);
 
   // ── Ambient Glow Periodic Capturer ─────────────────────────────
   useEffect(() => {
@@ -90,9 +116,6 @@ export default function VidstackPlayer({
     };
   }, [playing]);
 
-  const playStartedRef = useRef(false);
-  const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   // Trigger onReady on mount to immediately dismiss the loading overlay
   // and show the Vidstack player structure.
   useEffect(() => {
@@ -105,31 +128,38 @@ export default function VidstackPlayer({
     ? "application/x-mpegurl"
     : "video/mp4";
 
-  // Do not timeout HLS startup. Some worker/CDN HLS manifests take longer than
-  // 8 seconds but still play; Anivexa only falls back on actual fatal errors.
+  // AnimeGG MP4 URLs can be slow because the first range request redirects to
+  // a CDN. Give them time, then fall back to the provider embed if playback
+  // never becomes ready.
   useEffect(() => {
-    playStartedRef.current = false;
-    if (fallbackTimerRef.current) {
-      clearTimeout(fallbackTimerRef.current);
-      fallbackTimerRef.current = null;
+    playbackStartedRef.current = false;
+    if (startupTimerRef.current) {
+      clearTimeout(startupTimerRef.current);
+      startupTimerRef.current = null;
     }
 
-    if (onError && streamType !== "application/x-mpegurl") {
-      fallbackTimerRef.current = setTimeout(() => {
-        if (!playStartedRef.current) {
-          console.warn("Video playback did not start within 8 seconds, falling back...");
+    if (source.kind === "video" && source.iframeUrl && onError) {
+      startupTimerRef.current = setTimeout(() => {
+        if (!playbackStartedRef.current) {
+          console.warn(JSON.stringify({
+            at: new Date().toISOString(),
+            scope: "vidstack-player",
+            event: "mp4_startup_timeout",
+            streamUrl,
+            fallbackIframeUrl: source.iframeUrl,
+          }));
           onError();
         }
-      }, 8000);
+      }, 25000);
     }
 
     return () => {
-      if (fallbackTimerRef.current) {
-        clearTimeout(fallbackTimerRef.current);
-        fallbackTimerRef.current = null;
+      if (startupTimerRef.current) {
+        clearTimeout(startupTimerRef.current);
+        startupTimerRef.current = null;
       }
     };
-  }, [source.url, streamType, onError]);
+  }, [source.kind, source.iframeUrl, streamUrl, onError]);
 
   // ── AniSkip Integration ────────────────────────────────────────
   useEffect(() => {
@@ -138,18 +168,24 @@ export default function VidstackPlayer({
       ed: outro ?? null,
       recap: null,
     };
+    let cancelled = false;
 
     if (malId && malId > 0) {
       fetchSkipTimes(malId, episodeNumber, duration || undefined).then((aniskipData) => {
+        if (cancelled) return;
         setSkipTimes({
           op: aniskipData.op || serverSkips.op,
           ed: aniskipData.ed || serverSkips.ed,
           recap: aniskipData.recap,
         });
       });
-    } else {
-      setSkipTimes(serverSkips);
+      return () => {
+        cancelled = true;
+      };
     }
+
+    const updateTimer = setTimeout(() => setSkipTimes(serverSkips), 0);
+    return () => clearTimeout(updateTimer);
   }, [malId, episodeNumber, duration, intro, outro]);
 
   const handleSkip = useCallback((toTime: number) => {
@@ -199,20 +235,20 @@ export default function VidstackPlayer({
         onEnded={() => onEpisodeEnd?.()}
         onPlay={() => {
           console.info(JSON.stringify({ at: new Date().toISOString(), scope: "vidstack-player", event: "play", streamUrl }));
-          setPlaying(true);
-          playStartedRef.current = true;
-          if (fallbackTimerRef.current) {
-            clearTimeout(fallbackTimerRef.current);
-            fallbackTimerRef.current = null;
+          playbackStartedRef.current = true;
+          if (startupTimerRef.current) {
+            clearTimeout(startupTimerRef.current);
+            startupTimerRef.current = null;
           }
+          setPlaying(true);
         }}
         onPause={() => setPlaying(false)}
         onCanPlay={() => {
           console.info(JSON.stringify({ at: new Date().toISOString(), scope: "vidstack-player", event: "can_play", streamUrl }));
-          playStartedRef.current = true;
-          if (fallbackTimerRef.current) {
-            clearTimeout(fallbackTimerRef.current);
-            fallbackTimerRef.current = null;
+          playbackStartedRef.current = true;
+          if (startupTimerRef.current) {
+            clearTimeout(startupTimerRef.current);
+            startupTimerRef.current = null;
           }
           onReady?.();
         }}
@@ -220,10 +256,12 @@ export default function VidstackPlayer({
           console.warn(JSON.stringify({ at: new Date().toISOString(), scope: "vidstack-player", event: "error", streamUrl, sourceKind: source.kind }));
           onError?.();
         }}
+        onProviderChange={onProviderChange}
         onProviderSetup={onProviderSetup}
         crossorigin="anonymous"
         playsInline
         autoPlay
+        preload="auto"
       >
         <MediaProvider>
           {activeSubtitles.map((sub, idx) => (

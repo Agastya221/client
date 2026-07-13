@@ -1149,12 +1149,21 @@ export interface AnilistDetailMedia extends AnilistMedia {
 }
 
 export const getAnilistDetail = cache(async (id: number): Promise<AnilistDetailMedia> => {
-  return withCatalogFallback(
-    "detail",
-    async () => {
-      const data = await anilistQuery<{ Media: AnilistDetailMedia }>(ANIME_DETAIL_QUERY, { id });
-      return data.Media;
+  return cacheFetch(
+    `anilist:detail:${id}`,
+    () => withCatalogFallback(
+      "detail",
+      async () => {
+        const data = await anilistQuery<{ Media: AnilistDetailMedia }>(ANIME_DETAIL_QUERY, { id });
+        return data.Media;
+      },
+      () => getJikanDetail(id),
+    ),
+    {
+      freshMs: 15 * 60 * 1000,
+      staleMs: 6 * 60 * 60 * 1000,
+      expireMs: 24 * 60 * 60 * 1000,
+      shouldCache: (value) => Boolean((value as AnilistDetailMedia | null)?.id),
     },
-    () => getJikanDetail(id),
   );
 });

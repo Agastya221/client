@@ -21,8 +21,8 @@ import type {
   ServerOption,
   WatchSessionModel,
 } from "@/lib/anime/types";
+import { prefetchClientStream, resolveClientStream } from "@/lib/anime/client-stream-resolver";
 import type { AnilistMedia } from "@/lib/anilist/api";
-import { humanizeProviderId } from "@/lib/anime/utils";
 import {
   trackEpisodeWatch,
   getWatchedEpisodes,
@@ -38,14 +38,13 @@ import {
   ExternalLink,
   Eye,
   Info,
-  LoaderCircle,
   Minimize2,
   RefreshCcw,
   Search,
   Tv2,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface WatchExperienceProps {
   initialSession: WatchSessionModel;
@@ -254,11 +253,14 @@ function canPrefetch(animeId: string): boolean {
 
 /* ── Prefetch effectiveness tracking ─────────────────
    Lightweight counters to measure if prefetches are used. */
-let prefetchStats = { fired: 0, used: 0, skippedBudget: 0, skippedCached: 0 };
+const prefetchStats = { fired: 0, used: 0, skippedBudget: 0, skippedCached: 0 };
 
 /** Call from dev tools: (window as any).__prefetchStats?.() */
 if (typeof window !== "undefined") {
-  (window as any).__prefetchStats = () => ({ ...prefetchStats });
+  const debugWindow = window as typeof window & {
+    __prefetchStats?: () => typeof prefetchStats;
+  };
+  debugWindow.__prefetchStats = () => ({ ...prefetchStats });
 }
 
 function getCachedSession(url: string): WatchSessionModel | null {
@@ -330,6 +332,13 @@ function loadWatchSession(
 
 function prefetchWatchSession(animeId: string, request: SessionRequest): void {
   const url = buildWatchSessionUrl(animeId, request);
+  prefetchClientStream({
+    animeId,
+    episodeNumber: request.episodeNumber,
+    provider: request.provider,
+    dubbed: request.dubbed,
+    server: request.server,
+  });
 
   // Skip if already cached or in-flight
   if (isCachedOrInflight(url)) {
@@ -472,6 +481,15 @@ function sameServerOptionList(left: ServerOption[], right: ServerOption[]): bool
   return true;
 }
 
+function mergeServerOptionLists(previous: ServerOption[], next: ServerOption[]): ServerOption[] {
+  const nextById = new Map(next.map((option) => [option.id, option]));
+  const previousIds = new Set(previous.map((option) => option.id));
+  return [
+    ...previous.map((option) => nextById.get(option.id) || option),
+    ...next.filter((option) => !previousIds.has(option.id)),
+  ];
+}
+
 function mergeWatchSessions(previous: WatchSessionModel, next: WatchSessionModel): WatchSessionModel {
   if (previous.anime.id !== next.anime.id) {
     return next;
@@ -483,9 +501,13 @@ function mergeWatchSessions(previous: WatchSessionModel, next: WatchSessionModel
   const availableProviders = sameStringArray(previous.availableProviders, next.availableProviders)
     ? previous.availableProviders
     : next.availableProviders;
-  const serverOptions = sameServerOptionList(previous.serverOptions, next.serverOptions)
+  const nextServerOptions =
+    previous.episode.number === next.episode.number && previous.dubbed === next.dubbed
+      ? mergeServerOptionLists(previous.serverOptions, next.serverOptions)
+      : next.serverOptions;
+  const serverOptions = sameServerOptionList(previous.serverOptions, nextServerOptions)
     ? previous.serverOptions
-    : next.serverOptions;
+    : nextServerOptions;
   const mergedEpisode =
     episodes.find((episode) => episode.number === next.episode.number && sameEpisode(episode, next.episode)) ||
     next.episode;
@@ -507,7 +529,6 @@ function mergeWatchSessions(previous: WatchSessionModel, next: WatchSessionModel
 export default function WatchExperience({ initialSession, recommendations = null, currentUserId }: WatchExperienceProps) {
   const initialRecommendations = recommendations ?? null;
   const [session, setSession] = useState(initialSession);
-  const [isPending, startTransition] = useTransition();
   const [isSessionLoading, setIsSessionLoading] = useState(false);
   const [playbackMessage, setPlaybackMessage] = useState<string | null>(initialSession.message || null);
   const [episodeQuery, setEpisodeQuery] = useState("");
@@ -574,13 +595,15 @@ export default function WatchExperience({ initialSession, recommendations = null
     ) ||
       session.fallbackHistory.some((entry) => /animekai:\s*No provider mapping available/i.test(entry)));
   const [pendingSession, setPendingSession] = useState<WatchSessionModel | null>(null);
-  const pendingEmbedUrl = pendingSession?.source?.iframeUrl || null;
+  const pendingEmbedUrl = pendingSession?.source?.kind === "iframe" ? pendingSession.source.iframeUrl : null;
   const animeGenresKey = session.anime.genres.join("|");
   const playerType = directAvailable ? "hls" : "iframe";
   const activePlayerSurfaceKey = [
     session.anime.id,
     session.episode.number,
+    session.activeServerId || "auto",
     playerType,
+    session.source?.proxiedUrl || session.source?.url || session.source?.iframeUrl || "none",
   ].join("|");
   const embedOnlyBlocked = !embedAvailable && directAvailable;
   const activeEmbedLoaded = loadedSurfaceKey === activePlayerSurfaceKey;
@@ -664,7 +687,7 @@ export default function WatchExperience({ initialSession, recommendations = null
   // Only show the feedback overlay while actively loading a new session (not during initial embed load)
   // This prevents the "OPENING PLAYER" overlay from blocking the iframe while it loads.
   // Also show while the new iframe hasn't called onReady yet, to hide the white flash.
-  const showPlayerFeedback = isSessionLoading || isPending || (embedAvailable && !activeEmbedLoaded);
+  const showPlayerFeedback = isSessionLoading || (embedAvailable && !activeEmbedLoaded);
 
   useEffect(() => {
     return () => {
@@ -756,44 +779,13 @@ export default function WatchExperience({ initialSession, recommendations = null
       server: request.server,
     });
 
-    const response = await fetch("/api/resolve-source", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify({
-        animeId: session.anime.id,
-        episodeNumber: request.episodeNumber,
-        provider: request.provider,
-        dubbed: request.dubbed,
-        server: request.server,
-      }),
+    const payload = await resolveClientStream({
+      animeId: session.anime.id,
+      episodeNumber: request.episodeNumber,
+      provider: request.provider,
+      dubbed: request.dubbed,
+      server: request.server,
     });
-
-    const payload = await response.json().catch(() => null) as
-      | {
-          source?: WatchSessionModel["source"];
-          subtitles?: WatchSessionModel["subtitles"];
-          serverOptions?: WatchSessionModel["serverOptions"];
-          activeServerId?: WatchSessionModel["activeServerId"];
-          provider?: WatchSessionModel["provider"];
-          intro?: WatchSessionModel["intro"];
-          outro?: WatchSessionModel["outro"];
-          watchAttempts?: WatchSessionModel["watchAttempts"];
-        }
-      | { error?: string }
-      | null;
-
-    if (!response.ok) {
-      throw new Error(
-        payload && "error" in payload && payload.error
-          ? payload.error
-          : `Resolve source failed with ${response.status}`,
-      );
-    }
-
-    if (!payload || !("source" in payload)) {
-      throw new Error("Resolve source returned an invalid payload.");
-    }
 
     watchDebug("resolve_source.done", {
       animeId: session.anime.id,
@@ -847,18 +839,16 @@ export default function WatchExperience({ initialSession, recommendations = null
     clearPendingCommit();
     pendingSessionKeyRef.current = null;
     setPendingSession(null);
-    const requestSeq = ++sessionRequestSeqRef.current;
+    sessionRequestSeqRef.current += 1;
     setIsSessionLoading(false);
     setOptimisticServerId(null); // real server id is now in session — clear optimistic
 
-    startTransition(() => {
-      setSession((previous) => mergeWatchSessions(previous, nextSession));
-      setPlaybackMessage(nextSession.message || null);
-    });
+    setSession((previous) => mergeWatchSessions(previous, nextSession));
+    setPlaybackMessage(nextSession.message || null);
   };
 
   const stageOrCommitSession = (nextSession: WatchSessionModel) => {
-    if (!nextSession.source?.iframeUrl) {
+    if (nextSession.source?.kind !== "iframe" || !nextSession.source.iframeUrl) {
       commitSession(nextSession);
       return;
     }
@@ -1118,7 +1108,7 @@ export default function WatchExperience({ initialSession, recommendations = null
      This replaces the old timer=0 approach with an intent signal:
      the embed finishing its load means the user committed to this episode. */
   useEffect(() => {
-    if (!activeEmbedLoaded || isSessionLoading || isPending || nextEpisodeNumber === null) {
+    if (!activeEmbedLoaded || isSessionLoading || nextEpisodeNumber === null) {
       return;
     }
 
@@ -1131,7 +1121,6 @@ export default function WatchExperience({ initialSession, recommendations = null
     });
   }, [
     activeEmbedLoaded,
-    isPending,
     isSessionLoading,
     nextEpisodeNumber,
     session.anime.id,
@@ -1246,9 +1235,8 @@ export default function WatchExperience({ initialSession, recommendations = null
   const heroImage =
     session.anime.banner ||
     session.anime.poster ||
-    "https://placehold.co/1600x900/09090b/f5f5f5?text=AnimeKAI";
+    "https://placehold.co/1600x900/09090b/f5f5f5?text=Tatakai";
   const isSessionTransitioning = isSessionLoading;
-  const floatingStatus = isSessionTransitioning ? "Refreshing session…" : null;
   const playerFeedbackTitle = activeEmbedLoaded ? "Player ready" : "Opening player";
   const playerFeedbackHint = isSessionTransitioning
     ? "Loading the next session…"
@@ -1405,7 +1393,7 @@ export default function WatchExperience({ initialSession, recommendations = null
       <div className="px-4 py-3">
         {filteredEpisodes.length === 0 ? (
           <p className="text-white/40 text-sm text-center py-4">
-            No episodes match "{episodeQuery}"
+            {`No episodes match "${episodeQuery}"`}
           </p>
         ) : showEpisodeList ? (
           <div
@@ -1477,11 +1465,6 @@ export default function WatchExperience({ initialSession, recommendations = null
      ════════════════════════════════════════════════ */
   return (
     <>
-      <link rel="preconnect" href="https://megaplay.buzz" crossOrigin="anonymous" />
-      <link rel="preconnect" href="https://animeplay.cfd" crossOrigin="anonymous" />
-      <link rel="preconnect" href="https://tryembed.us.cc" crossOrigin="anonymous" />
-      <link rel="preconnect" href="https://mostream.us" crossOrigin="anonymous" />
-
       {/* Focus mode backdrop */}
       {focusMode && (
         <div
@@ -1534,15 +1517,15 @@ export default function WatchExperience({ initialSession, recommendations = null
 
 
           {!embedAvailable && session.stale && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-[#0a0a0c]/95 px-8 text-center">
-              <div className="rounded-full border border-white/10 bg-white/6 p-4">
-                <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20" style={{ borderTopColor: accentColor }} />
-              </div>
-              <div className="space-y-2">
-                <h2 className="text-xl font-bold text-white">Resolving stream…</h2>
-                <p className="max-w-md text-sm text-white/60">
-                  Please wait while we locate the best source for this episode.
-                </p>
+            <div className="absolute inset-0 flex items-end bg-gradient-to-t from-black/90 via-black/20 to-black/30 p-4 md:p-6">
+              <div className="flex items-center gap-3 rounded-lg border border-white/10 bg-black/55 px-3 py-2.5 backdrop-blur-sm">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20" style={{ borderTopColor: accentColor }} />
+                <div>
+                  <p className="text-sm font-semibold text-white">
+                    Episode {session.episode.number}: {session.episode.title}
+                  </p>
+                  <p className="text-xs text-white/50">Loading player</p>
+                </div>
               </div>
             </div>
           )}
@@ -1614,7 +1597,7 @@ export default function WatchExperience({ initialSession, recommendations = null
                     <div className="h-full w-full animate-[bufferBar_1.8s_ease-in-out_infinite]" style={{ background: `linear-gradient(to right, ${accentColor}, ${accentStyle(0.7)}, ${accentColor})` }} />
                   </div>
                   <span className="text-[10px] font-bold uppercase tracking-[0.24em] text-white/35">
-                    AnimeKAI
+                    Tatakai
                   </span>
                 </div>
               </div>

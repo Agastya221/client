@@ -29,6 +29,7 @@ async function warmResolveSource(input: {
   episodeNumber: number;
   provider?: string;
   dubbed?: boolean;
+  server?: string | null;
 }): Promise<boolean> {
   const timeout = AbortSignal.timeout(18_000);
   await Promise.race([
@@ -37,7 +38,7 @@ async function warmResolveSource(input: {
       episodeNumber: Number(input.episodeNumber || 1),
       provider: normalizeProviderParam(input.provider || ""),
       dubbed: Boolean(input.dubbed),
-      server: Boolean(input.dubbed) ? "anivexa2-animegg-hls-dub" : "anivexa2-animegg-hls-hard",
+      server: input.server || null,
     }),
     new Promise((_, reject) => {
       timeout.addEventListener("abort", () => reject(new Error("resolve-source prefetch timeout")), { once: true });
@@ -57,6 +58,7 @@ export async function POST(request: Request) {
             episodeNumber,
             provider: body.provider,
             dubbed: body.dubbed,
+            server: body.server,
           }))
         : [];
     const episodes = [...episodesFromBody, ...derivedEpisodes];
@@ -82,34 +84,36 @@ export async function POST(request: Request) {
 
       inflightWarms.add(warmKey);
       try {
-        const result = await measureAsync(
-          "route.prefetch.window",
-          {
-            route: "/api/prefetch",
-            provider: normalizeProviderParam(body.provider || "") || "auto",
-          },
-          async () =>
-            warmAnimeWatchWindow({
-              animeId: body.animeId,
-              provider: normalizeProviderParam(body.provider || ""),
-              episodeNumbers: body.episodeNumbers.slice(0, MAX_EPISODES_PER_REQUEST),
-              dubbedModes: [Boolean(body.dubbed)],
-            }),
-        );
-        let sourceWarmed = 0;
-        if (body?.resolveSources === true) {
-          const sourceResults = await Promise.allSettled(
-            body.episodeNumbers.slice(0, MAX_EPISODES_PER_REQUEST).map((episodeNumber: number) =>
-              warmResolveSource({
+        const [result, sourceResults] = await Promise.all([
+          measureAsync(
+            "route.prefetch.window",
+            {
+              route: "/api/prefetch",
+              provider: normalizeProviderParam(body.provider || "") || "auto",
+            },
+            async () =>
+              warmAnimeWatchWindow({
                 animeId: body.animeId,
-                provider: body.provider,
-                episodeNumber,
-                dubbed: body.dubbed,
+                provider: normalizeProviderParam(body.provider || ""),
+                episodeNumbers: body.episodeNumbers.slice(0, MAX_EPISODES_PER_REQUEST),
+                dubbedModes: [Boolean(body.dubbed)],
               }),
-            ),
-          );
-          sourceWarmed = sourceResults.filter((entry) => entry.status === "fulfilled" && entry.value).length;
-        }
+          ),
+          body?.resolveSources === true
+            ? Promise.allSettled(
+                body.episodeNumbers.slice(0, MAX_EPISODES_PER_REQUEST).map((episodeNumber: number) =>
+                  warmResolveSource({
+                    animeId: body.animeId,
+                    provider: body.provider,
+                    episodeNumber,
+                    dubbed: body.dubbed,
+                    server: body.server,
+                  }),
+                ),
+              )
+            : Promise.resolve([]),
+        ]);
+        const sourceWarmed = sourceResults.filter((entry) => entry.status === "fulfilled" && entry.value).length;
         return NextResponse.json({
           warmed: result.warmed,
           sourceWarmed,
