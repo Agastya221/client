@@ -1,10 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  DEFAULT_ANIVEXA_WORKER_URL,
   LOCAL_ANIME_API_BASE_URL,
   PRODUCTION_ANIME_API_BASE_URL,
+  resolveAnivexaWorkerUrl,
   resolveAnimeApiBaseUrl,
 } from "../lib/anime/api.ts";
+
+test("resolveAnivexaWorkerUrl has a production-safe worker fallback", () => {
+  assert.equal(resolveAnivexaWorkerUrl({}), DEFAULT_ANIVEXA_WORKER_URL);
+  assert.equal(
+    resolveAnivexaWorkerUrl({ NEXT_PUBLIC_ANIVEXA_WORKER_URL: "https://worker.example.com///" }),
+    "https://worker.example.com",
+  );
+});
 
 test("resolveAnimeApiBaseUrl prefers an explicit server-side env var", () => {
   assert.equal(

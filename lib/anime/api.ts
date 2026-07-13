@@ -43,7 +43,18 @@ export const LOCAL_ANIME_API_BASE_URL = "http://localhost:5000";
 export const PRODUCTION_ANIME_API_BASE_URL = "https://animekai-api-production-a143.up.railway.app";
 
 // Cloudflare Worker hosting the Anivexa streaming aggregator (multi-provider)
-export const ANIVEXA_WORKER_URL = (process.env.NEXT_PUBLIC_ANIVEXA_WORKER_URL || "").replace(/\/+$/, "");
+export const DEFAULT_ANIVEXA_WORKER_URL = "https://tatakai-anivexa.tatakai-anime.workers.dev";
+
+export function resolveAnivexaWorkerUrl(
+  env?: { NEXT_PUBLIC_ANIVEXA_WORKER_URL?: string },
+): string {
+  const configuredUrl = env
+    ? env.NEXT_PUBLIC_ANIVEXA_WORKER_URL
+    : process.env.NEXT_PUBLIC_ANIVEXA_WORKER_URL;
+  return (configuredUrl || DEFAULT_ANIVEXA_WORKER_URL).replace(/\/+$/, "");
+}
+
+export const ANIVEXA_WORKER_URL = resolveAnivexaWorkerUrl();
 
 type AniviexaProvider = "reanime" | "allmanga" | "anikoto" | "animegg" | "anineko";
 const ANIVEXA_PROVIDERS: AniviexaProvider[] = ["reanime", "allmanga", "anikoto", "animegg", "anineko"];
