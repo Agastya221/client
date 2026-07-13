@@ -68,10 +68,9 @@ const ANIVEXA_WORKER_PROVIDERS: AnivexaWorkerProvider[] = [
   "reanime",
   "anidbapp",
   "2dhive",
-  "anizone",
   "animenosub",
 ];
-const ANIVEXA_AUTO_SUB_PROVIDERS: AnivexaWorkerProvider[] = ["anikoto", "anizone", "anineko", "animegg"];
+const ANIVEXA_AUTO_SUB_PROVIDERS: AnivexaWorkerProvider[] = ["anikoto", "anineko", "animegg"];
 const ANIVEXA_AUTO_DUB_PROVIDERS: AnivexaWorkerProvider[] = ["anineko", "anikoto"];
 const ANIVEXA_WORKER_WATCH_ALIAS: Partial<Record<AnivexaWorkerProvider, AnivexaWorkerProvider>> = {
   anikoto: "anikoto",
@@ -4434,7 +4433,6 @@ function appendCustomEmbedServers(
     const gatewayUiProvider = anivexaProviderForUi(activeProvider);
     const SUB_GATEWAYS = [
       { provider: "anikoto" as AnivexaWorkerProvider, subType: "soft" as const, transport: "hls" as const },
-      { provider: "anizone" as AnivexaWorkerProvider, subType: "soft" as const, transport: "hls" as const },
       { provider: "anineko" as AnivexaWorkerProvider, subType: "hard" as const, transport: "hls" as const },
       { provider: "animegg" as AnivexaWorkerProvider, subType: "hard" as const, transport: "mp4" as const },
     ];
