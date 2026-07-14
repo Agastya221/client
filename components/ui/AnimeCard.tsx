@@ -23,8 +23,8 @@ export default function AnimeCard({ anime, highlightProvider = false }: AnimeCar
           alt={anime.title}
           fill
           loading="lazy"
-          quality={60}
-          sizes="(max-width: 639px) 46vw, (max-width: 1023px) 30vw, (max-width: 1535px) 20vw, 240px"
+          quality={75}
+          sizes="(max-width: 639px) 46vw, (max-width: 1023px) 30vw, (max-width: 1535px) 20vw, 18vw"
           className="object-cover transition-transform duration-500 group-hover:scale-105"
         />
         

@@ -50,8 +50,8 @@ export default function AnilistCard({
             fill
             className="object-cover transition-transform duration-500 group-hover:scale-105"
             loading="lazy"
-            quality={60}
-            sizes="(max-width: 639px) 46vw, (max-width: 1023px) 30vw, (max-width: 1535px) 20vw, 240px"
+            quality={75}
+            sizes="(max-width: 639px) 46vw, (max-width: 1023px) 30vw, (max-width: 1535px) 20vw, 18vw"
           />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center bg-[#15171d] text-xs font-bold text-white/25">
