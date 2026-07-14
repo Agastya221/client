@@ -18,6 +18,7 @@ import {
   Star,
   Tv2,
 } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 
 export function WatchAnimeDetailsPanel({
@@ -43,12 +44,15 @@ export function WatchAnimeDetailsPanel({
         <div className="flex gap-5">
           <div className="shrink-0">
             <div className="w-28 md:w-36 aspect-[2/3] rounded-xl overflow-hidden border border-white/10 shadow-[0_8px_30px_rgba(0,0,0,0.5)] relative group/poster">
-              <img
+              <Image
                 src={session.anime.poster || heroImage}
                 alt=""
                 aria-hidden="true"
+                fill
                 loading="lazy"
-                className="w-full h-full object-cover transition-transform duration-500 group-hover/poster:scale-105"
+                quality={60}
+                sizes="(max-width: 767px) 112px, 144px"
+                className="object-cover transition-transform duration-500 group-hover/poster:scale-105"
               />
               {session.anime.rating && (
                 <div className="absolute top-2 left-2 flex items-center gap-1 bg-black/70 backdrop-blur-sm rounded-md px-1.5 py-0.5">
@@ -205,13 +209,18 @@ export function WatchRecommendationsPanel({
                 href={recHref}
                 className="group/rec flex items-center gap-3 rounded-xl p-1.5 transition-colors hover:bg-white/[0.04]"
               >
-                <div className="h-14 w-20 shrink-0 overflow-hidden rounded-lg bg-[#1a1c22]">
-                  <img
-                    src={recImage}
-                    alt={recTitle}
-                    className="h-full w-full object-cover transition-transform duration-500 group-hover/rec:scale-105"
-                    loading="lazy"
-                  />
+                <div className="relative h-14 w-20 shrink-0 overflow-hidden rounded-lg bg-[#1a1c22]">
+                  {recImage && (
+                    <Image
+                      src={recImage}
+                      alt={recTitle}
+                      fill
+                      className="object-cover transition-transform duration-500 group-hover/rec:scale-105"
+                      loading="lazy"
+                      quality={55}
+                      sizes="80px"
+                    />
+                  )}
                 </div>
                 <div className="min-w-0 flex-1">
                   <h3 className="line-clamp-2 text-[13px] font-bold leading-tight text-white/85 transition-colors group-hover/rec:text-white">
@@ -259,12 +268,17 @@ export function WatchRecommendationsPanel({
                 className="group/rec flex flex-col gap-1.5 transition-all duration-300"
               >
                 <div className="relative overflow-hidden rounded-xl bg-[#1a1c22]" style={{ aspectRatio: "2/3" }}>
-                  <img
-                    src={recImage}
-                    alt={recTitle}
-                    className="w-full h-full object-cover transition-transform duration-500 group-hover/rec:scale-105"
-                    loading="lazy"
-                  />
+                  {recImage && (
+                    <Image
+                      src={recImage}
+                      alt={recTitle}
+                      fill
+                      className="object-cover transition-transform duration-500 group-hover/rec:scale-105"
+                      loading="lazy"
+                      quality={55}
+                      sizes="(max-width: 767px) 50vw, 220px"
+                    />
+                  )}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover/rec:opacity-100 transition-opacity duration-300" />
                   <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/rec:opacity-100 transition-opacity duration-300">
                     <div className="w-10 h-10 rounded-full flex items-center justify-center shadow-2xl pl-0.5" style={{ backgroundColor: recColor }}>

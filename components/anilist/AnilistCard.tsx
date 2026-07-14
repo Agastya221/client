@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { Play, Star } from "lucide-react";
 import { type AnilistMedia, anilistTitle, anilistRating, anilistFormat, encodeAnilistRouteId } from "@/lib/anilist/api";
 import type { CatalogAvailabilityHint } from "@/lib/anime/api";
@@ -43,12 +44,14 @@ export default function AnilistCard({
         style={{ aspectRatio: "2/3" }}
       >
         {image ? (
-          <img
+          <Image
             src={image}
             alt={title}
-            className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+            fill
+            className="object-cover transition-transform duration-500 group-hover:scale-105"
             loading="lazy"
-            decoding="async"
+            quality={60}
+            sizes="(max-width: 639px) 46vw, (max-width: 1023px) 30vw, (max-width: 1535px) 20vw, 240px"
           />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center bg-[#15171d] text-xs font-bold text-white/25">

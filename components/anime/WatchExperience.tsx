@@ -43,6 +43,7 @@ import {
   Search,
   Tv2,
 } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
@@ -481,12 +482,18 @@ function sameServerOptionList(left: ServerOption[], right: ServerOption[]): bool
   return true;
 }
 
+function serverOptionMergeKey(option: ServerOption): string {
+  const gateway = option.id.match(/^anivexa2-([a-z0-9]+)-(hls|mp4|embed)-(?:soft|hard|dub)$/);
+  if (!gateway) return option.id;
+  return `anivexa2:${gateway[1]}:${gateway[2]}:${option.category || "sub"}`;
+}
+
 function mergeServerOptionLists(previous: ServerOption[], next: ServerOption[]): ServerOption[] {
-  const nextById = new Map(next.map((option) => [option.id, option]));
-  const previousIds = new Set(previous.map((option) => option.id));
+  const nextByKey = new Map(next.map((option) => [serverOptionMergeKey(option), option]));
+  const previousKeys = new Set(previous.map(serverOptionMergeKey));
   return [
-    ...previous.map((option) => nextById.get(option.id) || option),
-    ...next.filter((option) => !previousIds.has(option.id)),
+    ...previous.map((option) => nextByKey.get(serverOptionMergeKey(option)) || option),
+    ...next.filter((option) => !previousKeys.has(serverOptionMergeKey(option))),
   ];
 }
 
@@ -651,10 +658,10 @@ export default function WatchExperience({ initialSession, recommendations = null
   const languageFilteredEpisodes = session.episodes.filter((episode) => {
     if (!hasLanguageInfo) {
       // Synthetic episodes (embed route): use Anikoto dubCount to cap
-      if (session.dubbed && dubCount !== null && dubCount !== undefined) {
+      if (session.dubbed && dubCount !== null && dubCount !== undefined && dubCount > 0) {
         return episode.number <= dubCount;
       }
-      if (!session.dubbed && subCount !== null && subCount !== undefined) {
+      if (!session.dubbed && subCount !== null && subCount !== undefined && subCount > 0) {
         return episode.number <= subCount;
       }
       return true; // no count data → show all
@@ -664,14 +671,14 @@ export default function WatchExperience({ initialSession, recommendations = null
   });
 
   // Whether the dub count is known (from Anikoto) or unknown
-  const dubCountKnown = dubCount !== null && dubCount !== undefined;
+  const dubCountKnown = dubCount !== null && dubCount !== undefined && dubCount > 0;
 
   const getFallbackEpisodeForLanguage = (targetDubbed: boolean, currentEpNum: number) => {
     // For embed routes, use dubCount/subCount to determine the max available episode
     if (!hasLanguageInfo) {
       const maxEp = targetDubbed
         ? (dubCountKnown ? dubCount! : Infinity)
-        : (subCount !== null && subCount !== undefined ? subCount : Infinity);
+        : (subCount !== null && subCount !== undefined && subCount > 0 ? subCount : Infinity);
       return currentEpNum <= maxEp ? currentEpNum : Math.min(currentEpNum, maxEp);
     }
     const targetEpisodes = session.episodes.filter((ep) =>
@@ -1227,7 +1234,12 @@ export default function WatchExperience({ initialSession, recommendations = null
   const embedServersOpen = showEmbedServers || activeIsEmbedServer;
   const { isDesidub, subServers, softSubServers, hardSubServers, dubServers, hindiServers } = summarizeServerGroups(session.serverOptions);
   const effectiveActiveServer = session.serverOptions.find((entry) => entry.id === effectiveActiveServerId);
-  const activeIsHardSub = effectiveActiveServer?.subType === "hard" || effectiveActiveServerId === "hls-hardsub" || (effectiveActiveServerId?.endsWith("-hard") ?? false);
+  const activeHasSoftSubtitles = !session.dubbed && session.subtitles.some((track) => Boolean(track.url));
+  const activeIsHardSub = !activeHasSoftSubtitles && (
+    effectiveActiveServer?.subType === "hard" ||
+    effectiveActiveServerId === "hls-hardsub" ||
+    (effectiveActiveServerId?.endsWith("-hard") ?? false)
+  );
   const mainFallback = session.availableProviders.find((p) => p !== "desidub") || "animekai";
   const showHindi = session.availableProviders.includes("desidub") || session.provider === "desidub";
 
@@ -1473,15 +1485,19 @@ export default function WatchExperience({ initialSession, recommendations = null
         />
       )}
     <div className={`space-y-0 ${focusMode ? "relative z-50" : ""}`}>
-      <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_380px] xl:items-start xl:gap-5">
+      <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_380px] xl:items-start xl:gap-4 2xl:grid-cols-[minmax(0,1fr)_400px]">
         <div className="min-w-0">
       {/* ── VIDEO PLAYER ────────────────────────── */}
-      <div className="rounded-t-2xl overflow-hidden border border-white/8 border-b-0 bg-black relative">
+      <div className="overflow-hidden border-y border-white/8 bg-black relative sm:rounded-t-lg sm:border-x sm:border-b-0">
         <div className="relative aspect-video overflow-hidden bg-black">
-          <img
+          <Image
             src={heroImage}
             alt=""
-            className="absolute inset-0 h-full w-full object-cover opacity-20 blur-xl scale-[1.04]"
+            fill
+            priority
+            quality={45}
+            sizes="(min-width: 1280px) calc(100vw - 440px), 100vw"
+            className="object-cover opacity-20 blur-xl scale-[1.04]"
           />
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_20%,rgba(0,0,0,0.78)_100%)]" />
           <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/15 to-black/45" />
@@ -1749,7 +1765,7 @@ export default function WatchExperience({ initialSession, recommendations = null
         </div>
 
         {/* Server panel — Anivexa-style grouping, AnimePlay theme */}
-        <div className="rounded-xl border border-white/8 bg-black/20 p-3 md:p-4 space-y-4">
+        <div className="space-y-4 border-y border-white/8 bg-black/20 py-3 md:py-4">
           <div className="flex flex-wrap items-center gap-2">
             <div
               className="inline-flex items-center gap-2 rounded-full border px-4 py-2 text-[11px] font-black uppercase tracking-wider"
@@ -1872,6 +1888,8 @@ export default function WatchExperience({ initialSession, recommendations = null
         </div>
 
         <div className="space-y-5 xl:hidden">
+          {episodePanel}
+
           <CommentSection
             animeId={session.anime.id}
             episodeNumber={session.episode.number}
@@ -1880,8 +1898,6 @@ export default function WatchExperience({ initialSession, recommendations = null
               document.querySelector("iframe")?.scrollIntoView({ behavior: "smooth", block: "center" });
             }}
           />
-
-          {episodePanel}
 
           <WatchAnimeDetailsPanel session={session} heroImage={heroImage} />
 
@@ -1892,7 +1908,7 @@ export default function WatchExperience({ initialSession, recommendations = null
       </div>
         </div>
 
-        <aside className="hidden xl:block xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto xl:pr-1 hide-scrollbar space-y-5">
+        <aside className="hidden xl:block xl:sticky xl:top-20 xl:max-h-[calc(100vh-5.5rem)] xl:overflow-y-auto xl:pr-1 hide-scrollbar space-y-4">
           {episodePanel}
           <WatchRecommendationsPanel recommendations={deferredRecommendations} variant="sidebar" />
         </aside>

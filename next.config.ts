@@ -3,6 +3,7 @@ import path from "path";
 
 const nextConfig: NextConfig = {
   images: {
+    qualities: [45, 55, 60, 65, 70, 75],
     remotePatterns: [
       { protocol: "https", hostname: "s4.anilist.co" },
       { protocol: "https", hostname: "img.anili.st" },
@@ -12,6 +13,7 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "i.ibb.co.com" },
       { protocol: "https", hostname: "media.kitsu.app" },
       { protocol: "https", hostname: "gogocdn.net" },
+      { protocol: "https", hostname: "placehold.co" },
     ],
   },
   turbopack: {

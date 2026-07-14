@@ -79,7 +79,7 @@ async function WatchContent({
     <>
       {/* Breadcrumb */}
       <nav
-        className="mb-4 flex flex-wrap items-center gap-1.5 text-[11px] uppercase tracking-[0.18em] text-white/40 xl:hidden"
+        className="mb-3 flex flex-wrap items-center gap-1.5 px-3 text-[11px] uppercase tracking-[0.18em] text-white/40 sm:px-0 xl:hidden"
         style={{ "--accent": accentColor } as React.CSSProperties}
       >
         <Link href="/" className="transition-colors hover:text-white/70">
@@ -118,7 +118,7 @@ export default function WatchPage({
     <main className="min-h-screen bg-[#0a0b0c] text-[#eaeaea] flex flex-col">
       <Navbar />
 
-      <section className="relative overflow-hidden px-3 pb-12 pt-6 sm:px-4 md:px-6 flex-1">
+      <section className="relative flex-1 overflow-x-clip px-0 pb-12 pt-[4.75rem] sm:px-4 sm:pt-20 md:px-6">
         <div className="absolute inset-0" style={{ background: 'radial-gradient(circle at top center, rgba(255,255,255,0.02), transparent 50%)' }} />
         <div className="relative mx-auto max-w-[118rem]">
           <WatchContent idPromise={params} searchParamsPromise={searchParams} />

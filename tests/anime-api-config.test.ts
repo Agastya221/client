@@ -4,6 +4,9 @@ import {
   DEFAULT_ANIVEXA_WORKER_URL,
   LOCAL_ANIME_API_BASE_URL,
   PRODUCTION_ANIME_API_BASE_URL,
+  classifyAnivexaStreamSubType,
+  knownEpisodeCountForNavigation,
+  preferEnglishSubtitleDefault,
   resolveAnivexaWorkerUrl,
   resolveAnimeApiBaseUrl,
 } from "../lib/anime/api.ts";
@@ -44,4 +47,35 @@ test("resolveAnimeApiBaseUrl uses environment-aware fallbacks", () => {
     resolveAnimeApiBaseUrl({ NODE_ENV: "staging" } as unknown as NodeJS.ProcessEnv),
     PRODUCTION_ANIME_API_BASE_URL,
   );
+});
+
+test("Prism classification follows the selected stream subtitle URL", () => {
+  const burnedIn = {
+    url: "https://cdn.example.com/master.m3u8",
+    referer: "https://player.example.com/embed/hard",
+  };
+  const softSub = {
+    url: "https://cdn.example.com/master.m3u8",
+    referer: "https://player.example.com/embed/soft?sub=https%3A%2F%2Fsubs.example.com%2Fshow_eng.vtt",
+  };
+
+  assert.equal(classifyAnivexaStreamSubType("anineko", burnedIn), "hard");
+  assert.equal(classifyAnivexaStreamSubType("anineko", softSub), "soft");
+  assert.equal(classifyAnivexaStreamSubType("animegg", softSub), "hard");
+});
+
+test("subtitle defaults prefer exactly one English track", () => {
+  const tracks = preferEnglishSubtitleDefault([
+    { label: "Spanish", lang: "es", url: "https://subs.example.com/es.vtt", isDefault: true },
+    { label: "English", lang: "en", url: "https://subs.example.com/en.vtt", isDefault: false },
+    { label: "English 2", lang: "en-2", url: "https://subs.example.com/en-2.vtt", isDefault: false },
+  ]);
+
+  assert.deepEqual(tracks.map((track) => track.isDefault), [false, true, false]);
+});
+
+test("navigation count falls back to aired totals for long-running anime", () => {
+  assert.equal(knownEpisodeCountForNavigation({ episodeCount: null, subCount: 1169, dubCount: null }), 1169);
+  assert.equal(knownEpisodeCountForNavigation({ episodeCount: 12, subCount: 10, dubCount: 8 }), 12);
+  assert.equal(knownEpisodeCountForNavigation({ episodeCount: 3000, subCount: null, dubCount: null }), 2000);
 });

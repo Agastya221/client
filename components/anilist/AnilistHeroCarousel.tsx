@@ -6,6 +6,7 @@ import { isBookmarked, saveBookmark, removeBookmark, subscribeToBookmarks } from
 import WatchIntentLink from "@/components/anime/WatchIntentLink";
 import { Play, Bookmark, BookmarkCheck, ChevronLeft, ChevronRight, Star, Calendar, Tv } from "lucide-react";
 import Link from "next/link";
+import { getImageProps } from "next/image";
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 
 interface HeroCarouselProps {
@@ -62,13 +63,6 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
         });
     }
 
-    const nextSlide = deck[(activeIndex + 1) % deck.length];
-    const nextImageUrl = nextSlide?.bannerImage || nextSlide?.coverImage.extraLarge;
-    if (nextImageUrl) {
-      const image = new Image();
-      image.decoding = "async";
-      image.src = nextImageUrl;
-    }
   }, [activeIndex, deck]);
 
   // Touch swipe support for mobile
@@ -108,6 +102,22 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
   const accentColor = slide.coverImage.color || "#ff5500";
   const isAiring = slide.status === "RELEASING";
   const titleLogo = titleLogos[slide.id] || null;
+  const desktopBackdrop = getImageProps({
+    src: slide.bannerImage || slide.coverImage.extraLarge,
+    alt: title,
+    fill: true,
+    priority: true,
+    quality: 70,
+    sizes: "100vw",
+  }).props;
+  const mobileBackdrop = getImageProps({
+    src: slide.coverImage.extraLarge || slide.bannerImage || "",
+    alt: title,
+    fill: true,
+    priority: true,
+    quality: 65,
+    sizes: "67vw",
+  }).props;
   const watchEpisode = slide.status === "RELEASING" && slide.nextAiringEpisode
     ? Math.max(1, slide.nextAiringEpisode.episode - 1)
     : 1;
@@ -139,18 +149,23 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
+      <div key={`backdrop-${slide.id}`} className="absolute inset-y-0 right-0 z-0 w-2/3 overflow-hidden lg:inset-0 lg:w-full">
+        <picture>
+          <source media="(max-width: 1023px)" srcSet={mobileBackdrop.srcSet} sizes={mobileBackdrop.sizes} />
+          <source media="(min-width: 1024px)" srcSet={desktopBackdrop.srcSet} sizes={desktopBackdrop.sizes} />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            {...desktopBackdrop}
+            alt={title}
+            className="object-cover object-top lg:object-center"
+          />
+        </picture>
+      </div>
+
       {/* ── DESKTOP LAYOUT (lg+) ───────────────────────────────────────────── */}
       <div className="hidden lg:block relative h-[92vh] overflow-hidden">
-        {/* Only the active backdrop is mounted; the next slide is warmed off-DOM. */}
+        {/* Only the active responsive backdrop is mounted. */}
         <div key={slide.id} className="absolute inset-0">
-          <img
-            src={slide.bannerImage || slide.coverImage.extraLarge}
-            alt={title}
-            className="w-full h-full object-cover object-center"
-            loading="eager"
-            decoding="async"
-            fetchPriority="high"
-          />
           <div className="absolute inset-0 bg-gradient-to-r from-[#0a0b0c] from-[25%] via-[#0a0b0c]/50 via-[55%] to-transparent" />
           <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-[#0a0b0c] to-transparent" />
         </div>
@@ -293,14 +308,6 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
             />
             {/* Cover image anchored to the right */}
             <div className="absolute right-0 top-0 bottom-0 w-2/3">
-              <img
-                src={slide.coverImage.extraLarge || slide.bannerImage || ""}
-                alt={title}
-                className="w-full h-full object-cover object-top"
-                loading="eager"
-                decoding="async"
-                fetchPriority="high"
-              />
               {/* Fade to the left */}
               <div className="absolute inset-0 bg-gradient-to-r from-[#0a0b0c] via-[#0a0b0c]/60 to-transparent" />
             </div>

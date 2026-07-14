@@ -15,6 +15,7 @@ import {
 } from "@/lib/anilist/api";
 
 import Link from "next/link";
+import Image from "next/image";
 import { ChevronRight, Star, Flame, Zap, Clock, TrendingUp } from "lucide-react";
 
 // Section header component
@@ -78,11 +79,16 @@ function TrendingRow({ media, rank, fromAiring = false }: { media: AnilistMedia;
       </div>
 
       {/* Poster */}
-      <img
-        src={media.coverImage.large}
-        alt={title}
-        className="w-10 h-14 rounded-lg object-cover shrink-0"
-      />
+      <div className="relative h-14 w-10 shrink-0 overflow-hidden rounded-lg">
+        <Image
+          src={media.coverImage.large}
+          alt={title}
+          fill
+          quality={55}
+          sizes="40px"
+          className="object-cover"
+        />
+      </div>
 
       {/* Info */}
       <div className="min-w-0 flex-1">

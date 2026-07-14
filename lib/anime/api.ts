@@ -87,7 +87,7 @@ const ANIVEXA_DISPLAY_NAMES: Record<AnivexaWorkerProvider, string> = {
   anizone: "Zone",
   animenosub: "Mori",
 };
-const ANIVEXA_HARD_SUB_PROVIDERS = new Set<AnivexaWorkerProvider>(["animegg", "anineko", "allmanga"]);
+const ANIVEXA_HARD_SUB_PROVIDERS = new Set<AnivexaWorkerProvider>(["animegg", "allmanga"]);
 const ANIVEXA_HLS_ONLY_PROVIDERS = new Set<AnivexaWorkerProvider>(["anikoto"]);
 const ANIVEXA_TRANSPORT_PRIORITY: Record<NonNullable<ServerOption["transport"]>, number> = {
   hls: 0,
@@ -337,6 +337,16 @@ function makeSyntheticEpisode(episodeNumber: number): EpisodeModel {
     idByProvider: {},
     availableProviders: [],
   };
+}
+
+export function knownEpisodeCountForNavigation(
+  anime: Pick<CatalogAnime, "episodeCount" | "subCount" | "dubCount">,
+): number {
+  return Math.min(2000, Math.max(
+    anime.episodeCount || 0,
+    anime.subCount || 0,
+    anime.dubCount || 0,
+  ));
 }
 
 function isResolvedProviderId(provider: ProviderId, providerId: string | null | undefined): boolean {
@@ -2695,9 +2705,12 @@ async function _getAnimeDetailModelRaw(
 
     if (anilistPassId !== null) {
       finalEpisodes = await buildSyntheticEpisodesFromAnilist(anilistPassId);
-    } else if (detail.anime.episodeCount && detail.anime.episodeCount > 0) {
-      // Fallback for non-passthrough anime with known episode count
-      finalEpisodes = Array.from({ length: detail.anime.episodeCount }, (_, i) => ({
+    } else {
+      // Some long-running AniList routes resolve to a provider mapping without
+      // returning provider episodes. The aired sub/dub totals are still enough
+      // to build navigation stubs (for example One Piece).
+      const knownEpisodeCount = knownEpisodeCountForNavigation(detail.anime);
+      if (knownEpisodeCount > 0) finalEpisodes = Array.from({ length: knownEpisodeCount }, (_, i) => ({
         number: i + 1,
         title: `Episode ${i + 1}`,
         idByProvider: {} as Partial<Record<ProviderId, string>>,
@@ -3318,7 +3331,7 @@ async function fetchAniviexaWatchSession(
     ...ensureArray(data.subtitles),
   ]);
   const subtitleLangCounts = new Map<string, number>();
-  const subtitles: SubtitleTrack[] = rawSubtitles
+  const subtitles = preferEnglishSubtitleDefault(rawSubtitles
     .filter((s: any) => {
       const fmt = String(s.format || "").toLowerCase();
       if (fmt === "ass" || fmt === "ssa") return false;
@@ -3334,10 +3347,10 @@ async function fetchAniviexaWatchSession(
         label: seen > 0 ? `${label} ${seen + 1}` : label,
         lang: seen > 0 ? `${baseLang}-${seen + 1}` : baseLang,
         url: rawUrl ? streamProxyUrl(rawUrl, s.referer || s.referrer || selectedReferer) : "",
-        isDefault: seen === 0,
+        isDefault: false,
       };
     })
-    .filter((s) => s.url);
+    .filter((s) => s.url));
 
   let source: StreamSource | null = null;
   if (selectedStream?.url) {
@@ -3511,7 +3524,7 @@ async function fetchAnivexaProviderBucket(
       .map((stream) => normalizeAnivexaStreamUrl(stream, base));
     const internal = sortAnivexaInternalStreams(activeStreams
       .filter(isAnivexaInternalStream)
-      .filter((stream) => dubbed || anivexaSubTypeForProvider(provider, stream, normalized.subtitles) === "hard" || anivexaStreamHasUsableSubtitles(stream, normalized.subtitles)));
+      .filter((stream) => dubbed || anivexaSubTypeForProvider(provider, stream, normalized.subtitles) === "hard" || anivexaStreamHasUsableSubtitles(provider, stream, normalized.subtitles)));
     const embed = ANIVEXA_HLS_ONLY_PROVIDERS.has(provider) ? [] : activeStreams.filter(isAnivexaEmbedStream);
     if (internal.length === 0 && embed.length === 0) return null;
 
@@ -3522,7 +3535,9 @@ async function fetchAnivexaProviderBucket(
       label: ANIVEXA_DISPLAY_NAMES[provider],
       internal,
       embed,
-      subtitles: normalized.subtitles,
+      subtitles: provider === "anineko"
+        ? dedupeAnivexaSubtitles(ensureArray(firstPlayable?.__subtitles))
+        : normalized.subtitles,
       payload: firstPlayable?.__payload || normalized.payloads[0]?.payload || normalized.fallbackPayload,
       download: normalized.download || null,
       subType,
@@ -3750,7 +3765,7 @@ async function fetchAnivexaAggregateWatchSession(
   const selectedReferer = selectedStream?.referer || selectedStream?.referrer || null;
   const rawSubtitles = selectedBucket?.subtitles || [];
   const subtitleLangCounts = new Map<string, number>();
-  const subtitles: SubtitleTrack[] = rawSubtitles
+  const subtitles = preferEnglishSubtitleDefault(rawSubtitles
     .filter((s: any) => {
       const fmt = String(s.format || "").toLowerCase();
       return fmt !== "ass" && fmt !== "ssa" && Boolean(s.file || s.url);
@@ -3765,10 +3780,10 @@ async function fetchAnivexaAggregateWatchSession(
         label: seen > 0 ? `${label} ${seen + 1}` : label,
         lang: seen > 0 ? `${baseLang}-${seen + 1}` : baseLang,
         url: rawUrl ? streamProxyUrl(rawUrl, s.referer || s.referrer || selectedReferer) : "",
-        isDefault: seen === 0,
+        isDefault: false,
       };
     })
-    .filter((s) => s.url);
+    .filter((s) => s.url));
 
   let source: StreamSource | null = null;
   if (selectedStream?.url) {
@@ -4276,13 +4291,22 @@ function requestedAnivexaAggregateTransport(server: string | null | undefined): 
 function anivexaSubTypeForProvider(provider: AnivexaWorkerProvider, stream: any, subtitles: any[]): "soft" | "hard" {
   if (stream.__subType === "hard" || stream.__subType === "soft") return stream.__subType;
   if (ANIVEXA_HARD_SUB_PROVIDERS.has(provider)) return "hard";
-  if (ensureArray(stream.__subtitles).length > 0 || subtitles.length > 0) return "soft";
+  if (ensureArray(stream.__subtitles).length > 0) return "soft";
+  // Prism can return burned-in and external-caption variants in the same
+  // response. Provider-wide captions must not turn a burned-in stream soft.
+  if (provider === "anineko") return "hard";
+  if (subtitles.length > 0) return "soft";
   return "soft";
 }
 
-function anivexaStreamHasUsableSubtitles(stream: any, subtitles: any[]): boolean {
+function anivexaStreamHasUsableSubtitles(
+  provider: AnivexaWorkerProvider,
+  stream: any,
+  subtitles: any[],
+): boolean {
   return ensureArray(stream.__subtitles).length > 0 ||
-    subtitles.some((subtitle) => Boolean(subtitle?.file || subtitle?.url));
+    (provider !== "anineko" &&
+      subtitles.some((subtitle) => Boolean(subtitle?.file || subtitle?.url)));
 }
 
 function extractAnivexaStreamSubtitles(stream: any): any[] {
@@ -4306,12 +4330,9 @@ function extractAnivexaStreamSubtitles(stream: any): any[] {
   for (const candidate of candidates) {
     try {
       const parsed = new URL(candidate);
-      const values = [
-        ...parsed.searchParams.getAll("sub"),
-        ...parsed.searchParams.getAll("subtitle"),
-        ...parsed.searchParams.getAll("subtitles"),
-        ...parsed.searchParams.getAll("track"),
-      ];
+      const values = Array.from(parsed.searchParams.entries())
+        .filter(([key]) => /^(?:sub|subtitle|subtitles|track|caption_\d+|c\d+_file)$/i.test(key))
+        .map(([, value]) => value);
       for (const value of values) {
         if (!value) continue;
         const decoded = decodeURIComponent(value);
@@ -4331,6 +4352,17 @@ function extractAnivexaStreamSubtitles(stream: any): any[] {
   }
 
   return dedupeAnivexaSubtitles([...explicit, ...directSubtitle, ...inferred]);
+}
+
+export function classifyAnivexaStreamSubType(
+  provider: AnivexaWorkerProvider,
+  stream: any,
+  subtitles: any[] = [],
+): "soft" | "hard" {
+  return anivexaSubTypeForProvider(provider, {
+    ...stream,
+    __subtitles: extractAnivexaStreamSubtitles(stream),
+  }, subtitles);
 }
 
 function dedupeAnivexaSubtitles(subtitles: any[]): any[] {
@@ -4355,6 +4387,21 @@ function anivexaSubtitleLabel(url: string): string {
   if (lang === "en") return "English";
   if (lang === "ja") return "Japanese";
   return "Subtitle";
+}
+
+function isEnglishSubtitleTrack(track: SubtitleTrack): boolean {
+  const value = `${track.lang} ${track.label}`.toLowerCase();
+  return /(^|[\s_-])(?:en|eng|english)(?:$|[\s_-])/.test(value);
+}
+
+export function preferEnglishSubtitleDefault(tracks: SubtitleTrack[]): SubtitleTrack[] {
+  if (tracks.length === 0) return tracks;
+  const englishIndex = tracks.findIndex(isEnglishSubtitleTrack);
+  const defaultIndex = englishIndex >= 0 ? englishIndex : 0;
+  return tracks.map((track, index) => ({
+    ...track,
+    isDefault: index === defaultIndex,
+  }));
 }
 
 function appendCustomEmbedServers(

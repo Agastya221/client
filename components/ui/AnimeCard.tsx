@@ -1,5 +1,6 @@
 import type { CatalogAnime } from "@/lib/anime/types";
 import Link from "next/link";
+import Image from "next/image";
 import { Play, Mic } from "lucide-react";
 
 interface AnimeCardProps {
@@ -17,11 +18,14 @@ export default function AnimeCard({ anime, highlightProvider = false }: AnimeCar
       className="group relative flex flex-col gap-2 transition-all duration-300 w-full"
     >
       <div className="relative aspect-[2/3] w-full overflow-hidden rounded-lg bg-[#20222a]">
-        <img
+        <Image
           src={imageUrl}
           alt={anime.title}
+          fill
           loading="lazy"
-          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+          quality={60}
+          sizes="(max-width: 639px) 46vw, (max-width: 1023px) 30vw, (max-width: 1535px) 20vw, 240px"
+          className="object-cover transition-transform duration-500 group-hover:scale-105"
         />
         
         {/* Play Icon Overlay */}
