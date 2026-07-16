@@ -151,3 +151,14 @@ export function getAutoAdvance(): boolean {
 export function setAutoAdvance(on: boolean): void {
   set("auto-advance", on ? "1" : "0");
 }
+
+// ── Autoplay ───────────────────────────────────────────────────────────────
+
+export function getAutoplay(): boolean {
+  const raw = get("autoplay");
+  return raw === null ? false : raw === "1"; // default OFF; browsers commonly block audible autoplay
+}
+
+export function setAutoplay(on: boolean): void {
+  set("autoplay", on ? "1" : "0");
+}

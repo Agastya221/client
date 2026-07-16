@@ -94,3 +94,51 @@ body {
 .watch-breadcrumb-title:hover {
   color: var(--accent, #ff5500);
 }
+@media (min-width: 1280px) {
+  .watch-episode-panel {
+    display: flex;
+    height: min(
+      calc((min(110rem, calc(100vw - 3rem)) - 26rem) * 0.5625),
+      calc(100vh - 5.5rem)
+    );
+    min-height: 34rem;
+    flex-direction: column;
+  }
+
+  .watch-episode-panel-body {
+    min-height: 0;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .watch-episode-scroll {
+    max-height: none;
+  }
+}
+
+.watch-sidebar-rail,
+.watch-episode-scroll {
+  overscroll-behavior-y: contain;
+}
+
+.watch-sidebar-rail {
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  scrollbar-width: thin;
+}
+
+.watch-sidebar-rail::-webkit-scrollbar {
+  width: 6px;
+}
+
+.watch-sidebar-rail::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.watch-sidebar-rail::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.watch-sidebar-rail::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+}

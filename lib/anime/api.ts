@@ -4,6 +4,7 @@ import { cacheFetch, cacheInvalidatePrefix } from "@/lib/cache";
 import { measureAsync, recordCounter, recordLog } from "@/lib/observability";
 import { anilistTitle, getAnilistDetail } from "@/lib/anilist/api";
 import { decryptEmbed } from "./reanime-decrypt";
+import type { EpisodeDisplayMetadata } from "./episode-metadata";
 import {
   PROVIDERS,
   type AnimeDetailModel,
@@ -110,6 +111,8 @@ const API_BASE_URL = resolveAnimeApiBaseUrl();
 const HOME_REVALIDATE_SECONDS = 300;
 const SEARCH_REVALIDATE_SECONDS = 120;
 const DETAIL_REVALIDATE_SECONDS = 300;
+const EPISODE_ARTWORK_REVALIDATE_SECONDS = 24 * 60 * 60;
+const ANIVEXA_DUB_DISCOVERY_TIMEOUT_MS = 7_000;
 const PROVIDER_MAPPING_FOUND_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const PROVIDER_MAPPING_NOT_FOUND_TTL_MS = 12 * 60 * 60 * 1000;
 const PROVIDER_MAPPING_UNKNOWN_TTL_MS = 60 * 60 * 1000;
@@ -1420,10 +1423,94 @@ function mergeEpisodeMaps(
   }
 }
 
+export function normalizeAniZipEpisodesPayload(data: JsonValue): EpisodeModel[] {
+  const rawEpisodes = data?.episodes;
+  if (!rawEpisodes || typeof rawEpisodes !== "object" || Array.isArray(rawEpisodes)) return [];
+
+  return Object.entries(rawEpisodes)
+    .map<EpisodeModel | null>(([key, rawEpisode]) => {
+      const episode = rawEpisode && typeof rawEpisode === "object"
+        ? rawEpisode as JsonValue
+        : {};
+      const number = Number(episode.episode ?? episode.number ?? key);
+      if (!Number.isFinite(number) || number <= 0) return null;
+
+      const title = episode.title && typeof episode.title === "object"
+        ? episode.title as JsonValue
+        : {};
+
+      return {
+        number,
+        title: pickFirstNonEmpty(
+          title.en,
+          title["x-jat"],
+          title.ja,
+          typeof episode.title === "string" ? episode.title : "",
+          `Episode ${number}`,
+        ),
+        image: pickFirstNonEmpty(episode.image, episode.thumbnail) || null,
+        isFiller: Boolean(episode.filler),
+        idByProvider: {},
+        availableProviders: [],
+      } satisfies EpisodeModel;
+    })
+    .filter((episode): episode is EpisodeModel => episode !== null)
+    .sort((left, right) => left.number - right.number);
+}
+
+async function fetchAniZipEpisodeArtwork(anilistId: number): Promise<EpisodeModel[]> {
+  try {
+    const response = await fetch(`https://api.ani.zip/mappings?anilist_id=${anilistId}`, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "Tatakai-Frontend/1.0",
+      },
+      // Only the validated normalized result below is cached. A transient 200
+      // with an empty body, timeout, or upstream error must be retried rather
+      // than being stored by Next's data cache for a full day.
+      cache: "no-store",
+      signal: AbortSignal.timeout(4_000),
+    });
+    if (!response.ok) return [];
+    return normalizeAniZipEpisodesPayload(await response.json() as JsonValue);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Best-effort episode display metadata for the deferred watch-page request.
+ * The initial watch shell never awaits this loader. Non-empty normalized
+ * responses are cached, while transient misses remain retryable.
+ */
+export async function getAniZipEpisodeMetadata(
+  anilistId: number,
+): Promise<EpisodeDisplayMetadata[]> {
+  if (!Number.isInteger(anilistId) || anilistId <= 0) return [];
+
+  return cacheFetch(
+    `anizip-episode-metadata:${anilistId}`,
+    async () => {
+      const episodes = await fetchAniZipEpisodeArtwork(anilistId);
+      return episodes.map((episode) => ({
+        number: episode.number,
+        title: episode.title || null,
+        image: episode.image || null,
+      }));
+    },
+    {
+      freshMs: EPISODE_ARTWORK_REVALIDATE_SECONDS * 1000,
+      expireMs: 7 * EPISODE_ARTWORK_REVALIDATE_SECONDS * 1000,
+      shouldCache: (value) => Array.isArray(value) && value.length > 0,
+    },
+  );
+}
+
 export function normalizeHianimeEpisodesPayload(data: JsonValue): EpisodeModel[] {
   return ensureArray(data.episodes).map((episode) => ({
     number: Number(episode.number || 0),
     title: pickFirstNonEmpty(episode.title, `Episode ${episode.number}`),
+    image: pickFirstNonEmpty(episode.image, episode.thumbnail) || null,
     isFiller: Boolean(episode.isFiller),
     isSubbed: true,
     isDubbed: false,
@@ -1437,6 +1524,7 @@ export function normalizeAnimeKaiEpisodesPayload(data: JsonValue): EpisodeModel[
   return episodes.map((episode) => ({
     number: Number(episode.number || 0),
     title: pickFirstNonEmpty(episode.title, `Episode ${episode.number}`),
+    image: pickFirstNonEmpty(episode.image, episode.thumbnail, episode.poster) || null,
     isFiller: Boolean(episode.isFiller),
     isSubbed: episode.has_sub !== undefined ? Boolean(episode.has_sub) : Boolean(episode.isSubbed ?? true),
     isDubbed: episode.has_dub !== undefined ? Boolean(episode.has_dub) : Boolean(episode.isDubbed ?? false),
@@ -2547,22 +2635,25 @@ async function buildSyntheticEpisodesFromAnilist(anilistId: number): Promise<Epi
     const media = await getAnilistDetail(anilistId);
     let episodeCount: number | null = null;
 
-    if (media.status === "RELEASING" && media.nextAiringEpisode) {
-      // nextAiringEpisode.episode is the NEXT episode — subtract 1 for aired count
-      const nextEp = media.nextAiringEpisode.episode;
-      if (nextEp > 1) {
-        episodeCount = nextEp - 1;
-      }
+    if (media.status === "NOT_YET_RELEASED") {
+      return [];
     }
 
-    // Fall back to total episode count for finished/upcoming anime
+    if (media.status === "RELEASING") {
+      // Never use the planned season total for an airing title. If AniList does
+      // not expose a next-airing record yet, the safe episode list is empty.
+      const nextEp = media.nextAiringEpisode?.episode ?? 0;
+      episodeCount = nextEp > 1 ? nextEp - 1 : 0;
+    }
+
+    // Finished titles can safely use the final episode total.
     if (episodeCount === null && media.episodes && media.episodes > 0) {
       episodeCount = media.episodes;
     }
 
-    // Still unknown — show at least episode 1 so the player can work
+    // Unknown metadata must not manufacture an unaired episode.
     if (episodeCount === null || episodeCount <= 0) {
-      episodeCount = 1;
+      return [];
     }
 
     // Cap at 2000 for safety
@@ -2570,8 +2661,7 @@ async function buildSyntheticEpisodesFromAnilist(anilistId: number): Promise<Epi
 
     return Array.from({ length: episodeCount }, (_, i) => makeSyntheticEpisode(i + 1));
   } catch {
-    // If AniList lookup fails, show episode 1 as a fallback
-    return [makeSyntheticEpisode(1)];
+    return [];
   }
 }
 
@@ -2718,6 +2808,9 @@ async function _getAnimeDetailModelRaw(
       }));
     }
   }
+
+  finalEpisodes = finalEpisodes.filter((episode) =>
+    isAnimeEpisodeReleased(detail.anime, episode.number));
 
   return {
     ...detail,
@@ -3613,6 +3706,39 @@ async function fetchFirstAnivexaAggregateData(
   });
 }
 
+async function discoverAnivexaDubServerOptions(
+  anilistId: string,
+  episodeNum: number,
+  uiProvider: ProviderId,
+): Promise<ServerOption[]> {
+  return cacheFetch(
+    `anivexa-dub-availability:${anilistId}:ep${episodeNum}`,
+    async () => {
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+      const timeout = new Promise<AnivexaAggregateData | null>((resolve) => {
+        timeoutId = setTimeout(() => resolve(null), ANIVEXA_DUB_DISCOVERY_TIMEOUT_MS);
+      });
+
+      try {
+        const aggregate = await Promise.race([
+          fetchFirstAnivexaAggregateData(anilistId, episodeNum, true, uiProvider),
+          timeout,
+        ]);
+        return aggregate?.serverOptions.filter((option) => option.category === "dub") || [];
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+      }
+    },
+    {
+      // Cache both positive and negative exact-episode evidence. This prevents
+      // sub-only titles from paying for the same dub probe on every render.
+      freshMs: 5 * 60 * 1000,
+      staleMs: 15 * 60 * 1000,
+      expireMs: 30 * 60 * 1000,
+    },
+  );
+}
+
 function createAnivexaAggregateData(
   buckets: AnivexaAggregateBucket[],
   uiProvider: ProviderId,
@@ -3677,6 +3803,12 @@ async function fetchAnivexaAggregateWatchSession(
     requestedTransport: requestedTransport || "auto",
   });
 
+  // Start exact-episode dub discovery alongside the selected sub source. The
+  // UI can then expose Dub only when an internal stream or embed really exists,
+  // even when AniList/provider metadata has no dub count (for example One Piece).
+  const discoveredDubOptionsPromise = dubbed
+    ? Promise.resolve([] as ServerOption[])
+    : discoverAnivexaDubServerOptions(anilistId, episodeNum, uiProvider);
   const aggregate = requestedWorkerProvider
     ? await fetchAnivexaAggregateData(
         anilistId,
@@ -3691,8 +3823,15 @@ async function fetchAnivexaAggregateWatchSession(
         dubbed,
         uiProvider,
       );
+  const discoveredDubOptions = await discoveredDubOptionsPromise;
   const buckets = aggregate.buckets;
-  const serverOptions = aggregate.serverOptions.map((option) => ({ ...option, provider: uiProvider }));
+  const serverOptions = Array.from(
+    new Map(
+      [...aggregate.serverOptions, ...discoveredDubOptions]
+        .map((option) => ({ ...option, provider: uiProvider }))
+        .map((option) => [option.id, option]),
+    ).values(),
+  );
 
   const modeForPick = requestedMode === "dub" ? null : requestedMode;
   const explicitAggregateServer = Boolean(
@@ -3790,9 +3929,14 @@ async function fetchAnivexaAggregateWatchSession(
     const streamUrl = selectedStream.url;
     const isM3U8 = selectedType === "hls";
     const isEmbed = selectedType === "embed" || selectedStream.type === "embed";
-    const fallbackEmbedUrl = typeof selectedStream.embed === "string" && /^https?:\/\//i.test(selectedStream.embed)
-      ? selectedStream.embed
-      : null;
+    const embeddedFallbackCandidate =
+      (typeof selectedStream.embed === "string" ? selectedStream.embed : null) ||
+      selectedBucket?.embed[0]?.url ||
+      null;
+    const fallbackEmbedUrl =
+      embeddedFallbackCandidate && /^https?:\/\//i.test(embeddedFallbackCandidate)
+        ? embeddedFallbackCandidate
+        : null;
     const requiresProxy = Boolean(isM3U8 || selectedReferer);
     source = {
       kind: isEmbed ? "iframe" : (isM3U8 ? "hls" : "video"),
@@ -4414,19 +4558,15 @@ function appendCustomEmbedServers(
     if (!routeAnilistId) return serverOptions;
   }
 
+  const hasConfirmedDub =
+    (anime.dubCount != null && anime.dubCount > 0) ||
+    serverOptions.some((option) => option.category === "dub");
   const customOptions: ServerOption[] = [
     {
       id: "megaplay-sub",
       label: "Server 1",
       provider: activeProvider,
       category: "sub",
-      transport: "embed",
-    },
-    {
-      id: "megaplay-dub",
-      label: "Server 1",
-      provider: activeProvider,
-      category: "dub",
       transport: "embed",
     },
     {
@@ -4437,24 +4577,10 @@ function appendCustomEmbedServers(
       transport: "embed",
     },
     {
-      id: "animeplay-dub",
-      label: "Server 2",
-      provider: activeProvider,
-      category: "dub",
-      transport: "embed",
-    },
-    {
       id: "tryembed-sub",
       label: "Server 3",
       provider: activeProvider,
       category: "sub",
-      transport: "embed",
-    },
-    {
-      id: "tryembed-dub",
-      label: "Server 3",
-      provider: activeProvider,
-      category: "dub",
       transport: "embed",
     },
     {
@@ -4464,14 +4590,16 @@ function appendCustomEmbedServers(
       category: "sub",
       transport: "embed",
     },
-    {
-      id: "mostream-dub",
-      label: "Server 4",
-      provider: activeProvider,
-      category: "dub",
-      transport: "embed",
-    },
   ];
+
+  if (hasConfirmedDub) {
+    customOptions.push(
+      { id: "megaplay-dub", label: "Server 1", provider: activeProvider, category: "dub", transport: "embed" },
+      { id: "animeplay-dub", label: "Server 2", provider: activeProvider, category: "dub", transport: "embed" },
+      { id: "tryembed-dub", label: "Server 3", provider: activeProvider, category: "dub", transport: "embed" },
+      { id: "mostream-dub", label: "Server 4", provider: activeProvider, category: "dub", transport: "embed" },
+    );
+  }
 
   // Add Anivexa aggregate gateway buttons. These are resolved into the current
   // working worker-provider list on click, matching the demo's server picker.
@@ -4498,10 +4626,10 @@ function appendCustomEmbedServers(
       }
     }
 
-    const DUB_GATEWAYS = [
+    const DUB_GATEWAYS = hasConfirmedDub ? [
       { provider: "anineko" as AnivexaWorkerProvider, transport: "hls" as const },
       { provider: "anikoto" as AnivexaWorkerProvider, transport: "hls" as const },
-    ];
+    ] : [];
     for (const gw of DUB_GATEWAYS) {
       const alreadyPresent = serverOptions.some((opt) =>
         opt.category === "dub" && opt.id.startsWith(`anivexa2-${gw.provider}-`));
@@ -4515,7 +4643,7 @@ function appendCustomEmbedServers(
         });
       }
     }
-    if (!serverOptions.some((opt) => opt.id === "anivexa2-auto-hls-dub")) {
+    if (hasConfirmedDub && !serverOptions.some((opt) => opt.id === "anivexa2-auto-hls-dub")) {
       customOptions.push({
         id: "anivexa2-auto-hls-dub",
         label: "Fastest",
@@ -4611,8 +4739,7 @@ export async function getWatchSession(input: {
       const preferredProvider = input.provider || detail.activeProvider;
       const order = buildStreamProviderOrder(preferredProvider, detail.activeProvider);
       const targetEpisode =
-        detail.episodes.find((episode) => episode.number === Number(input.episodeNumber || 1)) ||
-        detail.episodes[0];
+        detail.episodes.find((episode) => episode.number === Number(input.episodeNumber || 1));
       const episodeAvailableProviders = resolveEpisodeAvailableProviders(targetEpisode, detail.availableProviders);
 
       const watchAttempts: WatchAttempt[] = [];
@@ -4827,8 +4954,7 @@ export async function getFastWatchSession(input: {
           const preferredProvider = input.provider || detail.activeProvider;
           const order = buildStreamProviderOrder(preferredProvider, detail.activeProvider);
           const targetEpisode =
-            detail.episodes.find((episode) => episode.number === Number(input.episodeNumber || 1)) ||
-            detail.episodes[0];
+            detail.episodes.find((episode) => episode.number === Number(input.episodeNumber || 1));
           const episodeAvailableProviders = resolveEpisodeAvailableProviders(targetEpisode, detail.availableProviders);
 
           const watchAttempts: WatchAttempt[] = [];
@@ -5031,8 +5157,7 @@ export async function getQuickWatchSession(input: {
   });
   const preferredProvider = input.provider || detail.activeProvider;
   const targetEpisode =
-    detail.episodes.find((episode) => episode.number === Number(input.episodeNumber || 1)) ||
-    detail.episodes[0];
+    detail.episodes.find((episode) => episode.number === Number(input.episodeNumber || 1));
   const episodeAvailableProviders = resolveEpisodeAvailableProviders(targetEpisode, detail.availableProviders);
 
   // For anilist~ passthrough routes: if no scraped episode list exists but we have
@@ -5651,8 +5776,7 @@ export async function resolveStreamSource(input: {
       }
       const order = buildStreamProviderOrder(preferredProvider, detail.activeProvider);
       const targetEpisode =
-        detail.episodes.find((ep) => ep.number === Number(input.episodeNumber || 1)) ||
-        detail.episodes[0];
+        detail.episodes.find((ep) => ep.number === Number(input.episodeNumber || 1));
 
       // For anilist passthrough routes with no scraped episodes, build a synthetic episode
       const synEpisodeNum = Number(input.episodeNumber || 1);
@@ -5698,6 +5822,33 @@ export async function resolveStreamSource(input: {
           ok: Boolean(session.source),
           reason: session.source ? "Anivexa aggregate playback ready" : "No playable Anivexa source",
         }];
+        if (!session.source) {
+          const genericFallback = serverOptions.find((option) =>
+            option.category === (input.dubbed ? "dub" : "sub") &&
+            /^(megaplay|animeplay|tryembed|mostream)-/.test(option.id)
+          );
+          const genericSource = genericFallback
+            ? resolveCustomEmbedSource(genericFallback.id, detail.anime, resolvedTargetEp.number)
+            : null;
+          if (genericSource && genericFallback) {
+            watchAttempts.push({
+              provider: preferredProvider,
+              server: genericFallback.id,
+              ok: true,
+              reason: "Anivexa unavailable; existing embed fallback ready",
+            });
+            return {
+              source: genericSource,
+              subtitles: [],
+              serverOptions,
+              activeServerId: genericFallback.id,
+              provider: preferredProvider,
+              intro: session.intro || null,
+              outro: session.outro || null,
+              watchAttempts,
+            };
+          }
+        }
         return {
           source: session.source,
           subtitles: session.subtitles,

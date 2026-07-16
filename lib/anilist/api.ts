@@ -61,7 +61,12 @@ const MEDIA_FRAGMENT = `
     format
     season
     seasonYear
-    startDate { year }
+    startDate { year month day }
+    endDate { year month day }
+    countryOfOrigin
+    duration
+    siteUrl
+    externalLinks { site url type }
     studios(isMain: true) { nodes { name } }
     nextAiringEpisode { episode airingAt }
     trailer { id site }
@@ -151,11 +156,23 @@ export interface AnilistMedia {
   format: string;
   season: string | null;
   seasonYear: number | null;
-  startDate: { year: number | null };
+  startDate: { year: number | null; month?: number | null; day?: number | null };
+  endDate?: { year: number | null; month: number | null; day: number | null } | null;
+  countryOfOrigin?: string | null;
+  duration?: number | null;
+  siteUrl?: string | null;
+  externalLinks?: { site: string; url: string; type: string | null }[];
   studios: { nodes: { name: string }[] };
   nextAiringEpisode: { episode: number; airingAt: number } | null;
   trailer: { id: string; site: string } | null;
   isAdult: boolean;
+}
+
+export interface AnilistSeasonEntry {
+  relationType: string;
+  media: AnilistMedia;
+  isCurrent: boolean;
+  kind: "season" | "special";
 }
 
 export interface AnilistPageInfo {
@@ -200,10 +217,12 @@ export function normalizeAnilistMediaEntry(value: unknown): AnilistMedia | null 
   const title = asObject(media.title);
   const coverImage = asObject(media.coverImage);
   const startDate = asObject(media.startDate);
+  const endDate = asObject(media.endDate);
   const nextAiringEpisode = asObject(media.nextAiringEpisode);
   const trailer = asObject(media.trailer);
   const studios = asObject(media.studios);
   const studioNodes = Array.isArray(studios?.nodes) ? studios.nodes : [];
+  const externalLinks = Array.isArray(media.externalLinks) ? media.externalLinks : [];
 
   const romaji = asString(title?.romaji, "") || asString(title?.english, "") || asString(title?.native, "") || `AniList ${id}`;
   const english = asNullableString(title?.english);
@@ -238,7 +257,28 @@ export function normalizeAnilistMediaEntry(value: unknown): AnilistMedia | null 
     seasonYear: asNullableNumber(media.seasonYear),
     startDate: {
       year: asNullableNumber(startDate?.year),
+      month: asNullableNumber(startDate?.month),
+      day: asNullableNumber(startDate?.day),
     },
+    endDate: endDate
+      ? {
+          year: asNullableNumber(endDate.year),
+          month: asNullableNumber(endDate.month),
+          day: asNullableNumber(endDate.day),
+        }
+      : null,
+    countryOfOrigin: asNullableString(media.countryOfOrigin),
+    duration: asNullableNumber(media.duration),
+    siteUrl: asNullableString(media.siteUrl),
+    externalLinks: externalLinks
+      .map((entry) => asObject(entry))
+      .filter((entry): entry is Record<string, unknown> => Boolean(entry))
+      .map((entry) => ({
+        site: asString(entry.site, "Official site"),
+        url: asString(entry.url),
+        type: asNullableString(entry.type),
+      }))
+      .filter((entry) => Boolean(entry.url)),
     studios: {
       nodes: studioNodes
         .map((node) => asObject(node))
@@ -403,7 +443,7 @@ const ANIME_DETAIL_QUERY = `
       relations {
         edges {
           relationType
-          node { id title { english romaji } coverImage { large } format status }
+          node { ...MediaFields }
         }
       }
       recommendations(sort: RATING_DESC, perPage: 8) {
@@ -571,6 +611,7 @@ function normalizeJikanMediaEntry(value: unknown): AnilistMedia | null {
   const aired = asObject(entry.aired);
   const airedProp = asObject(aired?.prop);
   const airedFrom = asObject(airedProp?.from);
+  const airedTo = asObject(airedProp?.to);
   const trailer = asObject(entry.trailer);
   const trailerImages = asObject(trailer?.images);
   const studios = Array.isArray(entry.studios) ? entry.studios : [];
@@ -581,6 +622,8 @@ function normalizeJikanMediaEntry(value: unknown): AnilistMedia | null {
   const score = asNullableNumber(entry.score);
   const averageScore = score === null ? null : Math.round(score * 10);
   const adultRating = asString(entry.rating).toUpperCase();
+  const durationMatch = asString(entry.duration).match(/\d+/);
+  const externalLinks = Array.isArray(entry.external) ? entry.external : [];
 
   return {
     id: idMal,
@@ -607,7 +650,28 @@ function normalizeJikanMediaEntry(value: unknown): AnilistMedia | null {
     seasonYear: asNullableNumber(entry.year),
     startDate: {
       year: asNullableNumber(airedFrom?.year),
+      month: asNullableNumber(airedFrom?.month),
+      day: asNullableNumber(airedFrom?.day),
     },
+    endDate: airedTo
+      ? {
+          year: asNullableNumber(airedTo.year),
+          month: asNullableNumber(airedTo.month),
+          day: asNullableNumber(airedTo.day),
+        }
+      : null,
+    countryOfOrigin: null,
+    duration: durationMatch ? Number(durationMatch[0]) : null,
+    siteUrl: asNullableString(entry.url),
+    externalLinks: externalLinks
+      .map((item) => asObject(item))
+      .filter((item): item is Record<string, unknown> => Boolean(item))
+      .map((item) => ({
+        site: asString(item.name, "Official site"),
+        url: asString(item.url),
+        type: "INFO",
+      }))
+      .filter((item) => Boolean(item.url)),
     studios: {
       nodes: studioNodes,
     },
@@ -906,10 +970,26 @@ async function getJikanDetail(id: number): Promise<AnilistDetailMedia> {
                 relationType,
                 node: {
                   id: relationId,
-                  title: { english: title || null, romaji: title || `Anime ${relationId}` },
-                  coverImage: { large: coverImage.large },
+                  idMal: relationId,
+                  title: { english: title || null, romaji: title || `Anime ${relationId}`, native: title },
+                  coverImage: { ...coverImage, color: null },
+                  bannerImage: null,
+                  description: null,
+                  genres: [],
+                  averageScore: null,
+                  meanScore: null,
+                  popularity: 0,
+                  trending: 0,
+                  episodes: null,
                   format: "ANIME",
                   status: "UNKNOWN",
+                  season: null,
+                  seasonYear: null,
+                  startDate: { year: null },
+                  studios: { nodes: [] },
+                  nextAiringEpisode: null,
+                  trailer: null,
+                  isAdult: false,
                 },
               };
             });
@@ -1134,18 +1214,85 @@ export interface AnilistDetailMedia extends AnilistMedia {
   relations: {
     edges: {
       relationType: string;
-      node: {
-        id: number;
-        title: { english: string | null; romaji: string };
-        coverImage: { large: string };
-        format: string;
-        status: string;
-      };
+      node: AnilistMedia;
     }[];
   };
   recommendations: {
     nodes: { mediaRecommendation: AnilistMedia | null }[];
   };
+}
+
+const ANILIST_ANIME_FORMATS = new Set(["TV", "TV_SHORT", "MOVIE", "SPECIAL", "OVA", "ONA", "MUSIC"]);
+const ANILIST_MAIN_SEASON_RELATIONS = new Set(["PREQUEL", "SEQUEL", "PARENT"]);
+const ANILIST_SPECIAL_RELATIONS = new Set(["SIDE_STORY", "SPIN_OFF", "SUMMARY", "COMPILATION"]);
+const ANILIST_SEASON_ORDER: Record<string, number> = {
+  WINTER: 0,
+  SPRING: 1,
+  SUMMER: 2,
+  FALL: 3,
+};
+
+function sortAnilistSeasonEntries(entries: AnilistSeasonEntry[]) {
+  return entries.toSorted((left, right) => {
+    const leftYear = left.media.seasonYear || left.media.startDate.year;
+    const rightYear = right.media.seasonYear || right.media.startDate.year;
+    if (leftYear && rightYear && leftYear !== rightYear) return leftYear - rightYear;
+    if (leftYear && !rightYear) return -1;
+    if (!leftYear && rightYear) return 1;
+
+    const leftSeason = left.media.season ? ANILIST_SEASON_ORDER[left.media.season] ?? 4 : 4;
+    const rightSeason = right.media.season ? ANILIST_SEASON_ORDER[right.media.season] ?? 4 : 4;
+    if (leftSeason !== rightSeason) return leftSeason - rightSeason;
+
+    const relationOrder = (entry: AnilistSeasonEntry) => {
+      if (entry.relationType === "PREQUEL") return 0;
+      if (entry.isCurrent) return 1;
+      if (entry.relationType === "SEQUEL") return 2;
+      return 3;
+    };
+    const orderDifference = relationOrder(left) - relationOrder(right);
+    if (orderDifference !== 0) return orderDifference;
+    return anilistTitle(left.media).localeCompare(anilistTitle(right.media));
+  });
+}
+
+/**
+ * Build a compact, stable franchise rail from the relation graph included in
+ * the existing AniList detail response. This deliberately avoids another API
+ * request on the watch page while keeping current/prequel/sequel ordering.
+ */
+export function buildAnilistSeasonEntries(detail: AnilistDetailMedia): AnilistSeasonEntry[] {
+  const candidates: AnilistSeasonEntry[] = [
+    {
+      relationType: "CURRENT",
+      media: normalizeAnilistMediaEntry(detail) || detail,
+      isCurrent: true,
+      kind: "season",
+    },
+  ];
+
+  for (const edge of detail.relations.edges) {
+    const relationType = String(edge.relationType || "OTHER").toUpperCase();
+    const media = normalizeAnilistMediaEntry(edge.node);
+    if (!media || !ANILIST_ANIME_FORMATS.has(media.format)) continue;
+
+    if (ANILIST_MAIN_SEASON_RELATIONS.has(relationType)) {
+      candidates.push({ relationType, media, isCurrent: false, kind: "season" });
+    } else if (ANILIST_SPECIAL_RELATIONS.has(relationType)) {
+      candidates.push({ relationType, media, isCurrent: false, kind: "special" });
+    }
+  }
+
+  const entriesById = new Map<number, AnilistSeasonEntry>();
+  for (const entry of candidates) {
+    const existing = entriesById.get(entry.media.id);
+    if (!existing || (existing.kind === "special" && entry.kind === "season")) {
+      entriesById.set(entry.media.id, entry);
+    }
+  }
+  const deduped = Array.from(entriesById.values());
+
+  return sortAnilistSeasonEntries(deduped);
 }
 
 export const getAnilistDetail = cache(async (id: number): Promise<AnilistDetailMedia> => {
@@ -1167,3 +1314,76 @@ export const getAnilistDetail = cache(async (id: number): Promise<AnilistDetailM
     },
   );
 });
+
+export interface AnilistSeasonTraversalOptions {
+  maxMainlineEntries?: number;
+  loadDetail?: (id: number) => Promise<AnilistDetailMedia>;
+}
+
+/**
+ * Follow cached PREQUEL/SEQUEL/PARENT edges in parallel breadth-first rounds.
+ * The watch-page context is deferred, so this can discover a long franchise
+ * without blocking the initial player shell. First-degree specials are kept,
+ * while traversal is capped to protect AniList and response latency.
+ */
+export async function getAnilistFranchiseSeasonEntries(
+  detail: AnilistDetailMedia,
+  options: AnilistSeasonTraversalOptions = {},
+): Promise<AnilistSeasonEntry[]> {
+  const maxMainlineEntries = Math.min(10, Math.max(1, options.maxMainlineEntries ?? 10));
+  const loadDetail = options.loadDetail || getAnilistDetail;
+  const initialEntries = buildAnilistSeasonEntries(detail);
+  const mainlineById = new Map<number, AnilistSeasonEntry>();
+  const specialsById = new Map<number, AnilistSeasonEntry>();
+
+  for (const entry of initialEntries) {
+    if (entry.kind === "season") mainlineById.set(entry.media.id, entry);
+    else specialsById.set(entry.media.id, entry);
+  }
+
+  const visitedDetailIds = new Set<number>([detail.id]);
+  let frontier = Array.from(mainlineById.keys()).filter((id) => id !== detail.id);
+  let fetchBudget = maxMainlineEntries - 1;
+
+  while (frontier.length > 0 && mainlineById.size < maxMainlineEntries && fetchBudget > 0) {
+    const batch = Array.from(new Set(frontier))
+      .filter((id) => !visitedDetailIds.has(id))
+      .slice(0, fetchBudget);
+    if (batch.length === 0) break;
+
+    batch.forEach((id) => visitedDetailIds.add(id));
+    fetchBudget -= batch.length;
+    const loadedDetails = await Promise.all(
+      batch.map((id) => loadDetail(id).catch(() => null)),
+    );
+    const nextFrontier: number[] = [];
+
+    for (const loadedDetail of loadedDetails) {
+      if (!loadedDetail) continue;
+      for (const edge of loadedDetail.relations.edges) {
+        const relationType = String(edge.relationType || "OTHER").toUpperCase();
+        if (!ANILIST_MAIN_SEASON_RELATIONS.has(relationType)) continue;
+        const media = normalizeAnilistMediaEntry(edge.node);
+        if (!media || !ANILIST_ANIME_FORMATS.has(media.format)) continue;
+
+        if (!mainlineById.has(media.id) && mainlineById.size < maxMainlineEntries) {
+          mainlineById.set(media.id, {
+            relationType,
+            media,
+            isCurrent: media.id === detail.id,
+            kind: "season",
+          });
+        }
+        if (!visitedDetailIds.has(media.id)) nextFrontier.push(media.id);
+      }
+    }
+
+    frontier = nextFrontier;
+  }
+
+  const mainline = sortAnilistSeasonEntries(Array.from(mainlineById.values()))
+    .slice(0, maxMainlineEntries);
+  const mainlineIds = new Set(mainline.map((entry) => entry.media.id));
+  const specials = Array.from(specialsById.values()).filter((entry) => !mainlineIds.has(entry.media.id));
+  return sortAnilistSeasonEntries([...mainline, ...specials]);
+}

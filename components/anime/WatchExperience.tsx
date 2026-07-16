@@ -21,8 +21,14 @@ import type {
   ServerOption,
   WatchSessionModel,
 } from "@/lib/anime/types";
+import {
+  getEpisodeArtworkUrl,
+  mergeEpisodeMetadataIntoWatchSession,
+  type EpisodeDisplayMetadata,
+} from "@/lib/anime/episode-metadata";
 import { prefetchClientStream, resolveClientStream } from "@/lib/anime/client-stream-resolver";
-import type { AnilistMedia } from "@/lib/anilist/api";
+import type { AnilistMedia, AnilistSeasonEntry } from "@/lib/anilist/api";
+import * as playerPrefs from "@/lib/player/player-prefs";
 import {
   trackEpisodeWatch,
   getWatchedEpisodes,
@@ -36,21 +42,36 @@ import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
-  Eye,
+  Grid3X3,
+  Images,
   Info,
+  Keyboard,
+  Lightbulb,
+  List,
   Minimize2,
+  Play,
   RefreshCcw,
   Search,
+  SkipForward,
   Tv2,
 } from "lucide-react";
-import Image from "next/image";
+import Image, { type ImageProps } from "next/image";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+const EPISODE_PAGE_SIZE = 100;
 
 interface WatchExperienceProps {
   initialSession: WatchSessionModel;
+  initialEpisodeMetadata?: EpisodeDisplayMetadata[];
   recommendations?: AnilistMedia[] | null;
+  related?: RelatedAnimeEntry[] | null;
   currentUserId?: string | null;
+}
+
+interface RelatedAnimeEntry {
+  relationType: string;
+  media: AnilistMedia;
 }
 
 interface SessionRequest {
@@ -482,6 +503,67 @@ function sameServerOptionList(left: ServerOption[], right: ServerOption[]): bool
   return true;
 }
 
+type SafeWatchImageProps = Omit<ImageProps, "src" | "alt" | "onError"> & {
+  src?: string | null;
+};
+
+function SafeWatchImage({ src, ...props }: SafeWatchImageProps) {
+  const [failedSources, setFailedSources] = useState<string[]>([]);
+  const activeSrc = src && !failedSources.includes(src) ? src : null;
+
+  if (!activeSrc) return null;
+
+  return (
+    <Image
+      {...props}
+      src={activeSrc}
+      alt=""
+      onError={() => {
+        setFailedSources((current) => current.includes(activeSrc) ? current : [...current, activeSrc]);
+      }}
+    />
+  );
+}
+
+function WatchPreferenceToggle({
+  label,
+  active,
+  onToggle,
+  accentColor,
+  icon: Icon,
+  disabled = false,
+  title,
+}: {
+  label: string;
+  active: boolean;
+  onToggle: () => void;
+  accentColor: string;
+  icon: typeof Play;
+  disabled?: boolean;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      disabled={disabled}
+      onClick={onToggle}
+      title={title}
+      className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-semibold text-white/45 transition-colors hover:bg-white/[0.05] hover:text-white/80 disabled:cursor-not-allowed disabled:opacity-35"
+      style={active && !disabled ? { color: accentColor } : undefined}
+    >
+      <span
+        className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-white/15"
+        style={active && !disabled ? { borderColor: accentColor, backgroundColor: accentColor } : undefined}
+      >
+        {active && !disabled ? <span className="h-1.5 w-1.5 rounded-[1px] bg-white" /> : null}
+      </span>
+      <Icon className="h-3 w-3" aria-hidden="true" />
+      {label}
+    </button>
+  );
+}
+
 function serverOptionMergeKey(option: ServerOption): string {
   const gateway = option.id.match(/^anivexa2-([a-z0-9]+)-(hls|mp4|embed)-(?:soft|hard|dub)$/);
   if (!gateway) return option.id;
@@ -533,15 +615,22 @@ function mergeWatchSessions(previous: WatchSessionModel, next: WatchSessionModel
 /* ════════════════════════════════════════════════
    MAIN: WatchExperience
    ════════════════════════════════════════════════ */
-export default function WatchExperience({ initialSession, recommendations = null, currentUserId }: WatchExperienceProps) {
+export default function WatchExperience({ initialSession, initialEpisodeMetadata = [], recommendations = null, related = null, currentUserId }: WatchExperienceProps) {
   const initialRecommendations = recommendations ?? null;
+  const initialRelated = related ?? null;
   const [session, setSession] = useState(initialSession);
   const [isSessionLoading, setIsSessionLoading] = useState(false);
   const [playbackMessage, setPlaybackMessage] = useState<string | null>(initialSession.message || null);
   const [episodeQuery, setEpisodeQuery] = useState("");
-  const [showEpisodeList, setShowEpisodeList] = useState(false);
+  const [episodeRangeStart, setEpisodeRangeStart] = useState(0);
+  const [episodeView, setEpisodeView] = useState<"grid" | "list" | "cards">("cards");
   const [showEmbedServers, setShowEmbedServers] = useState(() => Boolean(initialSession.activeServerId && isEmbedServerOption(initialSession.activeServerId)));
   const [focusMode, setFocusMode] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [autoSkip, setAutoSkip] = useState(() => playerPrefs.getAutoSkip());
+  const [autoAdvance, setAutoAdvance] = useState(() => playerPrefs.getAutoAdvance());
+  const [autoPlay, setAutoPlay] = useState(() => playerPrefs.getAutoplay());
+  const [playerActivated, setPlayerActivated] = useState(false);
   const [loadedSurfaceKey, setLoadedSurfaceKey] = useState<string | null>(null);
   // Optimistic server selection: turns the button green immediately on click
   // before the embed has finished loading. Cleared when the session commits.
@@ -552,8 +641,19 @@ export default function WatchExperience({ initialSession, recommendations = null
   const pendingSessionKeyRef = useRef<string | null>(null);
   const nearEndPrefetchedRef = useRef<string | null>(null);
   const sessionRequestSeqRef = useRef(0);
+  const userActivatedPlayerRef = useRef(false);
+  const episodeMetadataRef = useRef<{
+    animeId: string;
+    entries: EpisodeDisplayMetadata[];
+  } | null>(initialEpisodeMetadata.length > 0 ? {
+    animeId: initialSession.anime.id,
+    entries: initialEpisodeMetadata,
+  } : null);
   const failedServerIdsRef = useRef<Set<string>>(new Set());
   const [deferredRecommendations, setDeferredRecommendations] = useState<AnilistMedia[] | null>(initialRecommendations);
+  const [deferredRelated, setDeferredRelated] = useState<RelatedAnimeEntry[] | null>(initialRelated);
+  const [deferredDetail, setDeferredDetail] = useState<AnilistMedia | null>(null);
+  const [deferredSeasons, setDeferredSeasons] = useState<AnilistSeasonEntry[] | null>(null);
   const [resolvedCurrentUserId, setResolvedCurrentUserId] = useState<string | null>(currentUserId ?? null);
 
   const [isBookmarked, setIsBookmarked] = useState(false);
@@ -628,10 +728,6 @@ export default function WatchExperience({ initialSession, recommendations = null
   })();
   const accentStyle = (opacity: number) => `rgba(${accentRgb},${opacity})`;
 
-  const hasLanguageInfo = session.episodes.some(
-    (ep) => ep.isSubbed !== undefined || ep.isDubbed !== undefined
-  );
-
   // ── Language availability ──────────────────────────────────────────────────
   // Episodes are synthetic (from AniList) with no isDubbed/isSubbed flags.
   // We get accurate sub/dub episode counts from the Anikoto API (same library
@@ -639,36 +735,51 @@ export default function WatchExperience({ initialSession, recommendations = null
   // so users only see episodes that actually have dub available.
   const canUseEmbed = Boolean(session.anime.anilistId || session.anime.malId);
   const { dubCount, subCount } = session.anime;
-  // hasDub: only true when we have CONFIRMED dub availability.
-  // - Anikoto reports dubCount > 0 → dub exists, show button
-  // - dubCount is 0 → no dub, hide button
-  // - dubCount is null (anime not in Anikoto) → don't assume dub exists, hide button
-  // - Any episode has isDubbed flag → show button (real scraped data)
+  const hasDubEpisode = session.episodes.some((episode) => episode.isDubbed === true);
+  const hasSubEpisode = session.episodes.some((episode) => episode.isSubbed === true);
+  const hasLanguageInfo = hasDubEpisode || hasSubEpisode;
+  const hasDubServer = session.serverOptions.some((entry) => entry.category === "dub");
+  const hasSubServer = session.serverOptions.some((entry) => entry.category === "sub" || !entry.category);
+  // A language is available when a provider count, episode flag, or successfully
+  // probed server confirms it. A zero/unknown catalog count must not override a
+  // real working server (long-running shows such as One Piece hit this case).
   const hasDub =
     (dubCount != null && dubCount > 0) ||
-    session.episodes.some((ep) => ep.isDubbed) ||
-    session.serverOptions.some((entry) => entry.category === "dub");
+    hasDubEpisode ||
+    hasDubServer;
   const hasSub =
     canUseEmbed ||
-    session.episodes.some((ep) => ep.isSubbed) ||
-    session.serverOptions.some((entry) => entry.category === "sub" || !entry.category);
+    hasSubEpisode ||
+    hasSubServer;
 
   // Cap episode list by dubCount when in dub mode (for synthetic episodes).
   // If dubCount is null (anime not found in Anikoto), show all episodes.
-  const languageFilteredEpisodes = session.episodes.filter((episode) => {
-    if (!hasLanguageInfo) {
-      // Synthetic episodes (embed route): use Anikoto dubCount to cap
-      if (session.dubbed && dubCount !== null && dubCount !== undefined && dubCount > 0) {
-        return episode.number <= dubCount;
-      }
-      if (!session.dubbed && subCount !== null && subCount !== undefined && subCount > 0) {
-        return episode.number <= subCount;
-      }
-      return true; // no count data → show all
+  const normalizedAnimeStatus = String(session.anime.status || "").toUpperCase().replace(/[ -]+/g, "_");
+  const languageFilteredEpisodes = useMemo(() => session.episodes.filter((episode) => {
+    if (normalizedAnimeStatus.includes("NOT_YET_RELEASED") || normalizedAnimeStatus.includes("UPCOMING")) {
+      return false;
     }
-    if (session.dubbed) return episode.isDubbed ?? false;
-    return episode.isSubbed ?? true;
-  });
+
+    const confirmedCount = session.dubbed ? dubCount : subCount;
+    if (confirmedCount != null && confirmedCount > 0) {
+      if (episode.number > confirmedCount) return false;
+    }
+
+    if (session.dubbed) {
+      return hasDubEpisode ? episode.isDubbed === true : hasDub;
+    }
+    return hasSubEpisode ? episode.isSubbed !== false : hasSub;
+  }), [
+    dubCount,
+    hasDub,
+    hasDubEpisode,
+    hasSub,
+    hasSubEpisode,
+    normalizedAnimeStatus,
+    session.dubbed,
+    session.episodes,
+    subCount,
+  ]);
 
   // Whether the dub count is known (from Anikoto) or unknown
   const dubCountKnown = dubCount !== null && dubCount !== undefined && dubCount > 0;
@@ -694,7 +805,7 @@ export default function WatchExperience({ initialSession, recommendations = null
   // Only show the feedback overlay while actively loading a new session (not during initial embed load)
   // This prevents the "OPENING PLAYER" overlay from blocking the iframe while it loads.
   // Also show while the new iframe hasn't called onReady yet, to hide the white flash.
-  const showPlayerFeedback = isSessionLoading || (embedAvailable && !activeEmbedLoaded);
+  const showPlayerFeedback = playerActivated && (isSessionLoading || (embedAvailable && !activeEmbedLoaded));
 
   useEffect(() => {
     return () => {
@@ -721,16 +832,37 @@ export default function WatchExperience({ initialSession, recommendations = null
         }
         return response.json() as Promise<{
           currentUserId?: string | null;
+          detail?: AnilistMedia | null;
+          seasons?: AnilistSeasonEntry[];
+          related?: RelatedAnimeEntry[];
           recommendations?: AnilistMedia[];
+          episodeMetadata?: EpisodeDisplayMetadata[];
         }>;
       })
       .then((payload) => {
         if (controller.signal.aborted) return;
+        const episodeMetadata = payload.episodeMetadata ?? [];
+        episodeMetadataRef.current = {
+          animeId: session.anime.id,
+          entries: episodeMetadata,
+        };
+        if (episodeMetadata.length > 0) {
+          setSession((current) =>
+            current.anime.id === session.anime.id
+              ? mergeEpisodeMetadataIntoWatchSession(current, episodeMetadata)
+              : current);
+        }
+        setDeferredDetail(payload.detail ?? null);
+        setDeferredSeasons(payload.seasons ?? []);
+        setDeferredRelated(payload.related ?? []);
         setDeferredRecommendations(payload.recommendations ?? []);
         setResolvedCurrentUserId(payload.currentUserId ?? null);
       })
       .catch(() => {
         if (controller.signal.aborted) return;
+        setDeferredDetail(null);
+        setDeferredSeasons([]);
+        setDeferredRelated((current) => current ?? []);
         setDeferredRecommendations((current) => current ?? []);
       });
 
@@ -807,8 +939,17 @@ export default function WatchExperience({ initialSession, recommendations = null
       durationMs: Math.round(performance.now() - startedAt),
     });
 
+    const resolvedEpisode =
+      session.episodes.find((episode) => episode.number === request.episodeNumber) || {
+        number: request.episodeNumber,
+        title: `Episode ${request.episodeNumber}`,
+        idByProvider: {},
+        availableProviders: [],
+      };
+
     return {
       ...session,
+      episode: resolvedEpisode,
       provider: payload.provider || request.provider || session.provider,
       source: payload.source || null,
       subtitles: payload.subtitles || [],
@@ -850,12 +991,34 @@ export default function WatchExperience({ initialSession, recommendations = null
     setIsSessionLoading(false);
     setOptimisticServerId(null); // real server id is now in session — clear optimistic
 
-    setSession((previous) => mergeWatchSessions(previous, nextSession));
+    setSession((previous) => {
+      const merged = mergeWatchSessions(previous, nextSession);
+      const deferredMetadata = episodeMetadataRef.current;
+      return deferredMetadata?.animeId === merged.anime.id
+        ? mergeEpisodeMetadataIntoWatchSession(merged, deferredMetadata.entries)
+        : merged;
+    });
     setPlaybackMessage(nextSession.message || null);
   };
 
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("ep", String(session.episode.number));
+    if (session.dubbed) url.searchParams.set("dub", "1");
+    else url.searchParams.delete("dub");
+    if (session.provider) url.searchParams.set("provider", session.provider);
+    if (session.activeServerId) url.searchParams.set("server", session.activeServerId);
+    else url.searchParams.delete("server");
+    window.history.replaceState(window.history.state, "", url);
+  }, [session.activeServerId, session.dubbed, session.episode.number, session.provider]);
+
   const stageOrCommitSession = (nextSession: WatchSessionModel) => {
-    if (nextSession.source?.kind !== "iframe" || !nextSession.source.iframeUrl) {
+    if (
+      nextSession.source?.kind !== "iframe" ||
+      !nextSession.source.iframeUrl ||
+      !autoPlay ||
+      !userActivatedPlayerRef.current
+    ) {
       commitSession(nextSession);
       return;
     }
@@ -918,6 +1081,14 @@ export default function WatchExperience({ initialSession, recommendations = null
       (normalizedRequest.server ?? null) === (session.activeServerId ?? null)
     ) {
       return;
+    }
+
+    const playbackContextChanged =
+      normalizedRequest.episodeNumber !== session.episode.number ||
+      normalizedRequest.dubbed !== session.dubbed;
+    if (playbackContextChanged) {
+      setLoadedSurfaceKey(null);
+      setPlayerActivated(autoPlay && userActivatedPlayerRef.current);
     }
 
     clearPendingCommit();
@@ -1248,20 +1419,42 @@ export default function WatchExperience({ initialSession, recommendations = null
     session.anime.banner ||
     session.anime.poster ||
     "https://placehold.co/1600x900/09090b/f5f5f5?text=Tatakai";
+  const playerPosterImage = getEpisodeArtworkUrl(session.episode.image, session.anime);
+  const activatePlayer = () => {
+    userActivatedPlayerRef.current = true;
+    setLoadedSurfaceKey(null);
+    setPlayerActivated(true);
+  };
   const isSessionTransitioning = isSessionLoading;
   const playerFeedbackTitle = activeEmbedLoaded ? "Player ready" : "Opening player";
   const playerFeedbackHint = isSessionTransitioning
     ? "Loading the next session…"
     : "Opening the player…";
 
-  const filteredEpisodes = languageFilteredEpisodes.filter((episode) => {
+  const filteredEpisodes = useMemo(() => languageFilteredEpisodes.filter((episode) => {
     const query = episodeQuery.trim().toLowerCase();
     if (!query) return true;
     return (
       String(episode.number).includes(query) ||
       episode.title.toLowerCase().includes(query)
     );
-  });
+  }), [episodeQuery, languageFilteredEpisodes]);
+
+  useEffect(() => {
+    if (episodeQuery.trim()) {
+      setEpisodeRangeStart(0);
+      return;
+    }
+
+    const activeIndex = filteredEpisodes.findIndex((episode) => episode.number === session.episode.number);
+    const nextRangeStart = Math.floor(Math.max(0, activeIndex) / EPISODE_PAGE_SIZE) * EPISODE_PAGE_SIZE;
+    setEpisodeRangeStart(nextRangeStart);
+  }, [episodeQuery, filteredEpisodes, session.episode.number]);
+
+  const episodeRangeCount = Math.ceil(filteredEpisodes.length / EPISODE_PAGE_SIZE);
+  const visibleEpisodes = episodeQuery.trim()
+    ? filteredEpisodes
+    : filteredEpisodes.slice(episodeRangeStart, episodeRangeStart + EPISODE_PAGE_SIZE);
 
   const goToEpisode = (num: number) => {
     queueSession({
@@ -1337,7 +1530,7 @@ export default function WatchExperience({ initialSession, recommendations = null
   };
 
   const episodePanel = (
-    <div className="rounded-2xl border border-white/8 bg-[#111113] overflow-hidden">
+    <div className="watch-episode-panel overflow-hidden rounded-2xl border border-white/10 bg-[#0f1012]">
       <div className="border-b border-white/5 px-4 py-3 space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -1380,6 +1573,25 @@ export default function WatchExperience({ initialSession, recommendations = null
         )}
 
         <div className="flex items-center gap-2">
+          {episodeRangeCount > 1 && !episodeQuery.trim() ? (
+            <label className="relative shrink-0">
+              <span className="sr-only">Episode range</span>
+              <select
+                value={episodeRangeStart}
+                onChange={(event) => setEpisodeRangeStart(Number(event.target.value))}
+                className="h-10 appearance-none rounded-xl border border-white/8 bg-white/[0.04] py-2 pl-3 pr-8 text-[11px] font-bold text-white/70 outline-none transition-colors hover:border-white/15 focus:border-white/20"
+                aria-label="Episode range"
+              >
+                {Array.from({ length: episodeRangeCount }, (_, index) => {
+                  const start = index * EPISODE_PAGE_SIZE;
+                  const first = filteredEpisodes[start]?.number ?? start + 1;
+                  const last = filteredEpisodes[Math.min(start + EPISODE_PAGE_SIZE - 1, filteredEpisodes.length - 1)]?.number ?? first;
+                  return <option key={start} value={start}>{first}-{last}</option>;
+                })}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/35" aria-hidden="true" />
+            </label>
+          ) : null}
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30" aria-hidden="true" />
             <input
@@ -1390,34 +1602,99 @@ export default function WatchExperience({ initialSession, recommendations = null
               className="w-full bg-white/[0.04] border border-white/8 rounded-xl text-sm text-white/80 pl-9 pr-3 py-2.5 outline-none focus:border-white/18"
             />
           </div>
-          <button
-            type="button"
-            className="h-10 w-10 rounded-xl border border-white/8 bg-white/[0.04] text-white/60 hover:text-white transition-colors inline-flex items-center justify-center"
-            style={showEpisodeList ? { background: accentStyle(0.1), color: accentColor, borderColor: accentStyle(0.25) } : undefined}
-            onClick={() => setShowEpisodeList(!showEpisodeList)}
-            aria-label={showEpisodeList ? "Show episode grid" : "Show episode list"}
-          >
-            {showEpisodeList ? <ChevronDown className="w-4 h-4 rotate-180" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
-          </button>
+          <div className="flex h-10 overflow-hidden rounded-xl border border-white/8 bg-white/[0.03]">
+            {([
+              { view: "cards" as const, icon: Images, label: "Episode cards" },
+              { view: "list" as const, icon: List, label: "Episode list" },
+              { view: "grid" as const, icon: Grid3X3, label: "Episode grid" },
+            ]).map(({ view, icon: Icon, label }) => (
+              <button
+                key={view}
+                type="button"
+                onClick={() => setEpisodeView(view)}
+                aria-label={label}
+                aria-pressed={episodeView === view}
+                className="inline-flex w-10 items-center justify-center border-l border-white/[0.06] text-white/35 transition-colors first:border-l-0 hover:text-white/75"
+                style={episodeView === view ? { background: accentStyle(0.13), color: accentColor } : undefined}
+              >
+                <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      <div className="px-4 py-3">
+      <div className="watch-episode-panel-body px-3 py-3">
         {filteredEpisodes.length === 0 ? (
           <p className="text-white/40 text-sm text-center py-4">
             {`No episodes match "${episodeQuery}"`}
           </p>
-        ) : showEpisodeList ? (
+        ) : episodeView === "cards" ? (
+          <div className="watch-episode-scroll h-full space-y-2 overflow-y-auto pr-1 hide-scrollbar">
+            {visibleEpisodes.map((episode, visibleIndex) => {
+              const active = episode.number === session.episode.number;
+              const watched = watchedEpisodes.has(episode.number);
+              const episodeArtwork = getEpisodeArtworkUrl(episode.image, session.anime);
+              const eagerArtwork = active || visibleIndex < 6;
+              return (
+                <button
+                  key={episode.number}
+                  type="button"
+                  onClick={() => goToEpisode(episode.number)}
+                  onMouseEnter={() => prefetchEpisode(episode.number)}
+                  onFocus={() => prefetchEpisode(episode.number)}
+                  data-active-episode={active ? "true" : undefined}
+                  className="group/episode relative flex w-full gap-3 overflow-hidden rounded-xl border p-2 text-left transition-colors"
+                  style={active
+                    ? { borderColor: accentStyle(0.65), background: accentStyle(0.15) }
+                    : { borderColor: "rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.02)" }}
+                >
+                  {episodeArtwork ? (
+                    <div className="relative aspect-video w-[42%] shrink-0 overflow-hidden rounded-lg bg-black">
+                      <SafeWatchImage
+                        src={episodeArtwork}
+                        fill
+                        priority={eagerArtwork}
+                        loading={eagerArtwork ? "eager" : "lazy"}
+                        fetchPriority={eagerArtwork ? "high" : "auto"}
+                        quality={90}
+                        sizes="(min-width: 1280px) 160px, 38vw"
+                        unoptimized
+                        className="object-cover transition-transform duration-500 group-hover/episode:scale-105"
+                      />
+                      <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/75 px-1.5 py-0.5 text-[9px] font-black text-white">
+                        EP {episode.number}
+                      </span>
+                    </div>
+                  ) : null}
+                  <div className="min-w-0 flex-1 py-1">
+                    <p className="line-clamp-2 text-[12px] font-bold leading-4 text-white/82 group-hover/episode:text-white">
+                      {episode.title}
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {episode.isSubbed ? <span className="text-[8px] font-black uppercase" style={{ color: accentColor }}>CC</span> : null}
+                      {episode.isDubbed ? <span className="text-[8px] font-black uppercase text-emerald-400">Dub</span> : null}
+                      {watched ? <span className="text-[8px] font-black uppercase text-white/28">Watched</span> : null}
+                    </div>
+                  </div>
+                  {active ? <span className="absolute inset-y-2 left-0 w-0.5 rounded-full" style={{ backgroundColor: accentColor }} /> : null}
+                </button>
+              );
+            })}
+          </div>
+        ) : episodeView === "list" ? (
           <div
-            className="max-h-[520px] overflow-y-auto hide-scrollbar -mx-4"
+            className="watch-episode-scroll h-full overflow-y-auto hide-scrollbar -mx-3"
             ref={(el) => {
               if (el) {
                 const active = el.querySelector('[data-active-episode="true"]');
-                if (active) active.scrollIntoView({ block: "center", behavior: "instant" });
+                if (active instanceof HTMLElement) {
+                  el.scrollTop = Math.max(0, active.offsetTop - (el.clientHeight - active.offsetHeight) / 2);
+                }
               }
             }}
           >
-            {filteredEpisodes.map((episode) => {
+            {visibleEpisodes.map((episode) => {
               const active = episode.number === session.episode.number;
               const watched = watchedEpisodes.has(episode.number);
               return (
@@ -1460,7 +1737,7 @@ export default function WatchExperience({ initialSession, recommendations = null
           </div>
         ) : (
           <EpisodeNumberGrid
-            episodes={filteredEpisodes}
+            episodes={visibleEpisodes}
             activeNumber={session.episode.number}
             onSelect={goToEpisode}
             onHover={prefetchEpisode}
@@ -1488,22 +1765,55 @@ export default function WatchExperience({ initialSession, recommendations = null
       <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_380px] xl:items-start xl:gap-4 2xl:grid-cols-[minmax(0,1fr)_400px]">
         <div className="min-w-0">
       {/* ── VIDEO PLAYER ────────────────────────── */}
-      <div className="overflow-hidden border-y border-white/8 bg-black relative sm:rounded-t-lg sm:border-x sm:border-b-0">
+      <div className="relative overflow-hidden border-y border-white/10 bg-black sm:rounded-t-2xl sm:border-x sm:border-b-0">
         <div className="relative aspect-video overflow-hidden bg-black">
-          <Image
-            src={heroImage}
-            alt=""
-            fill
-            priority
-            quality={45}
-            sizes="(min-width: 1280px) calc(100vw - 440px), 100vw"
-            className="object-cover opacity-20 blur-xl scale-[1.04]"
-          />
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_20%,rgba(0,0,0,0.78)_100%)]" />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/15 to-black/45" />
+          {!playerActivated && (embedAvailable || session.stale) ? (
+            <button
+              type="button"
+              onClick={activatePlayer}
+              aria-label={`Play Episode ${session.episode.number}`}
+              className="group absolute inset-0 z-10 overflow-hidden text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset"
+              style={{ "--tw-ring-color": accentColor } as React.CSSProperties}
+            >
+              {playerPosterImage ? (
+                <SafeWatchImage
+                  key={playerPosterImage}
+                  src={playerPosterImage}
+                  fill
+                  priority
+                  fetchPriority="high"
+                  quality={90}
+                  sizes="(min-width: 1280px) calc(100vw - 440px), 100vw"
+                  unoptimized
+                  className="object-cover"
+                />
+              ) : null}
+              <span
+                className="absolute left-1/2 top-1/2 inline-flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/60 bg-white text-black shadow-[0_16px_50px_rgba(0,0,0,0.45)] transition-transform duration-300 group-hover:scale-110 sm:h-20 sm:w-20"
+              >
+                <Play className="h-7 w-7 translate-x-0.5 fill-current sm:h-8 sm:w-8" aria-hidden="true" />
+              </span>
+              <span className="absolute inset-x-4 bottom-4 flex items-end justify-between gap-4 sm:inset-x-6 sm:bottom-6">
+                <span className="drop-shadow-[0_2px_5px_rgba(0,0,0,0.95)]">
+                  <span className="block text-[10px] font-black uppercase tracking-[0.22em]" style={{ color: accentColor }}>
+                    Ready to watch
+                  </span>
+                  <span className="mt-1 block text-sm font-bold text-white sm:text-base">
+                    Episode {session.episode.number}{session.episode.title !== `Episode ${session.episode.number}` ? ` · ${session.episode.title}` : ""}
+                  </span>
+                </span>
+                {!embedAvailable && session.stale ? (
+                  <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/55 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-white/65 backdrop-blur-md">
+                    <span className="h-2 w-2 animate-pulse rounded-full" style={{ backgroundColor: accentColor }} />
+                    Servers loading
+                  </span>
+                ) : null}
+              </span>
+            </button>
+          ) : null}
 
           {/* Custom AnimePlayer — handles both HLS and iframe modes */}
-          {session.source && (
+          {playerActivated && session.source && (
             <div className="absolute inset-0 transition-opacity duration-300 opacity-100 bg-black">
               <VideoPlayer
                 key={activePlayerSurfaceKey}
@@ -1514,10 +1824,12 @@ export default function WatchExperience({ initialSession, recommendations = null
                 dubbed={session.dubbed}
                 intro={session.intro}
                 outro={session.outro}
+                autoSkip={autoSkip}
+                autoPlay
                 isHardSubStream={activeIsHardSub}
                 onReady={() => setLoadedSurfaceKey(activePlayerSurfaceKey)}
                 onEpisodeEnd={() => {
-                  if (nextEpisode) {
+                  if (autoAdvance && nextEpisode) {
                     queueSession({
                       episodeNumber: nextEpisode.number,
                       provider: session.provider,
@@ -1639,25 +1951,66 @@ export default function WatchExperience({ initialSession, recommendations = null
         )}
       </div>
 
-      {/* ── CONTROLS BAR (AnimeKAI-style) ───────── */}
-      <div className="bg-[#111113] border-x border-white/8 px-2 md:px-4 py-1.5">
-        <div className="flex items-center justify-between gap-1 flex-wrap">
-          <div className="flex items-center gap-0.5 flex-wrap">
+      {/* ── WATCH CONTROLS ───────────────────────── */}
+      <div className="relative border-x border-white/10 bg-[#0d0e10] px-2 py-1 md:px-3">
+        <div className="flex flex-wrap items-center justify-between gap-1">
+          <div className="flex flex-wrap items-center gap-0.5">
+            <WatchPreferenceToggle
+              icon={Play}
+              label="Autoplay"
+              active={autoPlay}
+              title="After your first click, automatically start the episodes you switch to"
+              accentColor={accentColor}
+              onToggle={() => {
+                const next = !autoPlay;
+                setAutoPlay(next);
+                playerPrefs.setAutoplay(next);
+              }}
+            />
+            <WatchPreferenceToggle
+              icon={SkipForward}
+              label="Auto Skip"
+              active={autoSkip}
+              disabled={!directAvailable}
+              title={!directAvailable ? "This embed controls its own intro and outro skipping" : "Automatically skip detected intros and outros"}
+              accentColor={accentColor}
+              onToggle={() => {
+                const next = !autoSkip;
+                setAutoSkip(next);
+                playerPrefs.setAutoSkip(next);
+              }}
+            />
+            <WatchPreferenceToggle
+              icon={ChevronRight}
+              label="Auto Next"
+              active={autoAdvance}
+              accentColor={accentColor}
+              onToggle={() => {
+                const next = !autoAdvance;
+                setAutoAdvance(next);
+                playerPrefs.setAutoAdvance(next);
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowShortcuts((value) => !value)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-semibold text-white/45 transition-colors hover:bg-white/[0.05] hover:text-white/80"
+              style={showShortcuts ? { color: accentColor } : undefined}
+            >
+              <Keyboard className="h-3.5 w-3.5" aria-hidden="true" />
+              Shortcuts
+            </button>
             <ControlBtn
-              icon={focusMode ? Minimize2 : Eye}
-              label={focusMode ? "Exit Focus" : "Focus"}
+              icon={focusMode ? Minimize2 : Lightbulb}
+              label={focusMode ? "Lights On" : "Lights Off"}
               active={focusMode}
               accent={focusMode}
               accentColor={accentColor}
-              onClick={() => {
-                setFocusMode((v) => !v);
-                const el = document.querySelector("iframe");
-                el?.scrollIntoView({ behavior: "smooth", block: "center" });
-              }}
+              onClick={() => setFocusMode((value) => !value)}
             />
           </div>
 
-          <div className="flex items-center gap-0.5 flex-wrap">
+          <div className="flex flex-wrap items-center gap-0.5">
             <ControlBtn
               icon={ChevronLeft}
               label="Prev"
@@ -1680,10 +2033,18 @@ export default function WatchExperience({ initialSession, recommendations = null
             />
           </div>
         </div>
+        {showShortcuts ? (
+          <div className="absolute bottom-full left-2 z-30 mb-2 grid min-w-64 grid-cols-2 gap-x-5 gap-y-2 rounded-xl border border-white/10 bg-[#111216]/95 p-3 text-[11px] text-white/55 shadow-2xl backdrop-blur-xl">
+            <span><kbd className="text-white/90">Space</kbd> Play / pause</span>
+            <span><kbd className="text-white/90">F</kbd> Fullscreen</span>
+            <span><kbd className="text-white/90">← / →</kbd> Seek 10s</span>
+            <span><kbd className="text-white/90">M</kbd> Mute</span>
+          </div>
+        ) : null}
       </div>
 
       {/* ── EPISODE INFO + SERVER STRIP ─────────── */}
-      <div className="relative bg-[#131315] border-x border-white/8 px-4 md:px-5 py-3 space-y-3">
+      <div className="relative space-y-3 border-x border-b border-white/10 bg-[#131315] px-4 py-3 sm:rounded-b-2xl md:px-5">
         {/* Top row: episode info + sub/dub/server */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div className="flex items-center gap-3 flex-wrap">
@@ -1873,9 +2234,11 @@ export default function WatchExperience({ initialSession, recommendations = null
 
       <div className="mt-5 space-y-5">
         <div className="hidden xl:block space-y-5">
-          <WatchAnimeDetailsPanel session={session} heroImage={heroImage} />
+          <WatchAnimeDetailsPanel session={session} heroImage={heroImage} detail={deferredDetail} />
 
-          <SeasonRail seasons={session.seasons} activeHref={session.anime.href} accentColor={accentColor} />
+          {deferredSeasons !== null && deferredSeasons.length <= 1 ? (
+            <SeasonRail seasons={session.seasons} activeHref={session.anime.href} accentColor={accentColor} />
+          ) : null}
 
           <CommentSection
             animeId={session.anime.id}
@@ -1899,18 +2262,31 @@ export default function WatchExperience({ initialSession, recommendations = null
             }}
           />
 
-          <WatchAnimeDetailsPanel session={session} heroImage={heroImage} />
+          <WatchAnimeDetailsPanel session={session} heroImage={heroImage} detail={deferredDetail} />
 
-          <SeasonRail seasons={session.seasons} activeHref={session.anime.href} accentColor={accentColor} />
+          {deferredSeasons !== null && deferredSeasons.length <= 1 ? (
+            <SeasonRail seasons={session.seasons} activeHref={session.anime.href} accentColor={accentColor} />
+          ) : null}
 
-          <WatchRecommendationsPanel recommendations={deferredRecommendations} />
+          <WatchRecommendationsPanel
+            seasons={deferredSeasons}
+            related={deferredRelated}
+            recommendations={deferredRecommendations}
+            accentColor={accentColor}
+          />
         </div>
       </div>
         </div>
 
-        <aside className="hidden xl:block xl:sticky xl:top-20 xl:max-h-[calc(100vh-5.5rem)] xl:overflow-y-auto xl:pr-1 hide-scrollbar space-y-4">
+        <aside className="watch-sidebar-rail hidden space-y-4 xl:sticky xl:top-20 xl:block xl:h-[calc(100vh-5.5rem)] xl:min-h-0 xl:self-start xl:overflow-y-auto xl:overscroll-contain xl:pr-1 xl:[scrollbar-gutter:stable]">
           {episodePanel}
-          <WatchRecommendationsPanel recommendations={deferredRecommendations} variant="sidebar" />
+          <WatchRecommendationsPanel
+            seasons={deferredSeasons}
+            related={deferredRelated}
+            recommendations={deferredRecommendations}
+            accentColor={accentColor}
+            variant="sidebar"
+          />
         </aside>
       </div>
     </div>

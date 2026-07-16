@@ -7,6 +7,7 @@ import {
   MediaProvider,
   isHLSProvider,
   isVideoProvider,
+  type MediaPlayerInstance,
   type MediaProviderAdapter,
 } from "@vidstack/react";
 import { defaultLayoutIcons, DefaultVideoLayout } from "@vidstack/react/player/layouts/default";
@@ -16,7 +17,6 @@ import "@vidstack/react/player/styles/default/layouts/video.css";
 import SkipButton from "./SkipButton";
 import { fetchSkipTimes, type SkipTimes } from "@/lib/player/aniskip";
 import type { SubtitleTrack, StreamSource } from "@/lib/anime/types";
-import * as prefs from "@/lib/player/player-prefs";
 import "./player.css";
 
 interface VidstackPlayerProps {
@@ -26,6 +26,8 @@ interface VidstackPlayerProps {
   episodeNumber: number;
   intro?: { start: number; end: number } | null;
   outro?: { start: number; end: number } | null;
+  autoSkip?: boolean;
+  autoPlay?: boolean;
   /** When true the stream has burnt-in subtitles — VTT overlay is auto-disabled. */
   isHardSubStream?: boolean;
   onEpisodeEnd?: () => void;
@@ -41,12 +43,15 @@ export default function VidstackPlayer({
   episodeNumber,
   intro,
   outro,
+  autoSkip = true,
+  autoPlay = false,
   isHardSubStream = false,
   onEpisodeEnd,
   onTimeUpdate,
   onReady,
   onError,
 }: VidstackPlayerProps) {
+  const playerRef = useRef<MediaPlayerInstance | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const glowCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const playbackStartedRef = useRef(false);
@@ -58,7 +63,6 @@ export default function VidstackPlayer({
 
   // Skip times
   const [skipTimes, setSkipTimes] = useState<SkipTimes | null>(null);
-  const [autoSkip] = useState(() => prefs.getAutoSkip());
 
   // Setup HLS native provider setup
   const onProviderSetup = (provider: MediaProviderAdapter) => {
@@ -188,11 +192,23 @@ export default function VidstackPlayer({
     return () => clearTimeout(updateTimer);
   }, [malId, episodeNumber, duration, intro, outro]);
 
-  const handleSkip = useCallback((toTime: number) => {
-    if (videoRef.current) {
-      videoRef.current.currentTime = toTime;
+  const handleSkip = useCallback((toTime: number, trigger?: Event) => {
+    const maximum = Number.isFinite(duration) && duration > 0 ? duration : toTime;
+    const targetTime = Math.max(0, Math.min(toTime, maximum));
+    const player = playerRef.current;
+
+    if (player) {
+      // Keep Vidstack's store, HLS provider, controls, and native video in sync.
+      // Writing only to a cached <video> can target a stale provider node.
+      player.remoteControl.seek(targetTime, trigger);
+      player.currentTime = targetTime;
+    } else if (videoRef.current) {
+      videoRef.current.currentTime = targetTime;
     }
-  }, []);
+
+    setCurrentTime(targetTime);
+    onTimeUpdate?.(targetTime);
+  }, [duration, onTimeUpdate]);
 
   useEffect(() => {
     console.info(JSON.stringify({
@@ -224,6 +240,7 @@ export default function VidstackPlayer({
       <canvas ref={glowCanvasRef} width={16} height={9} style={{ display: "none" }} />
 
       <MediaPlayer
+        ref={playerRef}
         className="w-full h-full aspect-video rounded-lg overflow-hidden border border-white/10 shadow-[0_0_30px_rgba(0,0,0,0.8)] bg-black"
         src={streamUrl ? { src: streamUrl, type: streamType } : undefined}
         onTimeUpdate={(event) => {
@@ -260,7 +277,7 @@ export default function VidstackPlayer({
         onProviderSetup={onProviderSetup}
         crossorigin="anonymous"
         playsInline
-        autoPlay
+        autoPlay={autoPlay}
         preload="auto"
       >
         <MediaProvider>
@@ -285,25 +302,6 @@ export default function VidstackPlayer({
           onSkip={handleSkip}
         />
 
-        {/* Premium Top Bar Overlay */}
-        <div
-          className="player-top-bar"
-          style={{
-            position: "absolute",
-            top: "20px",
-            left: "20px",
-            right: "20px",
-            zIndex: 10,
-            display: "flex",
-            justifyContent: "space-between",
-            pointerEvents: "none",
-          }}
-        >
-          <div className="premium-badge-glowing">
-            <span className="premium-sparkle">✨</span>
-            <span className="premium-text">PREMIUM</span>
-          </div>
-        </div>
       </MediaPlayer>
     </div>
   );

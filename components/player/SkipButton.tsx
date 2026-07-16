@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import type { SkipTimes } from "@/lib/player/aniskip";
 import { getActiveSkipZone } from "@/lib/player/aniskip";
 
@@ -8,7 +8,7 @@ interface SkipButtonProps {
   currentTime: number;
   skipTimes: SkipTimes | null;
   autoSkip: boolean;
-  onSkip: (toTime: number) => void;
+  onSkip: (toTime: number, trigger?: Event) => void;
 }
 
 const LABELS: Record<string, string> = {
@@ -17,14 +17,18 @@ const LABELS: Record<string, string> = {
   recap: "Skip Recap",
 };
 
-const AUTO_SKIP_DELAY = 3000; // ms
+const AUTO_SKIP_DELAY = 3000;
 
 export default function SkipButton({ currentTime, skipTimes, autoSkip, onSkip }: SkipButtonProps) {
-  const [visible, setVisible] = useState(false);
-  const [skipType, setSkipType] = useState<string | null>(null);
-  const [skipEnd, setSkipEnd] = useState(0);
   const autoSkipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastSkippedRef = useRef<string | null>(null);
+  const activeZone = useMemo(
+    () => skipTimes ? getActiveSkipZone(currentTime, skipTimes) : null,
+    [currentTime, skipTimes],
+  );
+  const zoneKey = activeZone
+    ? `${activeZone.type}:${activeZone.interval.start}:${activeZone.interval.end}`
+    : null;
+  const skipEnd = activeZone?.interval.end ?? 0;
 
   const clearAutoSkipTimer = useCallback(() => {
     if (autoSkipTimerRef.current) {
@@ -33,69 +37,41 @@ export default function SkipButton({ currentTime, skipTimes, autoSkip, onSkip }:
     }
   }, []);
 
+  // The primitive zone key remains stable as playback advances inside the same
+  // intro/outro, so time-update renders do not restart the three-second timer.
   useEffect(() => {
-    if (!skipTimes) {
-      setVisible(false);
-      return;
-    }
-
-    const zone = getActiveSkipZone(currentTime, skipTimes);
-
-    if (zone) {
-      // Don't show button for a zone we already auto-skipped
-      if (lastSkippedRef.current === zone.type) {
-        setVisible(false);
-        return;
-      }
-
-      setVisible(true);
-      setSkipType(zone.type);
-      setSkipEnd(zone.interval.end);
-
-      // Start auto-skip countdown if enabled
-      if (autoSkip && !autoSkipTimerRef.current) {
-        autoSkipTimerRef.current = setTimeout(() => {
-          lastSkippedRef.current = zone.type;
-          onSkip(zone.interval.end);
-          setVisible(false);
-          autoSkipTimerRef.current = null;
-        }, AUTO_SKIP_DELAY);
-      }
-    } else {
-      setVisible(false);
-      clearAutoSkipTimer();
-      // Reset skipped tracking when leaving all zones
-      if (!getActiveSkipZone(currentTime, skipTimes)) {
-        lastSkippedRef.current = null;
-      }
-    }
-  }, [currentTime, skipTimes, autoSkip, onSkip, clearAutoSkipTimer]);
-
-  // Clean up on unmount
-  useEffect(() => clearAutoSkipTimer, [clearAutoSkipTimer]);
-
-  // Reset when skip times change (episode change)
-  useEffect(() => {
-    lastSkippedRef.current = null;
     clearAutoSkipTimer();
-  }, [skipTimes, clearAutoSkipTimer]);
+    if (!autoSkip || !zoneKey) return;
 
-  const handleClick = useCallback(() => {
-    if (skipType) lastSkippedRef.current = skipType;
-    onSkip(skipEnd);
-    setVisible(false);
+    autoSkipTimerRef.current = setTimeout(() => {
+      onSkip(skipEnd);
+      autoSkipTimerRef.current = null;
+    }, AUTO_SKIP_DELAY);
+
+    return clearAutoSkipTimer;
+  }, [autoSkip, zoneKey, skipEnd, onSkip, clearAutoSkipTimer]);
+
+  const handleClick = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onSkip(skipEnd, event.nativeEvent);
     clearAutoSkipTimer();
-  }, [skipEnd, skipType, onSkip, clearAutoSkipTimer]);
+  }, [skipEnd, onSkip, clearAutoSkipTimer]);
 
-  if (!visible || !skipType) return null;
+  if (!activeZone) return null;
 
   return (
-    <button className="skip-button" onClick={handleClick}>
-      {LABELS[skipType] || "Skip"}
-      {autoSkip && (
+    <button
+      type="button"
+      className="skip-button"
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={handleClick}
+    >
+      {LABELS[activeZone.type] || "Skip"}
+      {autoSkip ? (
         <span className="skip-countdown" aria-label="Auto-skipping..." />
-      )}
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+      ) : null}
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
         <path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z" />
       </svg>
     </button>

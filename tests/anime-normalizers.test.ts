@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   normalizeAnimeKaiCatalogItem,
   normalizeAnimeKaiEpisodesPayload,
+  normalizeAniZipEpisodesPayload,
   normalizeDesidubCatalogItem,
   normalizeDesidubEpisodesPayload,
   normalizeHianimeCatalogItem,
@@ -82,6 +83,37 @@ test("normalize episode payloads across providers", () => {
   assert.equal(hianimeEpisodes[0]?.idByProvider.hianime, "hid-7");
   assert.equal(animeKaiEpisodes[0]?.idByProvider.animekai, "ak-7");
   assert.equal(animeKaiEpisodes[0]?.isDubbed, true);
+});
+
+test("episode normalizers preserve real thumbnails and AniZip episode art stays distinct", () => {
+  const animeKaiEpisodes = normalizeAnimeKaiEpisodesPayload({
+    episodes: [
+      { id: "ak-1", number: 1, title: "First", thumbnail: "https://cdn.example/ak-1.jpg" },
+      { id: "ak-2", number: 2, title: "Second", image: "https://cdn.example/ak-2.jpg" },
+    ],
+  });
+  const aniZipEpisodes = normalizeAniZipEpisodesPayload({
+    episodes: {
+      "1": {
+        title: { en: "Romance Dawn" },
+        image: "https://artworks.example/one-piece-1.jpg",
+      },
+      "2": {
+        title: { en: "The Great Swordsman Appears" },
+        image: "https://artworks.example/one-piece-2.jpg",
+      },
+    },
+  });
+
+  assert.deepEqual(
+    animeKaiEpisodes.map((episode) => episode.image),
+    ["https://cdn.example/ak-1.jpg", "https://cdn.example/ak-2.jpg"],
+  );
+  assert.deepEqual(
+    aniZipEpisodes.map((episode) => episode.image),
+    ["https://artworks.example/one-piece-1.jpg", "https://artworks.example/one-piece-2.jpg"],
+  );
+  assert.notEqual(aniZipEpisodes[0]?.image, aniZipEpisodes[1]?.image);
 });
 
 test("normalizeStreamSourceFromUrl proxies m3u8 streams and referer-protected sources", () => {

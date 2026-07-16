@@ -211,9 +211,9 @@ export default function CommentSection({
   );
 
   return (
-    <div className="rounded-2xl border border-white/5 bg-white/[0.02] overflow-hidden">
+    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0f1012]">
       {/* Header */}
-      <div className="flex items-center justify-between p-5 border-b border-white/5">
+      <div className="flex items-center justify-between border-b border-white/[0.08] p-5">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-[#ff5500]/10 flex items-center justify-center">
             <MessageCircle className="w-4 h-4 text-[#ff5500]" aria-hidden="true" />
