@@ -1223,8 +1223,10 @@ export interface AnilistDetailMedia extends AnilistMedia {
 }
 
 const ANILIST_ANIME_FORMATS = new Set(["TV", "TV_SHORT", "MOVIE", "SPECIAL", "OVA", "ONA", "MUSIC"]);
-const ANILIST_MAIN_SEASON_RELATIONS = new Set(["PREQUEL", "SEQUEL", "PARENT"]);
-const ANILIST_SPECIAL_RELATIONS = new Set(["SIDE_STORY", "SPIN_OFF", "SUMMARY", "COMPILATION"]);
+// Only explicit chronological continuations belong in Seasons. AniList uses
+// PARENT, SIDE_STORY, SPIN_OFF, and similar relations for franchise material
+// that should stay in the Related panel.
+const ANILIST_MAIN_SEASON_RELATIONS = new Set(["PREQUEL", "SEQUEL"]);
 const ANILIST_SEASON_ORDER: Record<string, number> = {
   WINTER: 0,
   SPRING: 1,
@@ -1278,15 +1280,13 @@ export function buildAnilistSeasonEntries(detail: AnilistDetailMedia): AnilistSe
 
     if (ANILIST_MAIN_SEASON_RELATIONS.has(relationType)) {
       candidates.push({ relationType, media, isCurrent: false, kind: "season" });
-    } else if (ANILIST_SPECIAL_RELATIONS.has(relationType)) {
-      candidates.push({ relationType, media, isCurrent: false, kind: "special" });
     }
   }
 
   const entriesById = new Map<number, AnilistSeasonEntry>();
   for (const entry of candidates) {
     const existing = entriesById.get(entry.media.id);
-    if (!existing || (existing.kind === "special" && entry.kind === "season")) {
+    if (!existing) {
       entriesById.set(entry.media.id, entry);
     }
   }
@@ -1321,10 +1321,11 @@ export interface AnilistSeasonTraversalOptions {
 }
 
 /**
- * Follow cached PREQUEL/SEQUEL/PARENT edges in parallel breadth-first rounds.
+ * Follow cached PREQUEL/SEQUEL edges in parallel breadth-first rounds.
  * The watch-page context is deferred, so this can discover a long franchise
- * without blocking the initial player shell. First-degree specials are kept,
- * while traversal is capped to protect AniList and response latency.
+ * without blocking the initial player shell. Non-season franchise relations
+ * remain available to the Related panel, while traversal is capped to protect
+ * AniList and response latency.
  */
 export async function getAnilistFranchiseSeasonEntries(
   detail: AnilistDetailMedia,
@@ -1334,11 +1335,9 @@ export async function getAnilistFranchiseSeasonEntries(
   const loadDetail = options.loadDetail || getAnilistDetail;
   const initialEntries = buildAnilistSeasonEntries(detail);
   const mainlineById = new Map<number, AnilistSeasonEntry>();
-  const specialsById = new Map<number, AnilistSeasonEntry>();
 
   for (const entry of initialEntries) {
-    if (entry.kind === "season") mainlineById.set(entry.media.id, entry);
-    else specialsById.set(entry.media.id, entry);
+    mainlineById.set(entry.media.id, entry);
   }
 
   const visitedDetailIds = new Set<number>([detail.id]);
@@ -1383,7 +1382,5 @@ export async function getAnilistFranchiseSeasonEntries(
 
   const mainline = sortAnilistSeasonEntries(Array.from(mainlineById.values()))
     .slice(0, maxMainlineEntries);
-  const mainlineIds = new Set(mainline.map((entry) => entry.media.id));
-  const specials = Array.from(specialsById.values()).filter((entry) => !mainlineIds.has(entry.media.id));
-  return sortAnilistSeasonEntries([...mainline, ...specials]);
+  return mainline;
 }

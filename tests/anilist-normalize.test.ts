@@ -90,6 +90,8 @@ test("buildAnilistSeasonEntries orders the franchise, dedupes media, and exclude
       { relationType: "SEQUEL", node: mediaFixture(3, 2021) },
       { relationType: "PREQUEL", node: mediaFixture(1, 2019) },
       { relationType: "SIDE_STORY", node: mediaFixture(3, 2021) },
+      { relationType: "SIDE_STORY", node: mediaFixture(4, 2022, "ONA") },
+      { relationType: "PARENT", node: mediaFixture(5, 2023) },
       { relationType: "SOURCE", node: mediaFixture(99, 2018, "MANGA") },
     ],
   };

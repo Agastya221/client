@@ -88,6 +88,8 @@ export interface EpisodeModel {
   number: number;
   title: string;
   image?: string | null;
+  description?: string | null;
+  airDate?: string | null;
   isFiller?: boolean;
   isSubbed?: boolean;
   isDubbed?: boolean;

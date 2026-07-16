@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getAniZipEpisodeMetadata } from "@/lib/anime/api";
+import { getAniZipEpisodeMetadata, getAnivexaEpisodeAvailabilityMetadata } from "@/lib/anime/api";
+import type { EpisodeDisplayMetadata } from "@/lib/anime/episode-metadata";
 import {
   getAnilistDetail,
   getAnilistFranchiseSeasonEntries,
@@ -31,6 +32,27 @@ function parseGenres(value: string | null): string[] {
 interface RelatedAnimeEntry {
   relationType: string;
   media: AnilistMedia;
+}
+
+function mergeEpisodeMetadataSources(
+  primary: EpisodeDisplayMetadata[],
+  availability: EpisodeDisplayMetadata[],
+): EpisodeDisplayMetadata[] {
+  const entries = new Map(primary.map((entry) => [entry.number, { ...entry }]));
+  for (const incoming of availability) {
+    const existing = entries.get(incoming.number);
+    entries.set(incoming.number, existing ? {
+      ...incoming,
+      ...existing,
+      title: incoming.title || existing.title,
+      image: existing.image || incoming.image,
+      description: existing.description || incoming.description,
+      airDate: existing.airDate || incoming.airDate,
+      isSubbed: incoming.isSubbed ?? existing.isSubbed,
+      isDubbed: incoming.isDubbed ?? existing.isDubbed,
+    } : incoming);
+  }
+  return Array.from(entries.values()).sort((left, right) => left.number - right.number);
 }
 
 async function fetchWatchDiscovery(
@@ -126,7 +148,7 @@ export async function GET(request: NextRequest) {
   const anilistId = parseAnilistId(searchParams.get("anilistId"));
 
   try {
-    const [authSession, discovery, episodeMetadata] = await Promise.all([
+    const [authSession, discovery, aniZipMetadata, availabilityMetadata] = await Promise.all([
       auth().catch(() => null),
       measureAsync(
         "route.watch_page_context",
@@ -140,7 +162,11 @@ export async function GET(request: NextRequest) {
       anilistId
         ? getAniZipEpisodeMetadata(anilistId).catch(() => [])
         : Promise.resolve([]),
+      anilistId
+        ? getAnivexaEpisodeAvailabilityMetadata(anilistId).catch(() => [])
+        : Promise.resolve([]),
     ]);
+    const episodeMetadata = mergeEpisodeMetadataSources(aniZipMetadata, availabilityMetadata);
 
     return NextResponse.json({
       currentUserId: authSession?.user?.id ?? null,

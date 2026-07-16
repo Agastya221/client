@@ -97,6 +97,8 @@ test("episode normalizers preserve real thumbnails and AniZip episode art stays 
       "1": {
         title: { en: "Romance Dawn" },
         image: "https://artworks.example/one-piece-1.jpg",
+        overview: "Luffy begins his adventure.",
+        airDate: "1999-10-20",
       },
       "2": {
         title: { en: "The Great Swordsman Appears" },
@@ -114,6 +116,8 @@ test("episode normalizers preserve real thumbnails and AniZip episode art stays 
     ["https://artworks.example/one-piece-1.jpg", "https://artworks.example/one-piece-2.jpg"],
   );
   assert.notEqual(aniZipEpisodes[0]?.image, aniZipEpisodes[1]?.image);
+  assert.equal(aniZipEpisodes[0]?.description, "Luffy begins his adventure.");
+  assert.equal(aniZipEpisodes[0]?.airDate, "1999-10-20");
 });
 
 test("normalizeStreamSourceFromUrl proxies m3u8 streams and referer-protected sources", () => {

@@ -4,7 +4,7 @@ import { cacheFetch, cacheInvalidatePrefix } from "@/lib/cache";
 import { measureAsync, recordCounter, recordLog } from "@/lib/observability";
 import { anilistTitle, getAnilistDetail } from "@/lib/anilist/api";
 import { decryptEmbed } from "./reanime-decrypt";
-import type { EpisodeDisplayMetadata } from "./episode-metadata";
+import { normalizeEpisodeDescription, type EpisodeDisplayMetadata } from "./episode-metadata";
 import {
   PROVIDERS,
   type AnimeDetailModel,
@@ -1413,8 +1413,14 @@ function mergeEpisodeMaps(
       continue;
     }
 
-    existing.title = existing.title || episode.title;
+    const existingTitleIsGeneric = /^episode\s+\d+(?:\.\d+)?$/i.test(existing.title.trim());
+    const incomingTitleIsSpecific = episode.title && !/^episode\s+\d+(?:\.\d+)?$/i.test(episode.title.trim());
+    if (!existing.title || (existingTitleIsGeneric && incomingTitleIsSpecific)) {
+      existing.title = episode.title;
+    }
     existing.image = existing.image || episode.image || null;
+    existing.description = existing.description || normalizeEpisodeDescription(episode.description);
+    existing.airDate = existing.airDate || episode.airDate || null;
     existing.isFiller = existing.isFiller || episode.isFiller;
     existing.isSubbed = existing.isSubbed ?? episode.isSubbed;
     existing.isDubbed = existing.isDubbed ?? episode.isDubbed;
@@ -1424,6 +1430,13 @@ function mergeEpisodeMaps(
 }
 
 export function normalizeAniZipEpisodesPayload(data: JsonValue): EpisodeModel[] {
+  if (typeof data === "string") {
+    try {
+      return normalizeAniZipEpisodesPayload(JSON.parse(data) as JsonValue);
+    } catch {
+      return [];
+    }
+  }
   const rawEpisodes = data?.episodes;
   if (!rawEpisodes || typeof rawEpisodes !== "object" || Array.isArray(rawEpisodes)) return [];
 
@@ -1449,6 +1462,8 @@ export function normalizeAniZipEpisodesPayload(data: JsonValue): EpisodeModel[] 
           `Episode ${number}`,
         ),
         image: pickFirstNonEmpty(episode.image, episode.thumbnail) || null,
+        description: normalizeEpisodeDescription(pickFirstNonEmpty(episode.overview, episode.description)),
+        airDate: pickFirstNonEmpty(episode.airDate, episode.airdate) || null,
         isFiller: Boolean(episode.filler),
         idByProvider: {},
         availableProviders: [],
@@ -1496,6 +1511,8 @@ export async function getAniZipEpisodeMetadata(
         number: episode.number,
         title: episode.title || null,
         image: episode.image || null,
+        description: episode.description || null,
+        airDate: episode.airDate || null,
       }));
     },
     {
@@ -1511,6 +1528,8 @@ export function normalizeHianimeEpisodesPayload(data: JsonValue): EpisodeModel[]
     number: Number(episode.number || 0),
     title: pickFirstNonEmpty(episode.title, `Episode ${episode.number}`),
     image: pickFirstNonEmpty(episode.image, episode.thumbnail) || null,
+    description: normalizeEpisodeDescription(pickFirstNonEmpty(episode.description, episode.overview)),
+    airDate: pickFirstNonEmpty(episode.airDate, episode.airdate, episode.aired) || null,
     isFiller: Boolean(episode.isFiller),
     isSubbed: true,
     isDubbed: false,
@@ -1525,6 +1544,8 @@ export function normalizeAnimeKaiEpisodesPayload(data: JsonValue): EpisodeModel[
     number: Number(episode.number || 0),
     title: pickFirstNonEmpty(episode.title, `Episode ${episode.number}`),
     image: pickFirstNonEmpty(episode.image, episode.thumbnail, episode.poster) || null,
+    description: normalizeEpisodeDescription(pickFirstNonEmpty(episode.description, episode.overview)),
+    airDate: pickFirstNonEmpty(episode.airDate, episode.airdate, episode.aired) || null,
     isFiller: Boolean(episode.isFiller),
     isSubbed: episode.has_sub !== undefined ? Boolean(episode.has_sub) : Boolean(episode.isSubbed ?? true),
     isDubbed: episode.has_dub !== undefined ? Boolean(episode.has_dub) : Boolean(episode.isDubbed ?? false),
@@ -3240,10 +3261,18 @@ async function fetchAniviexaEpisodes(anilistId: number): Promise<EpisodeModel[]>
         number: num,
         title: ep.title || `Episode ${num}`,
         image: ep.image || null,
+        description: normalizeEpisodeDescription(ep.description || ep.overview),
+        airDate: ep.airDate || ep.airdate || ep.aired || null,
         isFiller: Boolean(ep.filler),
         idByProvider: {} as Partial<Record<ProviderId, string>>,
         availableProviders: [] as ProviderId[],
       };
+
+      if (/^episode\s+\d+(?:\.\d+)?$/i.test(existing.title) && ep.title && !/^episode\s+\d+(?:\.\d+)?$/i.test(ep.title)) {
+        existing.title = ep.title;
+      }
+      existing.description = existing.description || normalizeEpisodeDescription(ep.description || ep.overview);
+      existing.airDate = existing.airDate || ep.airDate || ep.airdate || ep.aired || null;
 
       // Episode ID format: "anilistId::episodeNumber" — decoded by fetchReanimeDirectWatchSession / fetchAniviexaWatchSession
       if (!existing.idByProvider[provider]) {
@@ -3442,6 +3471,7 @@ async function fetchAniviexaWatchSession(
         url: rawUrl ? streamProxyUrl(rawUrl, s.referer || s.referrer || selectedReferer) : "",
         isDefault: false,
       };
+
     })
     .filter((s) => s.url));
 
@@ -3704,6 +3734,65 @@ async function fetchFirstAnivexaAggregateData(
       return aggregate.buckets.some((bucket) => bucket.internal.length > 0 || bucket.embed.length > 0);
     },
   });
+}
+
+export async function getAnivexaEpisodeAvailabilityMetadata(
+  anilistId: number,
+): Promise<EpisodeDisplayMetadata[]> {
+  if (!ANIVEXA_WORKER_URL || !Number.isInteger(anilistId) || anilistId <= 0) return [];
+
+  return cacheFetch(
+    `anivexa-episode-availability:${anilistId}`,
+    async () => {
+      const response = await fetch(
+        `${ANIVEXA_WORKER_URL}/episodes/anineko/animegg/${anilistId}?map=false`,
+        {
+          headers: { Accept: "application/json", "User-Agent": "Tatakai-Frontend/1.0" },
+          cache: "no-store",
+          signal: AbortSignal.timeout(7_000),
+        },
+      );
+      if (!response.ok) return [];
+
+      const payload = await response.json() as JsonValue;
+      const entriesByNumber = new Map<number, EpisodeDisplayMetadata>();
+
+      for (const providerName of ["anineko", "animegg"]) {
+        const provider = payload?.[providerName] || {};
+        for (const audio of ["sub", "dub"] as const) {
+          for (const rawEpisode of ensureArray(provider?.episodes?.[audio])) {
+            const number = Number(rawEpisode.number || rawEpisode.episode);
+            if (!Number.isFinite(number) || number <= 0) continue;
+
+            const existing = entriesByNumber.get(number) || {
+              number,
+              title: null,
+              image: null,
+            };
+            const candidateTitle = pickFirstNonEmpty(rawEpisode.title);
+            if (!existing.title && candidateTitle && !/^episode\s+\d+(?:\.\d+)?$/i.test(candidateTitle)) {
+              existing.title = candidateTitle;
+            }
+            existing.image ||= pickFirstNonEmpty(rawEpisode.image, rawEpisode.thumbnail) || null;
+            existing.description ||= normalizeEpisodeDescription(
+              pickFirstNonEmpty(rawEpisode.description, rawEpisode.overview),
+            );
+            existing.airDate ||= pickFirstNonEmpty(rawEpisode.airDate, rawEpisode.airdate, rawEpisode.aired) || null;
+            if (audio === "sub") existing.isSubbed = true;
+            if (audio === "dub") existing.isDubbed = true;
+            entriesByNumber.set(number, existing);
+          }
+        }
+      }
+
+      return Array.from(entriesByNumber.values()).sort((left, right) => left.number - right.number);
+    },
+    {
+      freshMs: 6 * 60 * 60 * 1000,
+      expireMs: 7 * 24 * 60 * 60 * 1000,
+      shouldCache: (value) => Array.isArray(value) && value.length > 0,
+    },
+  );
 }
 
 async function discoverAnivexaDubServerOptions(

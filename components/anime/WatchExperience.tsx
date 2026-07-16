@@ -24,6 +24,8 @@ import type {
 import {
   getEpisodeArtworkUrl,
   mergeEpisodeMetadataIntoWatchSession,
+  normalizeEpisodeDescription,
+  resolveEpisodeLanguageAvailability,
   type EpisodeDisplayMetadata,
 } from "@/lib/anime/episode-metadata";
 import { prefetchClientStream, resolveClientStream } from "@/lib/anime/client-stream-resolver";
@@ -60,6 +62,27 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const EPISODE_PAGE_SIZE = 100;
+const EPISODE_DATE_FORMATTER = new Intl.DateTimeFormat("en-GB", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
+function formatEpisodeAirDate(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const timestamp = Date.parse(`${value.slice(0, 10)}T00:00:00Z`);
+  return Number.isFinite(timestamp) ? EPISODE_DATE_FORMATTER.format(timestamp) : null;
+}
+
+function EpisodeMicIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" className={className} fill="none" aria-hidden="true">
+      <rect x="5.25" y="1.5" width="5.5" height="8" rx="2.75" fill="currentColor" />
+      <path d="M3.75 7.75a4.25 4.25 0 0 0 8.5 0M8 12v2.5M5.75 14.5h4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 interface WatchExperienceProps {
   initialSession: WatchSessionModel;
@@ -466,6 +489,8 @@ function sameEpisode(left: EpisodeModel, right: EpisodeModel): boolean {
     left.number === right.number &&
     left.title === right.title &&
     left.image === right.image &&
+    left.description === right.description &&
+    left.airDate === right.airDate &&
     left.isFiller === right.isFiller &&
     left.isSubbed === right.isSubbed &&
     left.isDubbed === right.isDubbed &&
@@ -1636,6 +1661,16 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
               const watched = watchedEpisodes.has(episode.number);
               const episodeArtwork = getEpisodeArtworkUrl(episode.image, session.anime);
               const eagerArtwork = active || visibleIndex < 6;
+              const airDate = formatEpisodeAirDate(episode.airDate);
+              const description = normalizeEpisodeDescription(episode.description);
+              const languageAvailability = resolveEpisodeLanguageAvailability(episode, {
+                subCount,
+                dubCount,
+                hasAnySubEpisode: hasSubEpisode,
+                hasSubFallback: hasSub,
+                hasDubServerForCurrentEpisode: hasDubServer,
+                currentEpisodeNumber: session.episode.number,
+              });
               return (
                 <button
                   key={episode.number}
@@ -1644,13 +1679,13 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                   onMouseEnter={() => prefetchEpisode(episode.number)}
                   onFocus={() => prefetchEpisode(episode.number)}
                   data-active-episode={active ? "true" : undefined}
-                  className="group/episode relative flex w-full gap-3 overflow-hidden rounded-xl border p-2 text-left transition-colors"
+                  className="group/episode relative flex h-[100px] w-full gap-0 overflow-hidden rounded-[11px] border text-left transition-colors"
                   style={active
-                    ? { borderColor: accentStyle(0.65), background: accentStyle(0.15) }
+                    ? { borderColor: accentStyle(0.95), background: accentStyle(0.68) }
                     : { borderColor: "rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.02)" }}
                 >
                   {episodeArtwork ? (
-                    <div className="relative aspect-video w-[42%] shrink-0 overflow-hidden rounded-lg bg-black">
+                    <div className="relative h-full w-[42%] shrink-0 overflow-hidden rounded-[10px] bg-black">
                       <SafeWatchImage
                         src={episodeArtwork}
                         fill
@@ -1660,24 +1695,41 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                         quality={90}
                         sizes="(min-width: 1280px) 160px, 38vw"
                         unoptimized
-                        className="object-cover transition-transform duration-500 group-hover/episode:scale-105"
+                        className="object-cover transition-transform duration-300 group-hover/episode:scale-[1.025]"
                       />
                       <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/75 px-1.5 py-0.5 text-[9px] font-black text-white">
                         EP {episode.number}
                       </span>
                     </div>
                   ) : null}
-                  <div className="min-w-0 flex-1 py-1">
-                    <p className="line-clamp-2 text-[12px] font-bold leading-4 text-white/82 group-hover/episode:text-white">
+                  <div className="flex min-w-0 flex-1 flex-col px-2 py-2">
+                    <p className="line-clamp-1 text-[12px] font-bold leading-4 text-white/85 group-hover/episode:text-white">
                       {episode.title}
                     </p>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {episode.isSubbed ? <span className="text-[8px] font-black uppercase" style={{ color: accentColor }}>CC</span> : null}
-                      {episode.isDubbed ? <span className="text-[8px] font-black uppercase text-emerald-400">Dub</span> : null}
+                    {description ? (
+                      <p className={`mt-0.5 line-clamp-3 text-[10px] leading-[12px] ${active ? "text-white/72" : "text-white/38"}`}>
+                        {description}
+                      </p>
+                    ) : null}
+                    <div className={`mt-auto flex items-center gap-1.5 pt-1 text-white/38 ${active ? "text-white/78" : ""}`}>
+                      {languageAvailability.subbed ? (
+                        <span
+                          title="Subtitles available"
+                          aria-label="Subtitles available"
+                          className={`inline-flex h-3.5 min-w-4 items-center justify-center rounded-[3px] px-0.5 text-[7px] font-black leading-none ${active ? "bg-white/85 text-black/75" : "bg-white/55 text-black/80"}`}
+                        >
+                          CC
+                        </span>
+                      ) : null}
+                      {languageAvailability.dubbed ? (
+                        <span title="Dub available" aria-label="Dub available">
+                          <EpisodeMicIcon className={`h-3.5 w-3.5 ${active ? "text-white/90" : "text-white/60"}`} />
+                        </span>
+                      ) : null}
                       {watched ? <span className="text-[8px] font-black uppercase text-white/28">Watched</span> : null}
+                      {airDate ? <time dateTime={episode.airDate || undefined} className={`ml-auto text-[9px] font-medium ${active ? "text-white/85" : "text-white/32"}`}>{airDate}</time> : null}
                     </div>
                   </div>
-                  {active ? <span className="absolute inset-y-2 left-0 w-0.5 rounded-full" style={{ backgroundColor: accentColor }} /> : null}
                 </button>
               );
             })}

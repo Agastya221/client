@@ -4,26 +4,82 @@ export interface EpisodeDisplayMetadata {
   number: number;
   title: string | null;
   image: string | null;
+  description?: string | null;
+  airDate?: string | null;
+  isSubbed?: boolean;
+  isDubbed?: boolean;
 }
 
 function isGenericEpisodeTitle(title: string): boolean {
   return /^episode\s+\d+(?:\.\d+)?$/i.test(title.trim());
 }
 
+export function normalizeEpisodeDescription(value: string | null | undefined): string | null {
+  const normalized = String(value || "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+(?:—|–|--+)\s+/g, ", ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return normalized || null;
+}
+
+export function resolveEpisodeLanguageAvailability(
+  episode: Pick<EpisodeModel, "number" | "isSubbed" | "isDubbed">,
+  options: {
+    subCount?: number | null;
+    dubCount?: number | null;
+    hasAnySubEpisode: boolean;
+    hasSubFallback: boolean;
+    hasDubServerForCurrentEpisode: boolean;
+    currentEpisodeNumber: number;
+  },
+): { subbed: boolean; dubbed: boolean } {
+  const subCountConfirms = Boolean(options.subCount && episode.number <= options.subCount);
+  const dubCountConfirms = Boolean(options.dubCount && episode.number <= options.dubCount);
+  const currentDubServerConfirms =
+    options.hasDubServerForCurrentEpisode && episode.number === options.currentEpisodeNumber;
+
+  return {
+    subbed:
+      episode.isSubbed === true ||
+      subCountConfirms ||
+      (episode.isSubbed !== false && !options.hasAnySubEpisode && options.hasSubFallback),
+    dubbed:
+      episode.isDubbed === true ||
+      dubCountConfirms ||
+      currentDubServerConfirms,
+  };
+}
+
 function mergeEpisodeDisplayMetadata(
   episode: EpisodeModel,
   metadata: EpisodeDisplayMetadata | undefined,
+  preferProviderArtwork: boolean,
 ): EpisodeModel {
   if (!metadata) return episode;
 
   const title = metadata.title && isGenericEpisodeTitle(episode.title)
     ? metadata.title
     : episode.title;
-  // AniZip screen caps are episode-specific. Prefer them over provider images,
-  // which are sometimes the same series banner repeated for every episode.
-  const image = metadata.image || episode.image || null;
+  // Keep a unique provider screencap when one exists: providers can expose a
+  // larger original than AniZip/TVDB's 640px metadata image. Repeated provider
+  // artwork is normally a series banner, so AniZip remains the fallback there.
+  const image = preferProviderArtwork && episode.image
+    ? episode.image
+    : metadata.image || episode.image || null;
+  const description = normalizeEpisodeDescription(metadata.description || episode.description);
+  const airDate = metadata.airDate || episode.airDate || null;
+  const isSubbed = metadata.isSubbed ?? episode.isSubbed;
+  const isDubbed = metadata.isDubbed ?? episode.isDubbed;
 
-  if (title === episode.title && image === (episode.image || null)) {
+  if (
+    title === episode.title &&
+    image === (episode.image || null) &&
+    description === (episode.description || null) &&
+    airDate === (episode.airDate || null) &&
+    isSubbed === episode.isSubbed &&
+    isDubbed === episode.isDubbed
+  ) {
     return episode;
   }
 
@@ -31,6 +87,10 @@ function mergeEpisodeDisplayMetadata(
     ...episode,
     title,
     image,
+    description,
+    airDate,
+    isSubbed,
+    isDubbed,
   };
 }
 
@@ -76,15 +136,33 @@ export function mergeEpisodeMetadataIntoWatchSession(
   if (metadata.length === 0) return session;
 
   const metadataByNumber = new Map(metadata.map((entry) => [entry.number, entry]));
+  const providerArtworkCounts = new Map<string, number>();
+  for (const episode of session.episodes) {
+    const artwork = getEpisodeArtworkUrl(episode.image, session.anime);
+    const identity = artworkIdentity(artwork);
+    if (identity) providerArtworkCounts.set(identity, (providerArtworkCounts.get(identity) || 0) + 1);
+  }
+
+  const shouldPreferProviderArtwork = (episode: EpisodeModel): boolean => {
+    const artwork = getEpisodeArtworkUrl(episode.image, session.anime);
+    const identity = artworkIdentity(artwork);
+    return Boolean(identity && providerArtworkCounts.get(identity) === 1);
+  };
+
   let episodesChanged = false;
   const episodes = session.episodes.map((episode) => {
-    const merged = mergeEpisodeDisplayMetadata(episode, metadataByNumber.get(episode.number));
+    const merged = mergeEpisodeDisplayMetadata(
+      episode,
+      metadataByNumber.get(episode.number),
+      shouldPreferProviderArtwork(episode),
+    );
     if (merged !== episode) episodesChanged = true;
     return merged;
   });
   const episode = mergeEpisodeDisplayMetadata(
     session.episode,
     metadataByNumber.get(session.episode.number),
+    shouldPreferProviderArtwork(session.episode),
   );
 
   if (!episodesChanged && episode === session.episode) return session;
