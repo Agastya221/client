@@ -3,7 +3,6 @@
 import type { WatchSessionModel } from "@/lib/anime/types";
 import {
   anilistFormat,
-  anilistRating,
   anilistTitle,
   encodeAnilistRouteId,
   type AnilistMedia,
@@ -26,7 +25,7 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRef, type ReactNode } from "react";
+import { useRef, type CSSProperties, type ReactNode } from "react";
 
 interface RelatedAnimeEntry {
   relationType: string;
@@ -85,12 +84,14 @@ function SafeArtwork({
   sizes,
   quality = 65,
   className = "object-cover",
+  unoptimized = false,
 }: {
   src?: string | null;
   accentColor: string;
   sizes: string;
-  quality?: 45 | 55 | 60 | 65 | 70 | 75;
+  quality?: 45 | 55 | 60 | 65 | 70 | 75 | 90;
   className?: string;
+  unoptimized?: boolean;
 }) {
   return (
     <>
@@ -111,6 +112,7 @@ function SafeArtwork({
           fill
           loading="lazy"
           quality={quality}
+          unoptimized={unoptimized}
           sizes={sizes}
           className={`${className} opacity-0 transition-[opacity,transform] duration-500`}
           onLoad={(event) => {
@@ -388,8 +390,9 @@ export function WatchSeasonsPanel({
                   src={image}
                   accentColor={itemAccent}
                   sizes={compact ? "180px" : "190px"}
-                  quality={60}
-                  className="object-cover group-hover:scale-105"
+                  quality={90}
+                  unoptimized
+                  className="object-cover transition-transform duration-500 ease-out group-hover:scale-[1.035]"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black via-black/35 to-black/5" />
                 <div className="absolute inset-x-0 bottom-0 p-2.5">
@@ -409,56 +412,62 @@ export function WatchSeasonsPanel({
 
 function DiscoveryCard({
   media,
-  badge,
   fallbackAccent,
 }: {
   media: AnilistMedia;
-  badge?: string;
   fallbackAccent: string;
 }) {
   const title = anilistTitle(media);
-  const rating = anilistRating(media);
+  const rating = media.averageScore || media.meanScore;
   const format = anilistFormat(media);
   const href = "/anime/" + encodeAnilistRouteId(media.id);
   const artwork = media.coverImage.extraLarge || media.coverImage.large;
+  const backgroundArtwork = media.bannerImage || artwork;
   const accent = media.coverImage.color || fallbackAccent;
 
   return (
     <Link
       href={href}
       aria-label={title}
-      className="group relative flex min-h-24 overflow-hidden rounded-xl border border-white/[0.07] bg-white/[0.025] p-2 transition-colors hover:border-white/15 hover:bg-white/[0.05]"
+      className="group relative flex h-24 overflow-hidden rounded-lg bg-[#151618] transition-colors duration-300 hover:bg-[#191a1d] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--card-accent)]"
+      style={{ "--card-accent": accent } as CSSProperties}
     >
-      {artwork ? (
-        <div className="pointer-events-none absolute inset-y-0 right-0 w-2/3 opacity-[0.08] [mask-image:linear-gradient(to_left,black,transparent)]">
-          <SafeArtwork src={artwork} accentColor={accent} sizes="260px" quality={55} className="object-cover grayscale" />
+      {backgroundArtwork ? (
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-[78%] opacity-[0.2] [mask-image:linear-gradient(to_left,black_52%,transparent_100%)] transition-[opacity,transform] duration-500 ease-out group-hover:scale-[1.025] group-hover:opacity-[0.32]">
+          <SafeArtwork
+            src={backgroundArtwork}
+            accentColor={accent}
+            sizes="320px"
+            quality={75}
+            className="object-cover saturate-0 transition-[opacity,transform,filter] duration-500 group-hover:saturate-[0.35]"
+          />
         </div>
       ) : null}
-      <div className="relative h-20 w-14 shrink-0 overflow-hidden rounded-lg bg-white/[0.04]">
-        <SafeArtwork src={artwork} accentColor={accent} sizes="56px" quality={60} className="object-cover group-hover:scale-105" />
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#151618] via-[#151618]/90 to-transparent" />
+      <div className="relative h-full w-[68px] shrink-0 overflow-hidden rounded-lg bg-white/[0.04]">
+        <SafeArtwork src={artwork} accentColor={accent} sizes="136px" quality={75} className="object-cover transition-transform duration-500 ease-out group-hover:scale-[1.035]" />
       </div>
-      <div className="relative flex min-w-0 flex-1 flex-col justify-center px-3 py-1">
-        {badge ? (
-          <span className="mb-1 text-[9px] font-black uppercase tracking-[0.15em]" style={{ color: accent }}>
-            {badge.replaceAll("_", " ")}
-          </span>
-        ) : null}
-        <h3 className="line-clamp-2 text-[13px] font-bold leading-5 text-white/88 transition-colors group-hover:text-white">
-          <span className="mr-2 inline-block h-1.5 w-1.5 rounded-full align-middle" style={{ backgroundColor: accent }} />
+      <div className="relative flex min-w-0 flex-1 flex-col justify-center px-3 py-2 transition-transform duration-300 ease-out group-hover:translate-x-1">
+        <h3 className="line-clamp-2 text-[14px] font-semibold leading-[18px] text-white/90 transition-colors duration-300 group-hover:text-[var(--card-accent)]">
+          <span className="mr-2 inline-block h-2 w-2 rounded-full align-middle" style={{ backgroundColor: accent }} />
           {title}
         </h3>
-        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[10px] font-semibold text-white/34">
-          <span>{format}</span>
-          {media.episodes ? <span>{media.episodes} EPS</span> : null}
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] font-semibold text-white/38">
+          <span className="rounded bg-black/25 px-1.5 py-0.5">{format}</span>
+          {media.episodes ? (
+            <span className="inline-flex items-center gap-1 rounded bg-black/25 px-1.5 py-0.5">
+              <span className="rounded-[2px] bg-white/20 px-0.5 text-[7px] font-black leading-[10px] text-white/55">CC</span>
+              {media.episodes}
+            </span>
+          ) : null}
           {rating ? (
-            <span className="inline-flex items-center gap-0.5">
+            <span className="inline-flex items-center gap-0.5 rounded bg-black/25 px-1.5 py-0.5">
               <Star className="h-2.5 w-2.5 fill-current" aria-hidden="true" />
               {rating}
             </span>
           ) : null}
         </div>
       </div>
-      <ChevronRight className="relative my-auto h-4 w-4 shrink-0 text-white/15 transition-transform group-hover:translate-x-0.5 group-hover:text-white/40" aria-hidden="true" />
     </Link>
   );
 }
@@ -475,8 +484,8 @@ function DiscoverySection({
   accentColor: string;
 }) {
   return (
-    <section className="rounded-2xl border border-white/10 bg-[#0f1012] p-3.5">
-      <h2 className="mb-3 flex items-center gap-2 text-sm font-black uppercase tracking-[0.08em] text-white">
+    <section className="rounded-xl border border-white/10 bg-[#0f1012] p-3">
+      <h2 className="mb-3 flex items-center gap-2 text-base font-black uppercase tracking-[0.04em] text-white">
         <ChevronRight className="h-4 w-4" style={{ color: accentColor }} aria-hidden="true" />
         {title}
       </h2>
@@ -487,7 +496,7 @@ function DiscoverySection({
 
 function DiscoverySkeleton({ compact }: { compact: boolean }) {
   return Array.from({ length: compact ? 3 : 4 }).map((_, index) => (
-    <div key={index} className="h-24 animate-pulse rounded-xl border border-white/[0.06] bg-white/[0.025]" />
+    <div key={index} className="h-24 animate-pulse rounded-lg bg-white/[0.025]" />
   ));
 }
 
@@ -524,7 +533,6 @@ export function WatchRecommendationsPanel({
             <DiscoveryCard
               key={entry.relationType + "-" + entry.media.id}
               media={entry.media}
-              badge={entry.relationType}
               fallbackAccent={accentColor}
             />
           ))}
