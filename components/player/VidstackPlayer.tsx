@@ -28,10 +28,11 @@ interface VidstackPlayerProps {
   outro?: { start: number; end: number } | null;
   autoSkip?: boolean;
   autoPlay?: boolean;
+  startTime?: number;
   /** When true the stream has burnt-in subtitles — VTT overlay is auto-disabled. */
   isHardSubStream?: boolean;
   onEpisodeEnd?: () => void;
-  onTimeUpdate?: (time: number) => void;
+  onTimeUpdate?: (time: number, duration: number) => void;
   onReady?: () => void;
   onError?: () => void;
 }
@@ -45,6 +46,7 @@ export default function VidstackPlayer({
   outro,
   autoSkip = true,
   autoPlay = false,
+  startTime = 0,
   isHardSubStream = false,
   onEpisodeEnd,
   onTimeUpdate,
@@ -56,6 +58,7 @@ export default function VidstackPlayer({
   const glowCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const playbackStartedRef = useRef(false);
   const startupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resumeAppliedRef = useRef(false);
   const [glowDataUrl, setGlowDataUrl] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -207,7 +210,7 @@ export default function VidstackPlayer({
     }
 
     setCurrentTime(targetTime);
-    onTimeUpdate?.(targetTime);
+    onTimeUpdate?.(targetTime, duration);
   }, [duration, onTimeUpdate]);
 
   useEffect(() => {
@@ -246,7 +249,7 @@ export default function VidstackPlayer({
         onTimeUpdate={(event) => {
           const time = event.currentTime;
           setCurrentTime(time);
-          onTimeUpdate?.(time);
+          onTimeUpdate?.(time, duration);
         }}
         onDurationChange={(duration) => setDuration(duration)}
         onEnded={() => onEpisodeEnd?.()}
@@ -266,6 +269,15 @@ export default function VidstackPlayer({
           if (startupTimerRef.current) {
             clearTimeout(startupTimerRef.current);
             startupTimerRef.current = null;
+          }
+          if (!resumeAppliedRef.current && startTime > 0) {
+            const maximum = Number.isFinite(duration) && duration > 0 ? Math.max(0, duration - 1) : startTime;
+            const targetTime = Math.min(startTime, maximum);
+            playerRef.current?.remoteControl.seek(targetTime);
+            if (playerRef.current) playerRef.current.currentTime = targetTime;
+            if (videoRef.current) videoRef.current.currentTime = targetTime;
+            setCurrentTime(targetTime);
+            resumeAppliedRef.current = true;
           }
           onReady?.();
         }}

@@ -35,7 +35,9 @@ import type { AnilistMedia, AnilistSeasonEntry } from "@/lib/anilist/api";
 import * as playerPrefs from "@/lib/player/player-prefs";
 import {
   trackEpisodeWatch,
+  getEpisodeProgress,
   getWatchedEpisodes,
+  updateEpisodeProgress,
 } from "@/lib/anime/watch-history";
 import {
   AlertTriangle,
@@ -655,6 +657,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   });
   const [episodeRangeMenuOpen, setEpisodeRangeMenuOpen] = useState(false);
   const [episodeMetadataLoading, setEpisodeMetadataLoading] = useState(false);
+  const [optimisticEpisodeNumber, setOptimisticEpisodeNumber] = useState<number | null>(null);
   const watchContextLoadedRef = useRef(false);
   const [episodeView, setEpisodeView] = useState<"grid" | "list" | "cards">("cards");
   const [showEmbedServers, setShowEmbedServers] = useState(() => Boolean(initialSession.activeServerId && isEmbedServerOption(initialSession.activeServerId)));
@@ -675,6 +678,13 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   const nearEndPrefetchedRef = useRef<string | null>(null);
   const sessionRequestSeqRef = useRef(0);
   const userActivatedPlayerRef = useRef(false);
+  const playbackProgressRef = useRef({
+    animeId: initialSession.anime.id,
+    episodeNumber: initialSession.episode.number,
+    time: 0,
+    duration: 0,
+    lastPersistedAt: 0,
+  });
   const episodeMetadataRef = useRef<{
     animeId: string;
     entries: EpisodeDisplayMetadata[];
@@ -929,6 +939,31 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     });
   }, [session.anime.id, session.anime.title, session.anime.poster, session.anime.href, session.provider, session.episode.number]);
 
+  useEffect(() => {
+    const flushProgress = () => {
+      const current = playbackProgressRef.current;
+      if (current.duration <= 0 || current.time < 0) return;
+      updateEpisodeProgress(
+        current.animeId,
+        current.episodeNumber,
+        current.time / current.duration,
+        current.duration,
+      );
+      current.lastPersistedAt = Date.now();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flushProgress();
+    };
+
+    window.addEventListener("pagehide", flushProgress);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      flushProgress();
+      window.removeEventListener("pagehide", flushProgress);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
   /* ── Focus mode ────────────────────────────── */
   useEffect(() => {
     if (focusMode) {
@@ -1039,6 +1074,21 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     sessionRequestSeqRef.current += 1;
     setIsSessionLoading(false);
     setOptimisticServerId(null); // real server id is now in session — clear optimistic
+    setOptimisticEpisodeNumber(null);
+
+    if (
+      playbackProgressRef.current.animeId !== nextSession.anime.id ||
+      playbackProgressRef.current.episodeNumber !== nextSession.episode.number
+    ) {
+      const saved = getEpisodeProgress(nextSession.anime.id, nextSession.episode.number);
+      playbackProgressRef.current = {
+        animeId: nextSession.anime.id,
+        episodeNumber: nextSession.episode.number,
+        time: saved && saved.progress > 0.01 && saved.progress < 0.95 ? saved.progress * saved.duration : 0,
+        duration: saved?.duration || 0,
+        lastPersistedAt: 0,
+      };
+    }
 
     setSession((previous) => {
       const merged = mergeWatchSessions(previous, nextSession);
@@ -1132,6 +1182,21 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
       return;
     }
 
+    const currentProgress = playbackProgressRef.current;
+    if (currentProgress.duration > 0 && currentProgress.time >= 0) {
+      updateEpisodeProgress(
+        currentProgress.animeId,
+        currentProgress.episodeNumber,
+        currentProgress.time / currentProgress.duration,
+        currentProgress.duration,
+      );
+      currentProgress.lastPersistedAt = Date.now();
+    }
+
+    if (normalizedRequest.episodeNumber !== session.episode.number) {
+      setOptimisticEpisodeNumber(normalizedRequest.episodeNumber);
+    }
+
     const playbackContextChanged =
       normalizedRequest.episodeNumber !== session.episode.number ||
       normalizedRequest.dubbed !== session.dubbed;
@@ -1210,6 +1275,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
           setPlaybackMessage(error instanceof Error ? error.message : "Unable to resolve worker stream.");
           setIsSessionLoading(false);
           setOptimisticServerId(null);
+          setOptimisticEpisodeNumber(null);
         });
       return;
     }
@@ -1227,6 +1293,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
         setPlaybackMessage(error instanceof Error ? error.message : "Unable to refresh watch session.");
         setIsSessionLoading(false);
         setOptimisticServerId(null); // revert optimistic on error
+        setOptimisticEpisodeNumber(null);
       })
       .finally(() => undefined);
   };
@@ -1468,7 +1535,18 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     session.anime.banner ||
     session.anime.poster ||
     "https://placehold.co/1600x900/09090b/f5f5f5?text=Tatakai";
-  const playerPosterImage = getEpisodeArtworkUrl(session.episode.image, session.anime);
+  const displayedEpisode = optimisticEpisodeNumber
+    ? session.episodes.find((episode) => episode.number === optimisticEpisodeNumber) || session.episode
+    : session.episode;
+  const displayedEpisodeNumber = displayedEpisode.number;
+  const playerPosterImage = getEpisodeArtworkUrl(displayedEpisode.image, session.anime);
+  const savedProgress = getEpisodeProgress(session.anime.id, session.episode.number);
+  const liveProgress = playbackProgressRef.current;
+  const resumeTime = liveProgress.animeId === session.anime.id && liveProgress.episodeNumber === session.episode.number && liveProgress.time > 0
+    ? liveProgress.time
+    : savedProgress && savedProgress.progress > 0.01 && savedProgress.progress < 0.95
+      ? savedProgress.progress * savedProgress.duration
+      : 0;
   const activatePlayer = () => {
     userActivatedPlayerRef.current = true;
     setLoadedSurfaceKey(null);
@@ -1495,10 +1573,10 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
       return;
     }
 
-    const activeIndex = filteredEpisodes.findIndex((episode) => episode.number === session.episode.number);
+    const activeIndex = filteredEpisodes.findIndex((episode) => episode.number === displayedEpisodeNumber);
     const nextRangeStart = Math.floor(Math.max(0, activeIndex) / EPISODE_PAGE_SIZE) * EPISODE_PAGE_SIZE;
     setEpisodeRangeStart(nextRangeStart);
-  }, [episodeQuery, filteredEpisodes, session.episode.number]);
+  }, [displayedEpisodeNumber, episodeQuery, filteredEpisodes]);
 
   const episodeRangeCount = Math.ceil(filteredEpisodes.length / EPISODE_PAGE_SIZE);
   const visibleEpisodes = episodeQuery.trim()
@@ -1704,7 +1782,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
         ) : episodeView === "cards" ? (
           <div className="watch-episode-scroll max-h-[244px] space-y-1.5 overflow-y-auto pr-1 hide-scrollbar sm:h-full sm:max-h-none sm:space-y-2">
             {visibleEpisodes.map((episode, visibleIndex) => {
-              const active = episode.number === session.episode.number;
+              const active = episode.number === displayedEpisodeNumber;
               const watched = watchedEpisodes.has(episode.number);
               const episodeArtwork = getEpisodeArtworkUrl(episode.image, session.anime);
               const eagerArtwork = active || visibleIndex < 6;
@@ -1799,7 +1877,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
             }}
           >
             {visibleEpisodes.map((episode) => {
-              const active = episode.number === session.episode.number;
+              const active = episode.number === displayedEpisodeNumber;
               const watched = watchedEpisodes.has(episode.number);
               return (
                 <button
@@ -1840,14 +1918,16 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
             })}
           </div>
         ) : (
-          <EpisodeNumberGrid
-            episodes={visibleEpisodes}
-            activeNumber={session.episode.number}
-            onSelect={goToEpisode}
-            onHover={prefetchEpisode}
-            watchedSet={watchedEpisodes}
-            accentColor={accentColor}
-          />
+          <div className="watch-episode-scroll h-full min-h-0 overflow-y-auto pr-1">
+            <EpisodeNumberGrid
+              episodes={visibleEpisodes}
+              activeNumber={displayedEpisodeNumber}
+              onSelect={goToEpisode}
+              onHover={prefetchEpisode}
+              watchedSet={watchedEpisodes}
+              accentColor={accentColor}
+            />
+          </div>
         )}
       </div>
     </div>
@@ -1930,7 +2010,26 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                 outro={session.outro}
                 autoSkip={autoSkip}
                 autoPlay
+                startTime={resumeTime}
                 isHardSubStream={activeIsHardSub}
+                onTimeUpdate={(time, duration) => {
+                  if (!Number.isFinite(time) || time < 0) return;
+                  const current = playbackProgressRef.current;
+                  current.animeId = session.anime.id;
+                  current.episodeNumber = session.episode.number;
+                  current.time = time;
+                  if (Number.isFinite(duration) && duration > 0) current.duration = duration;
+                  const now = Date.now();
+                  if (current.duration > 0 && now - current.lastPersistedAt >= 5000) {
+                    updateEpisodeProgress(
+                      current.animeId,
+                      current.episodeNumber,
+                      current.time / current.duration,
+                      current.duration,
+                    );
+                    current.lastPersistedAt = now;
+                  }
+                }}
                 onReady={() => setLoadedSurfaceKey(activePlayerSurfaceKey)}
                 onEpisodeEnd={() => {
                   if (autoAdvance && nextEpisode) {

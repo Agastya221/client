@@ -6,7 +6,7 @@ import "./player.css";
 interface IframePlayerProps {
   iframeUrl: string;
   onReady?: () => void;
-  onTimeUpdate?: (time: number) => void;
+  onTimeUpdate?: (time: number, duration: number) => void;
   onEpisodeEnd?: () => void;
   /** Called if the player shows an error (410 / not found) and needs to try next server */
   onPlayerError?: () => void;
@@ -77,15 +77,16 @@ export default function IframePlayer({ iframeUrl, onReady, onTimeUpdate, onEpiso
 
       // Handle progress events
       const progress = data.progress ?? data.percent ?? data.percentComplete;
-      if (typeof progress === "number") {
+      if (typeof progress === "number" && typeof data.duration === "number" && data.duration > 0) {
         playSignalReceivedRef.current = true; // progress = it's actually playing
-        onTimeUpdate?.(progress * 100);
+        const normalizedProgress = progress > 1 ? progress / 100 : progress;
+        onTimeUpdate?.(normalizedProgress * data.duration, data.duration);
       }
 
       // Handle time events
       if (typeof data.currentTime === "number") {
         playSignalReceivedRef.current = true;
-        onTimeUpdate?.(data.currentTime);
+        onTimeUpdate?.(data.currentTime, typeof data.duration === "number" ? data.duration : 0);
       }
 
       // Handle completion

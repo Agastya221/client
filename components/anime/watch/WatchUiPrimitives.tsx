@@ -254,7 +254,7 @@ export function EpisodeNumberGrid({
         </div>
       )}
 
-      <div className="flex flex-wrap gap-1.5">
+      <div className="grid grid-cols-7 gap-1.5">
         {visibleEpisodes.map((ep) => {
           const isActive = ep.number === activeNumber;
           const isWatched = watchedSet.has(ep.number);
@@ -265,9 +265,9 @@ export function EpisodeNumberGrid({
               onClick={() => onSelect(ep.number)}
               onMouseEnter={() => onHover?.(ep.number)}
               onFocus={() => onHover?.(ep.number)}
-              title={`${ep.title}${isWatched ? " ✓ Watched" : ""}`}
+              aria-label={`${ep.title}${isWatched ? ", watched" : ""}`}
               className={`
-                relative w-11 h-10 md:w-10 md:h-9 rounded-md text-xs font-bold transition-colors
+                relative h-10 min-w-0 rounded-md text-xs font-bold transition-colors md:h-9
                 ${isActive
                   ? "text-white"
                   : isWatched
