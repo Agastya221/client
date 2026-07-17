@@ -3,7 +3,7 @@ import WatchExperience from "@/components/anime/WatchExperience";
 import WatchPageLoading from "@/components/anime/WatchPageLoading";
 import Navbar from "@/components/ui/Navbar";
 import SiteFooter from "@/components/ui/SiteFooter";
-import { getAniZipEpisodeMetadata, getKitsuEpisodeMetadataRange, getQuickWatchSession, getTvMazeEpisodeMetadataRange } from "@/lib/anime/api";
+import { getAniZipEpisodeMetadata, getFandomEpisodeMetadataRange, getKitsuEpisodeMetadataRange, getQuickWatchSession, getTvMazeEpisodeMetadataRange } from "@/lib/anime/api";
 import {
   getEpisodeArtworkUrl,
   mergeEpisodeDisplayMetadataSources,
@@ -93,14 +93,18 @@ async function loadWatchPageData({
   // screen caps are known; stream resolution remains a separate client task.
   const routeAniListId = parseRouteAniListId(id);
   const loadEpisodeMetadata = async (anilistId: number) => {
-    const [primary, rangeArtwork, longRunningArtwork] = await Promise.all([
+    const [primary, rangeArtwork, longRunningArtwork, finalArtwork] = await Promise.all([
       getAniZipEpisodeMetadata(anilistId),
       getKitsuEpisodeMetadataRange(anilistId, requestedRangeStart),
       getTvMazeEpisodeMetadataRange(anilistId, requestedRangeStart),
+      getFandomEpisodeMetadataRange(anilistId, requestedRangeStart),
     ]);
     return mergeEpisodeDisplayMetadataSources(
-      mergeEpisodeDisplayMetadataSources(primary, rangeArtwork),
-      longRunningArtwork,
+      mergeEpisodeDisplayMetadataSources(
+        mergeEpisodeDisplayMetadataSources(primary, rangeArtwork),
+        longRunningArtwork,
+      ),
+      finalArtwork,
     );
   };
   const episodeMetadataPromise = routeAniListId

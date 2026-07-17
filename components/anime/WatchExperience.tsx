@@ -37,6 +37,7 @@ import {
   trackEpisodeWatch,
   getEpisodeProgress,
   getWatchedEpisodes,
+  subscribeToWatchHistory,
   updateEpisodeProgress,
 } from "@/lib/anime/watch-history";
 import {
@@ -658,6 +659,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   const [episodeRangeMenuOpen, setEpisodeRangeMenuOpen] = useState(false);
   const [episodeMetadataLoading, setEpisodeMetadataLoading] = useState(false);
   const [optimisticEpisodeNumber, setOptimisticEpisodeNumber] = useState<number | null>(null);
+  const [, setWatchHistoryVersion] = useState(0);
   const watchContextLoadedRef = useRef(false);
   const [episodeView, setEpisodeView] = useState<"grid" | "list" | "cards">("cards");
   const [showEmbedServers, setShowEmbedServers] = useState(() => Boolean(initialSession.activeServerId && isEmbedServerOption(initialSession.activeServerId)));
@@ -758,6 +760,10 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   const embedOnlyBlocked = !embedAvailable && directAvailable;
   const activeEmbedLoaded = loadedSurfaceKey === activePlayerSurfaceKey;
   const watchedEpisodes = getWatchedEpisodes(session.anime.id);
+
+  useEffect(() => subscribeToWatchHistory(() => {
+    setWatchHistoryVersion((version) => version + 1);
+  }), []);
 
   // ── Dynamic theme accent from AniList coverImage.color ───────────────────
   const accentColor = session.anime.color || "#ff5500";
@@ -1784,7 +1790,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
             {visibleEpisodes.map((episode, visibleIndex) => {
               const active = episode.number === displayedEpisodeNumber;
               const watched = watchedEpisodes.has(episode.number);
-              const episodeArtwork = getEpisodeArtworkUrl(episode.image, session.anime);
+              const episodeArtwork = getEpisodeArtworkUrl(episode.thumbnail || episode.image, session.anime);
               const eagerArtwork = active || visibleIndex < 6;
               const airDate = formatEpisodeAirDate(episode.airDate);
               const description = normalizeEpisodeDescription(episode.description);
@@ -1807,7 +1813,9 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                   className={`group/episode relative flex w-full gap-0 overflow-hidden rounded-[11px] border text-left transition-colors ${episodeArtwork ? "h-[76px] sm:h-[100px]" : "h-[58px] sm:h-[68px]"}`}
                   style={active
                     ? { borderColor: accentStyle(0.95), background: accentStyle(0.68) }
-                    : { borderColor: "rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.02)" }}
+                    : watched
+                      ? { borderColor: accentStyle(0.38), background: accentStyle(0.13) }
+                      : { borderColor: "rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.02)" }}
                 >
                   {episodeArtwork ? (
                     <div className="relative h-full w-[34%] shrink-0 overflow-hidden rounded-[10px] bg-black sm:w-[42%]">
@@ -1819,6 +1827,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                         fetchPriority={eagerArtwork ? "high" : "auto"}
                         quality={55}
                         sizes="(max-width: 639px) 132px, (min-width: 1280px) 160px, 150px"
+                        unoptimized
                         className="object-cover transition-transform duration-300 group-hover/episode:scale-[1.025]"
                       />
                       <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/75 px-1.5 py-0.5 text-[9px] font-black text-white">
@@ -1866,7 +1875,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
           </div>
         ) : episodeView === "list" ? (
           <div
-            className="watch-episode-scroll -mx-2 max-h-[244px] overflow-y-auto hide-scrollbar sm:-mx-3 sm:h-full sm:max-h-none"
+            className="watch-episode-scroll max-h-[244px] space-y-1 overflow-y-auto pr-1 hide-scrollbar sm:h-full sm:max-h-none"
             ref={(el) => {
               if (el) {
                 const active = el.querySelector('[data-active-episode="true"]');
@@ -1879,6 +1888,14 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
             {visibleEpisodes.map((episode) => {
               const active = episode.number === displayedEpisodeNumber;
               const watched = watchedEpisodes.has(episode.number);
+              const languageAvailability = resolveEpisodeLanguageAvailability(episode, {
+                subCount,
+                dubCount,
+                hasAnySubEpisode: hasSubEpisode,
+                hasSubFallback: hasSub,
+                hasDubServerForCurrentEpisode: hasDubServer,
+                currentEpisodeNumber: session.episode.number,
+              });
               return (
                 <button
                   key={episode.number}
@@ -1887,32 +1904,23 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                   onMouseEnter={() => prefetchEpisode(episode.number)}
                   onFocus={() => prefetchEpisode(episode.number)}
                   data-active-episode={active ? "true" : undefined}
-                  className={`group/ep w-full flex items-center gap-3 px-4 py-2.5 text-left transition-all border-b border-white/[0.03] last:border-0 ${
-                    active
-                      ? "border-l-2"
-                      : watched
-                        ? "border-l-2 border-l-emerald-500/30 hover:bg-white/[0.03]"
-                        : "hover:bg-white/[0.03]"
-                  }`}
-                  style={active ? { background: accentStyle(0.08), borderLeftColor: accentColor } : undefined}
+                  className="group/ep flex h-9 w-full items-center gap-2 rounded-lg border px-2.5 text-left transition-all"
+                  style={active
+                    ? { background: accentColor, borderColor: accentStyle(0.95), color: "white" }
+                    : watched
+                      ? { background: accentStyle(0.12), borderColor: accentStyle(0.28) }
+                      : { background: "rgba(255,255,255,0.025)", borderColor: "rgba(255,255,255,0.07)" }}
                 >
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 ${
-                    active ? "text-white" : watched ? "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/20" : "bg-white/5 text-white/50"
-                  }`} style={active ? { backgroundColor: accentColor } : undefined}>
-                    {watched && !active ? "✓" : episode.number}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-[13px] font-semibold truncate leading-snug ${
-                      active ? "text-white" : watched ? "text-white/50 group-hover/ep:text-white/80" : "text-white/80 group-hover/ep:text-white"
-                    }`}>
-                      {episode.title}
-                    </p>
-                    <div className="flex items-center gap-1.5 mt-1">
-                      {episode.isSubbed && <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded" style={{ background: accentStyle(0.1), color: accentColor }}>Sub</span>}
-                      {episode.isDubbed && <span className="text-[9px] font-bold uppercase bg-[#4ade80]/10 text-[#4ade80] px-1.5 py-0.5 rounded">Dub</span>}
-                      {watched && !active && <span className="text-[9px] font-bold uppercase text-emerald-400/50">Watched</span>}
-                    </div>
-                  </div>
+                  <span className={`flex w-5 shrink-0 items-center justify-center text-[11px] font-bold ${active ? "text-white" : "text-white/42"}`}>
+                    {active ? <Play className="h-3.5 w-3.5 fill-current" aria-hidden="true" /> : `${episode.number}.`}
+                  </span>
+                  <p className={`min-w-0 flex-1 truncate text-[11px] font-semibold ${active ? "text-white" : watched ? "text-white/75" : "text-white/48"}`}>
+                    {episode.title}
+                  </p>
+                  <span className="flex shrink-0 items-center gap-1">
+                    {languageAvailability.subbed ? <span className={`rounded-[3px] px-1 text-[7px] font-black ${active ? "bg-white/85 text-black/70" : "bg-white/45 text-black/75"}`}>CC</span> : null}
+                    {languageAvailability.dubbed ? <EpisodeMicIcon className={`h-3 w-3 ${active ? "text-white" : "text-white/45"}`} /> : null}
+                  </span>
                 </button>
               );
             })}

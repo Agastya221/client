@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getAniZipEpisodeMetadata, getAnivexaEpisodeAvailabilityMetadata, getKitsuEpisodeMetadataRange, getTvMazeEpisodeMetadataRange } from "@/lib/anime/api";
+import { getAniZipEpisodeMetadata, getAnivexaEpisodeAvailabilityMetadata, getFandomEpisodeMetadataRange, getKitsuEpisodeMetadataRange, getTvMazeEpisodeMetadataRange } from "@/lib/anime/api";
 import type { EpisodeDisplayMetadata } from "@/lib/anime/episode-metadata";
 import {
   getAnilistDetail,
@@ -46,6 +46,7 @@ function mergeEpisodeMetadataSources(
       ...existing,
       title: existing.title || incoming.title,
       image: existing.image || incoming.image,
+      thumbnail: existing.thumbnail || incoming.thumbnail,
       description: existing.description || incoming.description,
       airDate: existing.airDate || incoming.airDate,
       isSubbed: incoming.isSubbed ?? existing.isSubbed,
@@ -154,11 +155,15 @@ export async function GET(request: NextRequest) {
     if (metadataOnly) {
       if (!anilistId) return NextResponse.json({ episodeMetadata: [] });
 
-      const [aniZipMetadata, tvMazeMetadata] = await Promise.all([
+      const [aniZipMetadata, tvMazeMetadata, fandomMetadata] = await Promise.all([
         getAniZipEpisodeMetadata(anilistId).catch(() => []),
         getTvMazeEpisodeMetadataRange(anilistId, episodeRangeStart).catch(() => []),
+        getFandomEpisodeMetadataRange(anilistId, episodeRangeStart).catch(() => []),
       ]);
-      let episodeMetadata = mergeEpisodeMetadataSources(aniZipMetadata, tvMazeMetadata);
+      let episodeMetadata = mergeEpisodeMetadataSources(
+        mergeEpisodeMetadataSources(aniZipMetadata, tvMazeMetadata),
+        fandomMetadata,
+      );
       const requestedEpisodes = episodeMetadata.filter(
         (episode) => episode.number > episodeRangeStart && episode.number <= episodeRangeStart + 100,
       );
@@ -175,7 +180,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const [authSession, discovery, aniZipMetadata, kitsuMetadata, tvMazeMetadata, availabilityMetadata] = await Promise.all([
+    const [authSession, discovery, aniZipMetadata, kitsuMetadata, tvMazeMetadata, fandomMetadata, availabilityMetadata] = await Promise.all([
       auth().catch(() => null),
       measureAsync(
         "route.watch_page_context",
@@ -196,6 +201,9 @@ export async function GET(request: NextRequest) {
         ? getTvMazeEpisodeMetadataRange(anilistId, episodeRangeStart).catch(() => [])
         : Promise.resolve([]),
       anilistId
+        ? getFandomEpisodeMetadataRange(anilistId, episodeRangeStart).catch(() => [])
+        : Promise.resolve([]),
+      anilistId
         ? getAnivexaEpisodeAvailabilityMetadata(anilistId).catch(() => [])
         : Promise.resolve([]),
     ]);
@@ -204,6 +212,10 @@ export async function GET(request: NextRequest) {
         mergeEpisodeMetadataSources(aniZipMetadata, kitsuMetadata),
         tvMazeMetadata,
       ),
+      fandomMetadata,
+    );
+    const episodeMetadataWithAvailability = mergeEpisodeMetadataSources(
+      episodeMetadata,
       availabilityMetadata,
     );
 
@@ -213,7 +225,7 @@ export async function GET(request: NextRequest) {
       seasons: discovery.seasons,
       related: discovery.related,
       recommendations: discovery.recommendations,
-      episodeMetadata,
+      episodeMetadata: episodeMetadataWithAvailability,
     });
   } catch (error) {
     recordLog(

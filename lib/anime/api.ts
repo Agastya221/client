@@ -1578,6 +1578,12 @@ function normalizeKitsuEpisodePayload(payload: JsonValue): EpisodeDisplayMetadat
         attributes.thumbnail?.large,
         attributes.thumbnail?.medium,
       ) || null,
+      thumbnail: pickFirstNonEmpty(
+        attributes.thumbnail?.small,
+        attributes.thumbnail?.medium,
+        attributes.thumbnail?.large,
+        attributes.thumbnail?.original,
+      ) || null,
       description: normalizeEpisodeDescription(pickFirstNonEmpty(attributes.synopsis, attributes.description)),
       airDate: pickFirstNonEmpty(attributes.airdate) || null,
     } satisfies EpisodeDisplayMetadata];
@@ -1651,6 +1657,7 @@ function normalizeTvMazeEpisodePayload(payload: unknown): EpisodeDisplayMetadata
       number: index + 1,
       title: pickFirstNonEmpty(entry?.name) || null,
       image: pickFirstNonEmpty(entry?.image?.original, entry?.image?.medium) || null,
+      thumbnail: pickFirstNonEmpty(entry?.image?.medium, entry?.image?.original) || null,
       description: normalizeEpisodeDescription(
         String(entry?.summary || "").replace(/<[^>]*>/g, " "),
       ),
@@ -1678,7 +1685,7 @@ export async function getTvMazeEpisodeMetadataRange(
   }
 
   const allEpisodes = await cacheFetch(
-    `tvmaze-episode-metadata:${anilistId}`,
+    `tvmaze-episode-metadata:v2:${anilistId}`,
     async () => {
       const { title, premiereYear } = aniZipBundle;
       if (!title) return [];
@@ -1726,6 +1733,71 @@ export async function getTvMazeEpisodeMetadataRange(
 
   return allEpisodes.filter(
     (episode) => episode.number > normalizedStart && episode.number <= normalizedStart + TVMAZE_EPISODE_RANGE_SIZE,
+  );
+}
+
+const FANDOM_EPISODE_RANGE_SIZE = 100;
+const FANDOM_API_PAGE_LIMIT = 50;
+
+/** Final artwork fallback for One Piece gaps that no catalog API currently
+ * fills. MediaWiki returns resized episode artwork, so these URLs are also
+ * appropriate for the compact episode rail. */
+export async function getFandomEpisodeMetadataRange(
+  anilistId: number,
+  rangeStart = 0,
+): Promise<EpisodeDisplayMetadata[]> {
+  if (!Number.isInteger(anilistId) || anilistId <= 0) return [];
+  const normalizedStart = Math.max(0, Math.floor(rangeStart / FANDOM_EPISODE_RANGE_SIZE) * FANDOM_EPISODE_RANGE_SIZE);
+
+  return cacheFetch(
+    `fandom-episode-artwork:v2:${anilistId}:${normalizedStart}`,
+    async () => {
+      const { title } = await getAniZipEpisodeBundle(anilistId);
+      if (normalizeText(title || "") !== "one piece") return [];
+
+      const episodeNumbers = Array.from({ length: FANDOM_EPISODE_RANGE_SIZE }, (_, index) => normalizedStart + index + 1);
+      const chunks = Array.from(
+        { length: Math.ceil(episodeNumbers.length / FANDOM_API_PAGE_LIMIT) },
+        (_, index) => episodeNumbers.slice(index * FANDOM_API_PAGE_LIMIT, (index + 1) * FANDOM_API_PAGE_LIMIT),
+      );
+      const pages = await Promise.all(chunks.map(async (numbers) => {
+        const titles = numbers.map((number) => `Episode ${number}`).join("|");
+        const url = new URL("https://onepiece.fandom.com/api.php");
+        url.searchParams.set("action", "query");
+        url.searchParams.set("prop", "pageimages");
+        url.searchParams.set("titles", titles);
+        url.searchParams.set("piprop", "thumbnail|original");
+        url.searchParams.set("pithumbsize", "360");
+        url.searchParams.set("format", "json");
+        url.searchParams.set("origin", "*");
+        try {
+          const response = await fetch(url, {
+            headers: { Accept: "application/json", "User-Agent": "Tatakai-Frontend/1.0" },
+            cache: "no-store",
+            signal: AbortSignal.timeout(5_000),
+          });
+          if (!response.ok) return [];
+          const payload = await response.json() as JsonValue;
+          return Object.values(payload?.query?.pages || {}).flatMap((page: any) => {
+            const match = String(page?.title || "").match(/^Episode\s+(\d+)$/i);
+            const number = Number(match?.[1]);
+            const image = pickFirstNonEmpty(page?.original?.source, page?.thumbnail?.source) || null;
+            const thumbnail = pickFirstNonEmpty(page?.thumbnail?.source, page?.original?.source) || null;
+            return Number.isFinite(number) && image
+              ? [{ number, title: null, image, thumbnail } satisfies EpisodeDisplayMetadata]
+              : [];
+          });
+        } catch {
+          return [];
+        }
+      }));
+      return pages.flat().sort((left, right) => left.number - right.number);
+    },
+    {
+      freshMs: 7 * 24 * 60 * 60 * 1000,
+      expireMs: 30 * 24 * 60 * 60 * 1000,
+      shouldCache: (value) => Array.isArray(value) && value.some((episode) => Boolean(episode?.image)),
+    },
   );
 }
 

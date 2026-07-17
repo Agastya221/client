@@ -4,6 +4,7 @@ export interface EpisodeDisplayMetadata {
   number: number;
   title: string | null;
   image: string | null;
+  thumbnail?: string | null;
   description?: string | null;
   airDate?: string | null;
   isSubbed?: boolean;
@@ -23,6 +24,7 @@ export function mergeEpisodeDisplayMetadataSources(
       ...existing,
       title: existing.title || incoming.title,
       image: existing.image || incoming.image,
+      thumbnail: existing.thumbnail || incoming.thumbnail,
       description: existing.description || incoming.description,
       airDate: existing.airDate || incoming.airDate,
       isSubbed: incoming.isSubbed ?? existing.isSubbed,
@@ -90,6 +92,7 @@ function mergeEpisodeDisplayMetadata(
   const image = preferProviderArtwork && episode.image
     ? episode.image
     : metadata.image || episode.image || null;
+  const thumbnail = metadata.thumbnail || episode.thumbnail || image;
   const description = normalizeEpisodeDescription(metadata.description || episode.description);
   const airDate = metadata.airDate || episode.airDate || null;
   const isSubbed = metadata.isSubbed ?? episode.isSubbed;
@@ -98,6 +101,7 @@ function mergeEpisodeDisplayMetadata(
   if (
     title === episode.title &&
     image === (episode.image || null) &&
+    thumbnail === (episode.thumbnail || episode.image || null) &&
     description === (episode.description || null) &&
     airDate === (episode.airDate || null) &&
     isSubbed === episode.isSubbed &&
@@ -110,6 +114,7 @@ function mergeEpisodeDisplayMetadata(
     ...episode,
     title,
     image,
+    thumbnail,
     description,
     airDate,
     isSubbed,

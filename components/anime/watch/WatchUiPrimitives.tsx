@@ -1,7 +1,7 @@
 "use client";
 
 import type { AnimeSeasonEntry, EpisodeModel, ServerOption } from "@/lib/anime/types";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Play } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState, useRef } from "react";
 
@@ -254,7 +254,7 @@ export function EpisodeNumberGrid({
         </div>
       )}
 
-      <div className="grid grid-cols-7 gap-1.5">
+      <div className="grid grid-cols-5 gap-1.5">
         {visibleEpisodes.map((ep) => {
           const isActive = ep.number === activeNumber;
           const isWatched = watchedSet.has(ep.number);
@@ -271,16 +271,17 @@ export function EpisodeNumberGrid({
                 ${isActive
                   ? "text-white"
                   : isWatched
-                    ? "bg-emerald-500/10 text-emerald-400/60 border border-emerald-500/15 opacity-40 hover:opacity-100 hover:bg-emerald-500/20 hover:text-emerald-400 transition-all duration-200"
+                    ? "text-white/90 border transition-all duration-200 hover:brightness-110"
                     : "bg-white/[0.06] text-white/60 hover:bg-white/12 hover:text-white border border-white/[0.06]"
                 }
               `}
-              style={isActive ? { backgroundColor: accentColor, boxShadow: `0 0 12px ${accentColor}66` } : undefined}
+              style={isActive
+                ? { backgroundColor: accentColor, boxShadow: `0 0 12px ${accentColor}66` }
+                : isWatched
+                  ? { backgroundColor: `${accentColor}99`, borderColor: `${accentColor}66` }
+                  : undefined}
             >
-              {ep.number}
-              {isWatched && !isActive && (
-                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.6)]" />
-              )}
+              {isActive ? <Play className="mx-auto h-4 w-4 fill-current" aria-hidden="true" /> : ep.number}
             </button>
           );
         })}
