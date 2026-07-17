@@ -3,7 +3,6 @@
 import CommentSection from "@/components/anime/CommentSection";
 import {
   WatchAnimeDetailsPanel,
-  WatchMobileSynopsis,
   WatchRecommendationsPanel,
 } from "@/components/anime/watch/WatchMetaPanels";
 import {
@@ -58,7 +57,6 @@ import {
   Play,
   RefreshCcw,
   Search,
-  SkipForward,
   Tv2,
 } from "lucide-react";
 import Image, { type ImageProps } from "next/image";
@@ -574,7 +572,6 @@ function WatchPreferenceToggle({
   active,
   onToggle,
   accentColor,
-  icon: Icon,
   disabled = false,
   title,
 }: {
@@ -582,7 +579,6 @@ function WatchPreferenceToggle({
   active: boolean;
   onToggle: () => void;
   accentColor: string;
-  icon: typeof Play;
   disabled?: boolean;
   title?: string;
 }) {
@@ -593,8 +589,8 @@ function WatchPreferenceToggle({
       disabled={disabled}
       onClick={onToggle}
       title={title}
-      className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-semibold text-white/45 transition-colors hover:bg-white/[0.05] hover:text-white/80 disabled:cursor-not-allowed disabled:opacity-35"
-      style={active && !disabled ? { color: accentColor } : undefined}
+      className="group inline-flex h-7 items-center gap-1.5 rounded-md px-1.5 text-[10px] font-medium text-white/40 transition-all duration-200 hover:-translate-y-px hover:bg-white/[0.07] hover:text-white/85 focus-visible:outline-none focus-visible:ring-1 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:translate-y-0 sm:h-8 sm:px-2 sm:text-[11px] sm:font-semibold"
+      style={active && !disabled ? { color: accentColor, "--tw-ring-color": `${accentColor}99` } as React.CSSProperties : undefined}
     >
       <span
         className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-white/15"
@@ -602,7 +598,6 @@ function WatchPreferenceToggle({
       >
         {active && !disabled ? <span className="h-1.5 w-1.5 rounded-[1px] bg-white" /> : null}
       </span>
-      <Icon className="h-3 w-3" aria-hidden="true" />
       {label}
     </button>
   );
@@ -678,14 +673,18 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   const [showEmbedServers, setShowEmbedServers] = useState(() => Boolean(initialSession.activeServerId && isEmbedServerOption(initialSession.activeServerId)));
   const [focusMode, setFocusMode] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
-  const [autoSkip, setAutoSkip] = useState(() => playerPrefs.getAutoSkip());
-  const [autoAdvance, setAutoAdvance] = useState(() => playerPrefs.getAutoAdvance());
-  const [autoPlay, setAutoPlay] = useState(() => playerPrefs.getAutoplay());
+  // Keep the server render and the first client render identical. Persisted
+  // browser preferences are restored immediately after hydration.
+  const [autoSkip, setAutoSkip] = useState(true);
+  const [autoAdvance, setAutoAdvance] = useState(true);
+  const [autoPlay, setAutoPlay] = useState(false);
   const [playerActivated, setPlayerActivated] = useState(false);
   const [loadedSurfaceKey, setLoadedSurfaceKey] = useState<string | null>(null);
   // Optimistic server selection: turns the button green immediately on click
   // before the embed has finished loading. Cleared when the session commits.
   const [optimisticServerId, setOptimisticServerId] = useState<string | null>(null);
+  const [optimisticDubbed, setOptimisticDubbed] = useState<boolean | null>(null);
+  const [optimisticProvider, setOptimisticProvider] = useState<ProviderId | null>(null);
   const pendingCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoverPrefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoverPrefetchKeyRef = useRef<string | null>(null);
@@ -717,6 +716,12 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [bookmarkChecked, setBookmarkChecked] = useState(false);
   const [reportStatus, setReportStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+
+  useEffect(() => {
+    setAutoSkip(playerPrefs.getAutoSkip());
+    setAutoAdvance(playerPrefs.getAutoAdvance());
+    setAutoPlay(playerPrefs.getAutoplay());
+  }, []);
 
   useEffect(() => {
     import("@/lib/anime/bookmarks").then(({ isBookmarked: getBookmarkState, ensureBookmarksHydrated, subscribeToBookmarks }) => {
@@ -1121,6 +1126,8 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     sessionRequestSeqRef.current += 1;
     setIsSessionLoading(false);
     setOptimisticServerId(null); // real server id is now in session — clear optimistic
+    setOptimisticDubbed(null);
+    setOptimisticProvider(null);
     setOptimisticEpisodeNumber(null);
 
     if (
@@ -1221,6 +1228,9 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     });
 
     if (
+      optimisticServerId === null &&
+      optimisticDubbed === null &&
+      optimisticProvider === null &&
       normalizedRequest.episodeNumber === session.episode.number &&
       normalizedRequest.provider === session.provider &&
       normalizedRequest.dubbed === session.dubbed &&
@@ -1243,6 +1253,8 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     if (normalizedRequest.episodeNumber !== session.episode.number) {
       setOptimisticEpisodeNumber(normalizedRequest.episodeNumber);
     }
+    setOptimisticDubbed(Boolean(normalizedRequest.dubbed));
+    setOptimisticProvider(normalizedRequest.provider ?? session.provider);
 
     const playbackContextChanged =
       normalizedRequest.episodeNumber !== session.episode.number ||
@@ -1322,6 +1334,8 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
           setPlaybackMessage(error instanceof Error ? error.message : "Unable to resolve worker stream.");
           setIsSessionLoading(false);
           setOptimisticServerId(null);
+          setOptimisticDubbed(null);
+          setOptimisticProvider(null);
           setOptimisticEpisodeNumber(null);
         });
       return;
@@ -1340,6 +1354,8 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
         setPlaybackMessage(error instanceof Error ? error.message : "Unable to refresh watch session.");
         setIsSessionLoading(false);
         setOptimisticServerId(null); // revert optimistic on error
+        setOptimisticDubbed(null);
+        setOptimisticProvider(null);
         setOptimisticEpisodeNumber(null);
       })
       .finally(() => undefined);
@@ -1564,9 +1580,11 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   /* ── Server buttons helper ───────────────────── */
   // Priority: optimistic click → pending staged session → committed session
   const effectiveActiveServerId = optimisticServerId || pendingSession?.activeServerId || session.activeServerId;
+  const effectiveDubbed = optimisticDubbed ?? pendingSession?.dubbed ?? session.dubbed;
+  const effectiveProvider = optimisticProvider ?? pendingSession?.provider ?? session.provider;
   const activeIsEmbedServer = Boolean(effectiveActiveServerId && isEmbedServerOption(effectiveActiveServerId));
   const embedServersOpen = showEmbedServers || activeIsEmbedServer;
-  const { isDesidub, subServers, softSubServers, hardSubServers, dubServers, hindiServers } = summarizeServerGroups(session.serverOptions);
+  const { subServers, softSubServers, hardSubServers, dubServers, hindiServers } = summarizeServerGroups(session.serverOptions);
   const effectiveActiveServer = session.serverOptions.find((entry) => entry.id === effectiveActiveServerId);
   const activeHasSoftSubtitles = !session.dubbed && session.subtitles.some((track) => Boolean(track.url));
   const activeIsHardSub = !activeHasSoftSubtitles && (
@@ -1575,7 +1593,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     (effectiveActiveServerId?.endsWith("-hard") ?? false)
   );
   const mainFallback = session.availableProviders.find((p) => p !== "desidub") || "animekai";
-  const showHindi = session.availableProviders.includes("desidub") || session.provider === "desidub";
+  const showHindi = session.availableProviders.includes("desidub") || effectiveProvider === "desidub";
 
 
   const heroImage =
@@ -1659,11 +1677,10 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
         <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar sm:flex-wrap sm:overflow-visible sm:pb-0">
           {entries.length > 0 ? entries.map((entry) => {
             const isEmbedEntry = isEmbedServerOption(entry.id);
-            const transportTag = isEmbedEntry
-              ? "Embed"
-              : entry.transport === "mp4"
-                ? "MP4"
-                : "HLS";
+            // HLS is an implementation detail, not a useful choice for the
+            // viewer. Keep the rarer MP4 distinction but remove the noisy HLS
+            // badge from every normal server button.
+            const transportTag = entry.transport === "mp4" ? "MP4" : undefined;
             return (
               <ServerButton
                 key={entry.id}
@@ -1674,8 +1691,8 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                 active={Boolean(
                   effectiveActiveServerId === entry.id &&
                   (options.provider === "desidub"
-                    ? isDesidub
-                    : Boolean(options.dubbed) === Boolean(session.dubbed) && (!options.dubbed || !isDesidub))
+                    ? effectiveProvider === "desidub"
+                    : Boolean(options.dubbed) === Boolean(effectiveDubbed) && (!options.dubbed || effectiveProvider !== "desidub"))
                 )}
                 onClick={() => queueSession({
                   episodeNumber: session.episode.number,
@@ -1998,7 +2015,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
       <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_380px] xl:items-start xl:gap-4 2xl:grid-cols-[minmax(0,1fr)_400px]">
         <div className="min-w-0">
       {/* ── VIDEO PLAYER ────────────────────────── */}
-      <div className="relative overflow-hidden border-y border-white/10 bg-black sm:rounded-t-2xl sm:border-x sm:border-b-0">
+      <div className="relative overflow-hidden rounded-xl border border-white/10 bg-black shadow-[0_12px_32px_rgba(0,0,0,0.24)] sm:rounded-2xl">
         <div className="relative aspect-video overflow-hidden bg-black">
           {!playerActivated && (embedAvailable || session.stale) ? (
             <button
@@ -2021,26 +2038,11 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                   className="object-cover"
                 />
               ) : null}
-              <span
-                className="absolute left-1/2 top-1/2 inline-flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/60 bg-white text-black shadow-[0_16px_50px_rgba(0,0,0,0.45)] transition-transform duration-300 group-hover:scale-110 sm:h-20 sm:w-20"
-              >
-                <Play className="h-7 w-7 translate-x-0.5 fill-current sm:h-8 sm:w-8" aria-hidden="true" />
+              <span className="absolute left-1/2 top-1/2 inline-flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-black/10 bg-white/95 text-black shadow-[0_10px_30px_rgba(0,0,0,0.38)] transition-all duration-200 group-hover:scale-105 group-hover:bg-white group-focus-visible:scale-105 sm:h-14 sm:w-14">
+                <Play className="h-5 w-5 translate-x-px fill-current sm:h-6 sm:w-6" aria-hidden="true" />
               </span>
-              <span className="absolute inset-x-4 bottom-4 flex items-end justify-between gap-4 sm:inset-x-6 sm:bottom-6">
-                <span className="drop-shadow-[0_2px_5px_rgba(0,0,0,0.95)]">
-                  <span className="block text-[10px] font-black uppercase tracking-[0.22em]" style={{ color: accentColor }}>
-                    Ready to watch
-                  </span>
-                  <span className="mt-1 block text-sm font-bold text-white sm:text-base">
-                    Episode {session.episode.number}{session.episode.title !== `Episode ${session.episode.number}` ? ` · ${session.episode.title}` : ""}
-                  </span>
-                </span>
-                {!embedAvailable && session.stale ? (
-                  <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/55 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-white/65 backdrop-blur-md">
-                    <span className="h-2 w-2 animate-pulse rounded-full" style={{ backgroundColor: accentColor }} />
-                    Servers loading
-                  </span>
-                ) : null}
+              <span className="absolute inset-x-4 bottom-4 block truncate text-sm font-bold text-white drop-shadow-[0_2px_5px_rgba(0,0,0,0.95)] sm:inset-x-6 sm:bottom-6 sm:text-base">
+                Episode {displayedEpisode.number}{displayedEpisode.title !== `Episode ${displayedEpisode.number}` ? ` · ${displayedEpisode.title}` : ""}
               </span>
             </button>
           ) : null}
@@ -2204,11 +2206,10 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
       </div>
 
       {/* ── WATCH CONTROLS ───────────────────────── */}
-      <div className="relative border-x border-white/10 bg-[#0d0e10] px-2 py-1 md:px-3">
-        <div className="flex items-center gap-1 overflow-x-auto hide-scrollbar sm:justify-between sm:overflow-visible">
-          <div className="flex shrink-0 flex-nowrap items-center gap-0.5">
+      <div className="relative mt-1.5 rounded-lg border border-white/10 bg-[#0d0e10] px-1.5 py-0.5 shadow-[0_8px_24px_rgba(0,0,0,0.16)] sm:px-2 sm:py-1 md:px-3">
+        <div className="flex min-h-8 items-center gap-1 overflow-hidden sm:justify-between sm:overflow-visible">
+          <div className="flex shrink-0 flex-nowrap items-center gap-2 sm:gap-1.5">
             <WatchPreferenceToggle
-              icon={Play}
               label="Autoplay"
               active={autoPlay}
               title="After your first click, automatically start the episodes you switch to"
@@ -2220,7 +2221,6 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
               }}
             />
             <WatchPreferenceToggle
-              icon={SkipForward}
               label="Auto Skip"
               active={autoSkip}
               disabled={!directAvailable}
@@ -2233,7 +2233,6 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
               }}
             />
             <WatchPreferenceToggle
-              icon={ChevronRight}
               label="Auto Next"
               active={autoAdvance}
               accentColor={accentColor}
@@ -2246,43 +2245,69 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
             <button
               type="button"
               onClick={() => setShowShortcuts((value) => !value)}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-semibold text-white/45 transition-colors hover:bg-white/[0.05] hover:text-white/80"
+              className="hidden h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-semibold text-white/45 transition-all duration-200 hover:-translate-y-px hover:bg-white/[0.07] hover:text-white/85 sm:inline-flex"
               style={showShortcuts ? { color: accentColor } : undefined}
             >
               <Keyboard className="h-3.5 w-3.5" aria-hidden="true" />
               Shortcuts
             </button>
-            <ControlBtn
-              icon={focusMode ? Minimize2 : Lightbulb}
-              label={focusMode ? "Lights On" : "Lights Off"}
-              active={focusMode}
-              accent={focusMode}
-              accentColor={accentColor}
-              onClick={() => setFocusMode((value) => !value)}
-            />
+            <span className="hidden sm:inline-flex">
+              <ControlBtn
+                icon={focusMode ? Minimize2 : Lightbulb}
+                label={focusMode ? "Lights On" : "Lights Off"}
+                active={focusMode}
+                accent={focusMode}
+                accentColor={accentColor}
+                onClick={() => setFocusMode((value) => !value)}
+              />
+            </span>
           </div>
 
           <div className="ml-auto flex shrink-0 flex-nowrap items-center gap-0.5">
-            <ControlBtn
-              icon={ChevronLeft}
-              label="Prev"
+            <button
+              type="button"
               disabled={!previousEpisode}
               onClick={() => previousEpisode && goToEpisode(previousEpisode.number)}
-            />
-            <ControlBtn
-              icon={ChevronRight}
-              label="Next"
+              aria-label="Previous episode"
+              className="inline-flex h-7 items-center gap-0.5 rounded-md px-1.5 text-[9px] font-semibold text-white/35 transition-all hover:bg-white/[0.07] hover:text-white/80 disabled:cursor-not-allowed disabled:opacity-25 sm:hidden"
+            >
+              <ChevronLeft className="h-3 w-3" aria-hidden="true" />
+              Prev
+            </button>
+            <button
+              type="button"
               disabled={!nextEpisode}
               onClick={() => nextEpisode && goToEpisode(nextEpisode.number)}
-            />
+              aria-label="Next episode"
+              className="inline-flex h-7 items-center gap-0.5 rounded-md px-1.5 text-[9px] font-semibold text-white/45 transition-all hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-25 sm:hidden"
+            >
+              {nextEpisode ? `EP ${nextEpisode.number}` : "Next"}
+              <ChevronRight className="h-3 w-3" aria-hidden="true" />
+            </button>
+            <span className="hidden sm:inline-flex">
+              <ControlBtn
+                icon={ChevronLeft}
+                label="Prev"
+                disabled={!previousEpisode}
+                onClick={() => previousEpisode && goToEpisode(previousEpisode.number)}
+              />
+              <ControlBtn
+                icon={ChevronRight}
+                label="Next"
+                disabled={!nextEpisode}
+                onClick={() => nextEpisode && goToEpisode(nextEpisode.number)}
+              />
+            </span>
             <div className="w-px h-5 bg-white/8 mx-1 hidden sm:block" />
-            <ControlBtn
-              icon={isBookmarked ? BookmarkCheck : Bookmark}
-              label={isBookmarked ? "Bookmarked" : "Bookmark"}
-              active={isBookmarked}
-              onClick={toggleBookmark}
-              disabled={!bookmarkChecked}
-            />
+            <span className="hidden sm:inline-flex">
+              <ControlBtn
+                icon={isBookmarked ? BookmarkCheck : Bookmark}
+                label={isBookmarked ? "Bookmarked" : "Bookmark"}
+                active={isBookmarked}
+                onClick={toggleBookmark}
+                disabled={!bookmarkChecked}
+              />
+            </span>
           </div>
         </div>
         {showShortcuts ? (
@@ -2296,54 +2321,44 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
       </div>
 
       {/* ── EPISODE INFO + SERVER STRIP ─────────── */}
-      <div className="relative space-y-2.5 border-x border-b border-white/10 bg-[#111214] px-3 py-3 sm:space-y-3 sm:rounded-b-2xl sm:bg-[#131315] sm:px-4 md:px-5">
+      <div className="relative mt-3 space-y-2.5 rounded-2xl border border-white/10 bg-[#111214] px-3 py-3 sm:space-y-3 sm:bg-[#131315] sm:px-4 md:px-5">
         {/* Top row: episode info + sub/dub/server */}
-        <div className="flex flex-col gap-2.5 md:flex-row md:items-center md:justify-between md:gap-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="text-xs font-medium text-white/75 sm:text-sm sm:text-white">
-              You are watching <strong>Episode {session.episode.number}</strong>
-            </span>
-            {session.episode.title && session.episode.title !== `Episode ${session.episode.number}` && (
-              <span className="text-white/40 text-xs hidden lg:inline">— {session.episode.title}</span>
-            )}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
             {/* Sub/Dub/Hindi mode toggle buttons */}
             <button
               type="button"
-              disabled={(!session.dubbed && session.provider !== "desidub") || !hasSub}
-              aria-pressed={!session.dubbed && session.provider !== "desidub"}
+              disabled={(!effectiveDubbed && effectiveProvider !== "desidub") || !hasSub}
+              aria-pressed={!effectiveDubbed && effectiveProvider !== "desidub"}
               onClick={() => {
-                if ((session.dubbed || session.provider === "desidub") && hasSub) {
+                if ((effectiveDubbed || effectiveProvider === "desidub") && hasSub) {
                   const targetEpNum = getFallbackEpisodeForLanguage(false, session.episode.number);
-                  queueSession({ episodeNumber: targetEpNum, provider: session.provider === "desidub" ? mainFallback : session.provider, server: null, dubbed: false });
+                  queueSession({ episodeNumber: targetEpNum, provider: effectiveProvider === "desidub" ? mainFallback : effectiveProvider, server: null, dubbed: false });
                 }
               }}
               className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 transition-colors ${
-                !session.dubbed && session.provider !== "desidub"
+                !effectiveDubbed && effectiveProvider !== "desidub"
                   ? "cursor-default pointer-events-none"
                   : !hasSub
                     ? "opacity-30 cursor-not-allowed bg-white/5 text-white/30 border border-white/5"
                     : "bg-white/5 text-white/50 border border-white/8 hover:bg-white/10 hover:text-white/70 cursor-pointer"
               }`}
-              style={!session.dubbed && session.provider !== "desidub" ? { background: accentStyle(0.15), color: accentColor, border: `1px solid ${accentStyle(0.25)}`, boxShadow: `0 0 8px ${accentStyle(0.15)}` } : undefined}
+              style={!effectiveDubbed && effectiveProvider !== "desidub" ? { background: accentStyle(0.15), color: accentColor, border: `1px solid ${accentStyle(0.25)}`, boxShadow: `0 0 8px ${accentStyle(0.15)}` } : undefined}
             >
               <Captions className="w-3 h-3" aria-hidden="true" />
               Sub
             </button>
             <button
               type="button"
-              disabled={(session.dubbed && session.provider !== "desidub") || !hasDub}
-              aria-pressed={session.dubbed && session.provider !== "desidub"}
+              disabled={(effectiveDubbed && effectiveProvider !== "desidub") || !hasDub}
+              aria-pressed={effectiveDubbed && effectiveProvider !== "desidub"}
               onClick={() => {
-                if ((!session.dubbed || session.provider === "desidub") && hasDub) {
+                if ((!effectiveDubbed || effectiveProvider === "desidub") && hasDub) {
                   const targetEpNum = getFallbackEpisodeForLanguage(true, session.episode.number);
-                  queueSession({ episodeNumber: targetEpNum, provider: session.provider === "desidub" ? mainFallback : session.provider, server: null, dubbed: true });
+                  queueSession({ episodeNumber: targetEpNum, provider: effectiveProvider === "desidub" ? mainFallback : effectiveProvider, server: null, dubbed: true });
                 }
               }}
               className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 transition-colors ${
-                session.dubbed && session.provider !== "desidub"
+                effectiveDubbed && effectiveProvider !== "desidub"
                   ? "bg-[#4ade80]/15 text-[#4ade80] border border-[#4ade80]/25 shadow-[0_0_8px_rgba(74,222,128,0.15)] cursor-default pointer-events-none"
                   : !hasDub
                     ? "opacity-30 cursor-not-allowed bg-white/5 text-white/30 border border-white/5"
@@ -2356,16 +2371,16 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
             {showHindi && (
               <button
                 type="button"
-                disabled={session.provider === "desidub"}
-                aria-pressed={session.provider === "desidub"}
+                disabled={effectiveProvider === "desidub"}
+                aria-pressed={effectiveProvider === "desidub"}
                 onClick={() => {
-                  if (session.provider !== "desidub") {
+                  if (effectiveProvider !== "desidub") {
                     const targetEpNum = getFallbackEpisodeForLanguage(true, session.episode.number);
                     queueSession({ episodeNumber: targetEpNum, provider: "desidub", server: null, dubbed: true });
                   }
                 }}
                 className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 transition-colors ${
-                  session.provider === "desidub"
+                  effectiveProvider === "desidub"
                     ? "bg-[#ff5500]/15 text-[#ff5500] border border-[#ff5500]/25 shadow-[0_0_8px_rgba(255,85,0,0.15)] cursor-default pointer-events-none"
                     : "bg-white/5 text-white/50 border border-white/8 hover:bg-white/10 hover:text-white/70 cursor-pointer"
                 }`}
@@ -2374,7 +2389,6 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                 Hindi
               </button>
             )}
-          </div>
         </div>
 
         {/* Server panel — Anivexa-style grouping, AnimePlay theme */}
@@ -2503,8 +2517,6 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
         </div>
 
         <div className="space-y-4 px-3 sm:space-y-5 sm:px-0 xl:hidden">
-          <WatchMobileSynopsis session={session} detail={deferredDetail} />
-
           <CommentSection
             animeId={session.anime.id}
             episodeNumber={session.episode.number}

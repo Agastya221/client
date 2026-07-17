@@ -127,24 +127,6 @@ function SafeArtwork({
   );
 }
 
-export function WatchMobileSynopsis({
-  session,
-  detail,
-}: {
-  session: WatchSessionModel;
-  detail?: AnilistMedia | null;
-}) {
-  const synopsis = cleanDescription(detail?.description || session.anime.description);
-
-  if (!synopsis) return null;
-
-  return (
-    <section className="rounded-2xl border border-white/10 bg-[#0f1012] px-4 py-4 sm:hidden">
-      <p className="line-clamp-6 text-[13px] leading-[1.45rem] text-white/48">{synopsis}</p>
-    </section>
-  );
-}
-
 export function WatchAnimeDetailsPanel({
   session,
   heroImage,

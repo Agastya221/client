@@ -29,9 +29,9 @@ export function ControlBtn({
       onClick={onClick}
       aria-label={label}
       className={`
-        flex items-center justify-center gap-1.5 p-2.5 sm:px-2.5 sm:py-1.5 text-[11px] font-semibold tracking-wide transition-colors
+        flex items-center justify-center gap-1.5 p-2.5 sm:px-2.5 sm:py-1.5 text-[11px] font-semibold tracking-wide transition-all duration-200
         rounded-md select-none whitespace-nowrap min-w-[2.5rem] min-h-[2.5rem] sm:min-w-0 sm:min-h-0
-        ${disabled ? "opacity-30 cursor-not-allowed" : "cursor-pointer hover:bg-white/8"}
+        ${disabled ? "opacity-30 cursor-not-allowed" : "cursor-pointer hover:-translate-y-px hover:bg-white/8 hover:text-white active:translate-y-0 active:scale-[0.98]"}
         ${active && !accent ? "text-white" : !active ? "text-white/60" : ""}
       `}
       style={active && accent && accentColor ? { color: accentColor } : undefined}
@@ -62,16 +62,16 @@ export function ServerButton({
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-[10px] font-bold transition-all sm:text-[11px] ${
+      className={`inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-[10px] font-bold transition-all duration-200 focus-visible:outline-none focus-visible:ring-1 sm:text-[11px] ${
         active
           ? "text-white shadow-[0_0_0_1px_rgba(255,255,255,0.08)]"
-          : "bg-white/[0.04] text-white/62 border-white/10 hover:bg-white/[0.08] hover:text-white hover:border-white/20"
+          : "bg-white/[0.04] text-white/62 border-white/10 hover:-translate-y-px hover:bg-white/[0.09] hover:text-white hover:border-white/25 hover:shadow-[0_8px_20px_rgba(0,0,0,0.24)] active:translate-y-0 active:scale-[0.98]"
       }`}
       style={active ? {
         background: `${accentColor}24`,
         borderColor: `${accentColor}88`,
         boxShadow: `0 0 0 1px ${accentColor}30, 0 0 18px ${accentColor}18`,
-      } : undefined}
+      } : { "--tw-ring-color": `${accentColor}88` } as React.CSSProperties}
     >
       <span className="truncate">{label}</span>
       {tag && (
