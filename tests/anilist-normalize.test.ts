@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildAnilistSeasonEntries,
+  filterAnilistMediaByPartialTitle,
   getAnilistFranchiseSeasonEntries,
   normalizeAnilistMediaCollection,
   normalizeAnilistPageInfo,
@@ -79,6 +80,27 @@ test("normalizeAnilistPageInfo provides safe defaults for partial pageInfo paylo
   assert.equal(pageInfo.total, 0);
   assert.equal(pageInfo.perPage, 24);
   assert.equal(pageInfo.hasNextPage, false);
+});
+
+test("partial title matching finds short prefixes across titles and synonyms", () => {
+  const vinland = mediaFixture(101348, 2019);
+  vinland.title = { romaji: "Vinland Saga", english: "Vinland Saga", native: "ヴィンランド・サガ" };
+  vinland.popularity = 900;
+
+  const unrelated = mediaFixture(20, 2020);
+  unrelated.title = { romaji: "Another Show", english: "Another Show", native: "Another Show" };
+  unrelated.synonyms = ["Northern Adventure"];
+  unrelated.popularity = 1_000;
+
+  const synonymMatch = mediaFixture(30, 2021);
+  synonymMatch.title = { romaji: "Saga Test", english: null, native: "Saga Test" };
+  synonymMatch.synonyms = ["Vinsmoke Story"];
+  synonymMatch.popularity = 100;
+
+  assert.deepEqual(
+    filterAnilistMediaByPartialTitle([unrelated, synonymMatch, vinland], "vin").map((media) => media.id),
+    [vinland.id, synonymMatch.id],
+  );
 });
 
 test("buildAnilistSeasonEntries orders the franchise, dedupes media, and excludes non-anime sources", () => {

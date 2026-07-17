@@ -336,6 +336,55 @@ export function anilistTitle(media: AnilistMedia): string {
   return media.title.english || media.title.romaji;
 }
 
+function normalizeCatalogSearchText(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/**
+ * AniList's search can return no matches for very short prefixes such as
+ * "vin". Rank a cached catalog pool locally so autocomplete and the full
+ * search page still behave like prefix search without guessing a title.
+ */
+export function filterAnilistMediaByPartialTitle(
+  media: AnilistMedia[],
+  rawQuery: string,
+  limit = 24,
+): AnilistMedia[] {
+  const query = normalizeCatalogSearchText(rawQuery);
+  if (query.length < 2) return [];
+
+  return media
+    .flatMap((entry) => {
+      const titles = [
+        entry.title.english,
+        entry.title.romaji,
+        entry.title.native,
+        ...(entry.synonyms || []),
+      ]
+        .filter((title): title is string => Boolean(title))
+        .map(normalizeCatalogSearchText)
+        .filter(Boolean);
+
+      const score = titles.reduce((best, title) => {
+        if (title === query) return Math.min(best, 0);
+        if (title.startsWith(query)) return Math.min(best, 1);
+        if (title.split(" ").some((word) => word.startsWith(query))) return Math.min(best, 2);
+        if (title.includes(query)) return Math.min(best, 3);
+        return best;
+      }, Number.POSITIVE_INFINITY);
+
+      return Number.isFinite(score) ? [{ entry, score }] : [];
+    })
+    .sort((left, right) => left.score - right.score || right.entry.popularity - left.entry.popularity)
+    .slice(0, Math.max(1, limit))
+    .map(({ entry }) => entry);
+}
+
 export function anilistRating(media: AnilistMedia): string | null {
   const score = media.averageScore ?? media.meanScore;
   return score ? (score / 10).toFixed(1) : null;
@@ -1129,7 +1178,7 @@ export async function searchAnilist(options: {
     options.format || "",
   ].join(":");
 
-  return withCatalogFallback(
+  const result = await withCatalogFallback(
     "search",
     () => cacheFetch(
       cacheKey,
@@ -1178,6 +1227,33 @@ export async function searchAnilist(options: {
       },
     ),
   );
+
+  const shortQuery = normalizeCatalogSearchText(options.search || "");
+  if (result.media.length > 0 || shortQuery.length < 2 || shortQuery.length > 3 || page > 1) {
+    return result;
+  }
+
+  const catalogPool = await searchAnilist({
+    genre: options.genre,
+    page: 1,
+    perPage: 50,
+    sort: ["POPULARITY_DESC"],
+    status: options.status,
+    format: options.format,
+  });
+  const partialMatches = filterAnilistMediaByPartialTitle(catalogPool.media, shortQuery, perPage);
+  if (partialMatches.length === 0) return result;
+
+  return {
+    media: partialMatches,
+    pageInfo: {
+      total: partialMatches.length,
+      currentPage: 1,
+      lastPage: 1,
+      hasNextPage: false,
+      perPage,
+    },
+  };
 }
 
 export async function getAnilistGenres(): Promise<string[]> {
