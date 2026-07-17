@@ -2,6 +2,7 @@
 
 import { prefetchClientStream } from "@/lib/anime/client-stream-resolver";
 import type { ProviderId } from "@/lib/anime/types";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
 
 /**
@@ -24,13 +25,16 @@ export default function StreamPrefetch({
   provider = "anikoto",
   dubbed = false,
   server = null,
+  href = null,
 }: {
   animeId: string;
   episodeNumber?: number;
   provider?: ProviderId;
   dubbed?: boolean;
   server?: string | null;
+  href?: string | null;
 }) {
+  const router = useRouter();
   const firedRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -38,12 +42,14 @@ export default function StreamPrefetch({
     if (firedRef.current === key) return;
     firedRef.current = key;
 
+    if (href) router.prefetch(href);
+
     const timer = window.setTimeout(() => {
       prefetchClientStream({ animeId, episodeNumber, provider, dubbed, server });
     }, 150);
 
     return () => window.clearTimeout(timer);
-  }, [animeId, dubbed, episodeNumber, provider, server]);
+  }, [animeId, dubbed, episodeNumber, href, provider, router, server]);
 
   return null;
 }

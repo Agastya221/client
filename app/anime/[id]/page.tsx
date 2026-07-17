@@ -116,7 +116,11 @@ async function AnilistDetailContent({
 
   return (
     <>
-      <StreamPrefetch animeId={routeId} episodeNumber={fromAiring ? latestEpisode : 1} />
+      <StreamPrefetch
+        animeId={routeId}
+        episodeNumber={fromAiring ? latestEpisode : 1}
+        href={watchHref}
+      />
 
       {/* Hero Section */}
       <section className="relative overflow-hidden">

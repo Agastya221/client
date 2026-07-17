@@ -150,6 +150,7 @@ export async function GET(request: NextRequest) {
   const requestedStart = Math.max(0, Number.parseInt(searchParams.get("episodeStart") || "0", 10) || 0);
   const episodeRangeStart = Math.floor(requestedStart / 100) * 100;
   const metadataOnly = searchParams.get("metadataOnly") === "1";
+  const discoveryOnly = searchParams.get("discoveryOnly") === "1";
 
   try {
     if (metadataOnly) {
@@ -177,6 +178,31 @@ export async function GET(request: NextRequest) {
         episodeMetadata: episodeMetadata.filter(
           (episode) => episode.number > episodeRangeStart && episode.number <= episodeRangeStart + 100,
         ),
+      });
+    }
+
+    if (discoveryOnly) {
+      const [authSession, discovery] = await Promise.all([
+        auth().catch(() => null),
+        measureAsync(
+          "route.watch_page_context",
+          {
+            route: "/api/watch-page-context",
+            mode: "discovery",
+            hasAnilistId: anilistId ? "true" : "false",
+            hasTitle: title ? "true" : "false",
+          },
+          () => fetchWatchDiscovery(anilistId, title, genres),
+        ),
+      ]);
+
+      return NextResponse.json({
+        currentUserId: authSession?.user?.id ?? null,
+        detail: discovery.detail,
+        seasons: discovery.seasons,
+        related: discovery.related,
+        recommendations: discovery.recommendations,
+        episodeMetadata: [],
       });
     }
 

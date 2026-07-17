@@ -1,6 +1,5 @@
 "use client";
 
-import VideoPlayer from "@/components/anime/watch/VideoPlayer";
 import CommentSection from "@/components/anime/CommentSection";
 import {
   WatchAnimeDetailsPanel,
@@ -63,8 +62,23 @@ import {
   Tv2,
 } from "lucide-react";
 import Image, { type ImageProps } from "next/image";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
+
+const VideoPlayer = dynamic(
+  () => import("@/components/anime/watch/VideoPlayer"),
+  {
+    ssr: false,
+    loading: () => (
+      <div
+        className="absolute inset-0 bg-black"
+        role="status"
+        aria-label="Loading player"
+      />
+    ),
+  },
+);
 
 const EPISODE_PAGE_SIZE = 100;
 const EPISODE_DATE_FORMATTER = new Intl.DateTimeFormat("en-GB", {
@@ -660,7 +674,6 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   const [episodeMetadataLoading, setEpisodeMetadataLoading] = useState(false);
   const [optimisticEpisodeNumber, setOptimisticEpisodeNumber] = useState<number | null>(null);
   const [, setWatchHistoryVersion] = useState(0);
-  const watchContextLoadedRef = useRef(false);
   const [episodeView, setEpisodeView] = useState<"grid" | "list" | "cards">("cards");
   const [showEmbedServers, setShowEmbedServers] = useState(() => Boolean(initialSession.activeServerId && isEmbedServerOption(initialSession.activeServerId)));
   const [focusMode, setFocusMode] = useState(false);
@@ -863,17 +876,18 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     };
   }, []);
 
+  // Episode artwork is useful immediately, but it must never hold back the
+  // watch shell. Fetch only the active 100-episode range after hydration.
   useEffect(() => {
-    const params = new URLSearchParams();
-    if (session.anime.anilistId) params.set("anilistId", String(session.anime.anilistId));
-    if (session.anime.title) params.set("title", session.anime.title);
-    if (animeGenresKey) params.set("genres", animeGenresKey.replaceAll("|", ","));
-    params.set("episodeStart", String(episodeRangeStart));
-    const metadataOnly = watchContextLoadedRef.current;
-    if (metadataOnly) params.set("metadataOnly", "1");
+    if (!session.anime.anilistId) return;
 
+    const params = new URLSearchParams({
+      anilistId: String(session.anime.anilistId),
+      episodeStart: String(episodeRangeStart),
+      metadataOnly: "1",
+    });
     const controller = new AbortController();
-    if (metadataOnly) setEpisodeMetadataLoading(true);
+    setEpisodeMetadataLoading(true);
 
     void fetch(`/api/watch-page-context?${params.toString()}`, {
       cache: "no-store",
@@ -884,11 +898,6 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
           throw new Error(`Watch page context failed with ${response.status}`);
         }
         return response.json() as Promise<{
-          currentUserId?: string | null;
-          detail?: AnilistMedia | null;
-          seasons?: AnilistSeasonEntry[];
-          related?: RelatedAnimeEntry[];
-          recommendations?: AnilistMedia[];
           episodeMetadata?: EpisodeDisplayMetadata[];
         }>;
       })
@@ -909,30 +918,62 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
               ? mergeEpisodeMetadataIntoWatchSession(current, combinedMetadata)
               : current);
         }
-        if (!metadataOnly) {
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!controller.signal.aborted) setEpisodeMetadataLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [episodeRangeStart, session.anime.anilistId, session.anime.id]);
+
+  // Seasons, recommendations, auth state, and related anime are below the
+  // fold. Let the poster, controls, and source resolver get the first network
+  // turn, then fill these panels independently.
+  useEffect(() => {
+    const params = new URLSearchParams({ discoveryOnly: "1" });
+    if (session.anime.anilistId) params.set("anilistId", String(session.anime.anilistId));
+    if (session.anime.title) params.set("title", session.anime.title);
+    if (animeGenresKey) params.set("genres", animeGenresKey.replaceAll("|", ","));
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void fetch(`/api/watch-page-context?${params.toString()}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      })
+        .then(async (response) => {
+          if (!response.ok) throw new Error(`Watch discovery failed with ${response.status}`);
+          return response.json() as Promise<{
+            currentUserId?: string | null;
+            detail?: AnilistMedia | null;
+            seasons?: AnilistSeasonEntry[];
+            related?: RelatedAnimeEntry[];
+            recommendations?: AnilistMedia[];
+          }>;
+        })
+        .then((payload) => {
+          if (controller.signal.aborted) return;
           setDeferredDetail(payload.detail ?? null);
           setDeferredSeasons(payload.seasons ?? []);
           setDeferredRelated(payload.related ?? []);
           setDeferredRecommendations(payload.recommendations ?? []);
           setResolvedCurrentUserId(payload.currentUserId ?? null);
-          watchContextLoadedRef.current = true;
-        }
-      })
-      .catch(() => {
-        if (controller.signal.aborted) return;
-        if (!metadataOnly) {
+        })
+        .catch(() => {
+          if (controller.signal.aborted) return;
           setDeferredDetail(null);
           setDeferredSeasons([]);
           setDeferredRelated((current) => current ?? []);
           setDeferredRecommendations((current) => current ?? []);
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted && metadataOnly) setEpisodeMetadataLoading(false);
-      });
+        });
+    }, 350);
 
-    return () => controller.abort();
-  }, [animeGenresKey, episodeRangeStart, session.anime.anilistId, session.anime.id, session.anime.title]);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [animeGenresKey, session.anime.anilistId, session.anime.id, session.anime.title]);
 
   /* ── Watch history tracking ─────────────────── */
   useEffect(() => {

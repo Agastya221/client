@@ -7,12 +7,28 @@ import { useState, useEffect, useRef } from "react";
 import UserMenu from "@/components/ui/UserMenu";
 import { type AnilistMedia, anilistTitle, anilistFormat, anilistYear, encodeAnilistRouteId } from "@/lib/anilist/api";
 
+type NavbarUser = {
+  name?: string | null;
+  email?: string | null;
+  image?: string | null;
+};
+
 interface NavbarClientProps {
-  user: {
-    name?: string | null;
-    email?: string | null;
-    image?: string | null;
-  } | null;
+  user: NavbarUser | null;
+}
+
+let navbarSessionPromise: Promise<NavbarUser | null> | null = null;
+
+function loadNavbarSession(): Promise<NavbarUser | null> {
+  if (!navbarSessionPromise) {
+    navbarSessionPromise = fetch("/api/auth/session", { credentials: "same-origin" })
+      .then(async (response) => response.ok
+        ? response.json() as Promise<{ user?: NavbarUser | null }>
+        : { user: null })
+      .then((session) => session.user ?? null)
+      .catch(() => null);
+  }
+  return navbarSessionPromise;
 }
 
 const NAV_LINKS = [
@@ -29,6 +45,7 @@ const NAV_LINKS = [
 export default function NavbarClient({ user }: NavbarClientProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const [resolvedUser, setResolvedUser] = useState<NavbarUser | null>(user);
   const [searchValue, setSearchValue] = useState("");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileSearchActive, setMobileSearchActive] = useState(false);
@@ -40,6 +57,21 @@ export default function NavbarClient({ user }: NavbarClientProps) {
   const desktopSearchRef = useRef<HTMLDivElement>(null);
   const mobileHeaderSearchRef = useRef<HTMLDivElement>(null);
   const mobileHeaderInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (user) {
+      setResolvedUser(user);
+      return;
+    }
+
+    let cancelled = false;
+    void loadNavbarSession().then((sessionUser) => {
+      if (!cancelled) setResolvedUser(sessionUser);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   // Focus mobile header search input when activated
   useEffect(() => {
@@ -55,6 +87,16 @@ export default function NavbarClient({ user }: NavbarClientProps) {
     setMobileMenuOpen(false);
     setMobileSearchActive(false);
   }, [pathname]);
+
+  // The logo is the most common exit from detail/watch pages. Warm the home
+  // RSC payload once the current page is idle so the click can swap screens
+  // immediately without competing with the critical player request.
+  useEffect(() => {
+    if (pathname === "/") return;
+
+    const timer = window.setTimeout(() => router.prefetch("/"), 1_200);
+    return () => window.clearTimeout(timer);
+  }, [pathname, router]);
 
   // Prevent body scroll when menu is open
   useEffect(() => {
@@ -378,7 +420,7 @@ export default function NavbarClient({ user }: NavbarClientProps) {
               <Link href="/random" className="hover:text-white transition-colors" aria-label="Random anime">
                 <Shuffle className="w-4 h-4" aria-hidden="true" />
               </Link>
-              <UserMenu user={user} />
+              <UserMenu user={resolvedUser} />
             </div>
           </div>
 
@@ -392,7 +434,7 @@ export default function NavbarClient({ user }: NavbarClientProps) {
             >
               <Search className="w-4 h-4 text-white/60" aria-hidden="true" />
             </button>
-            <UserMenu user={user} />
+            <UserMenu user={resolvedUser} />
             {!isWatchPage ? (
               <button
                 type="button"

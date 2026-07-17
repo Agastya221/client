@@ -3045,8 +3045,11 @@ async function _getAnimeDetailModelRaw(
     const activeProviderId =
       detail.anime.providerIds[detail.activeProvider] || detail.anime.providerId;
 
-    // For anilist: passthrough IDs, use synthetic episodes from AniList data
-    const anilistPassId = activeProviderId ? parseAnilistPassthroughId(activeProviderId) : null;
+    // The overview fast path maps AniList routes to direct worker provider IDs,
+    // so inspect the route itself before the mapped provider ID. This keeps the
+    // lightweight path synthetic and avoids a cold provider episode scrape.
+    const anilistPassId = parseAnilistPassthroughId(routeId)
+      ?? (activeProviderId ? parseAnilistPassthroughId(activeProviderId) : null);
     const episodes = anilistPassId !== null
       ? await buildSyntheticEpisodesFromAnilist(anilistPassId)
       : activeProviderId
@@ -5518,9 +5521,10 @@ export async function getQuickWatchSession(input: {
   dubbed?: boolean;
   server?: string | null;
 }): Promise<WatchSessionModel> {
+  const isAnilistWatchShell = parseAnilistPassthroughId(input.animeId) !== null;
   const detail = await getAnimeDetailModel(input.animeId, input.provider || null, {
-    resolveProviderFallbacks: true,
-    mergeEpisodeProviders: true,
+    resolveProviderFallbacks: !isAnilistWatchShell,
+    mergeEpisodeProviders: !isAnilistWatchShell,
   });
   const preferredProvider = input.provider || detail.activeProvider;
   const targetEpisode =
@@ -5581,11 +5585,7 @@ export async function getQuickWatchSession(input: {
   }
   const targetEpisode2 = resolvedTargetEpisode;
 
-  const isDefaultAnilistWatch =
-    parseAnilistPassthroughId(input.animeId) !== null &&
-    (!input.server || input.server === "auto");
-
-  if (isDefaultAnilistWatch) {
+  if (isAnilistWatchShell) {
     return {
       anime: detail.anime,
       episode: targetEpisode2,
@@ -5602,7 +5602,7 @@ export async function getQuickWatchSession(input: {
       source: null,
       subtitles: [],
       serverOptions: appendCustomEmbedServers([], detail.anime, preferredProvider),
-      activeServerId: null,
+      activeServerId: input.server && input.server !== "auto" ? input.server : null,
       dubbed: Boolean(input.dubbed),
       fallbackHistory: [],
       stale: true,
