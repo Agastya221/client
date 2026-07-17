@@ -4,6 +4,7 @@ import VideoPlayer from "@/components/anime/watch/VideoPlayer";
 import CommentSection from "@/components/anime/CommentSection";
 import {
   WatchAnimeDetailsPanel,
+  WatchMobileSynopsis,
   WatchRecommendationsPanel,
 } from "@/components/anime/watch/WatchMetaPanels";
 import {
@@ -23,6 +24,7 @@ import type {
 } from "@/lib/anime/types";
 import {
   getEpisodeArtworkUrl,
+  mergeEpisodeDisplayMetadataSources,
   mergeEpisodeMetadataIntoWatchSession,
   normalizeEpisodeDescription,
   resolveEpisodeLanguageAvailability,
@@ -647,7 +649,10 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   const [isSessionLoading, setIsSessionLoading] = useState(false);
   const [playbackMessage, setPlaybackMessage] = useState<string | null>(initialSession.message || null);
   const [episodeQuery, setEpisodeQuery] = useState("");
-  const [episodeRangeStart, setEpisodeRangeStart] = useState(0);
+  const [episodeRangeStart, setEpisodeRangeStart] = useState(() => {
+    const activeIndex = initialSession.episodes.findIndex((episode) => episode.number === initialSession.episode.number);
+    return Math.floor(Math.max(0, activeIndex) / EPISODE_PAGE_SIZE) * EPISODE_PAGE_SIZE;
+  });
   const [episodeView, setEpisodeView] = useState<"grid" | "list" | "cards">("cards");
   const [showEmbedServers, setShowEmbedServers] = useState(() => Boolean(initialSession.activeServerId && isEmbedServerOption(initialSession.activeServerId)));
   const [focusMode, setFocusMode] = useState(false);
@@ -844,6 +849,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     if (session.anime.anilistId) params.set("anilistId", String(session.anime.anilistId));
     if (session.anime.title) params.set("title", session.anime.title);
     if (animeGenresKey) params.set("genres", animeGenresKey.replaceAll("|", ","));
+    params.set("episodeStart", String(episodeRangeStart));
 
     const controller = new AbortController();
 
@@ -867,14 +873,18 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
       .then((payload) => {
         if (controller.signal.aborted) return;
         const episodeMetadata = payload.episodeMetadata ?? [];
+        const previousMetadata = episodeMetadataRef.current?.animeId === session.anime.id
+          ? episodeMetadataRef.current.entries
+          : [];
+        const combinedMetadata = mergeEpisodeDisplayMetadataSources(previousMetadata, episodeMetadata);
         episodeMetadataRef.current = {
           animeId: session.anime.id,
-          entries: episodeMetadata,
+          entries: combinedMetadata,
         };
         if (episodeMetadata.length > 0) {
           setSession((current) =>
             current.anime.id === session.anime.id
-              ? mergeEpisodeMetadataIntoWatchSession(current, episodeMetadata)
+              ? mergeEpisodeMetadataIntoWatchSession(current, combinedMetadata)
               : current);
         }
         setDeferredDetail(payload.detail ?? null);
@@ -892,7 +902,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
       });
 
     return () => controller.abort();
-  }, [animeGenresKey, session.anime.anilistId, session.anime.id, session.anime.title]);
+  }, [animeGenresKey, episodeRangeStart, session.anime.anilistId, session.anime.id, session.anime.title]);
 
   /* ── Watch history tracking ─────────────────── */
   useEffect(() => {
@@ -1505,9 +1515,9 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   ) => {
     if (entries.length === 0 && !options.emptyLabel) return null;
     return (
-      <div className="grid gap-2 sm:grid-cols-[92px_1fr] sm:items-center">
-        <span className="text-[11px] font-bold text-white/45 sm:text-right">{label}:</span>
-        <div className="flex flex-wrap gap-2">
+      <div className="grid gap-1.5 sm:grid-cols-[92px_1fr] sm:items-center sm:gap-2">
+        <span className="text-[9px] font-black uppercase tracking-[0.12em] text-white/35 sm:text-right sm:text-[11px] sm:normal-case sm:tracking-normal">{label}</span>
+        <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar sm:flex-wrap sm:overflow-visible sm:pb-0">
           {entries.length > 0 ? entries.map((entry) => {
             const isEmbedEntry = isEmbedServerOption(entry.id);
             const transportTag = isEmbedEntry
@@ -1556,8 +1566,8 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
 
   const episodePanel = (
     <div className="watch-episode-panel overflow-hidden rounded-2xl border border-white/10 bg-[#0f1012]">
-      <div className="border-b border-white/5 px-4 py-3 space-y-3">
-        <div className="flex items-start justify-between gap-3">
+      <div className="space-y-3 border-b border-white/5 p-3 sm:px-4 sm:py-3">
+        <div className="hidden items-start justify-between gap-3 sm:flex">
           <div>
             <h2 className="text-sm font-bold text-white">Episodes</h2>
             <p className="mt-0.5 text-[11px] text-white/35">
@@ -1576,7 +1586,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
             onClick={() => goToEpisode(nextEpisode.number)}
             onMouseEnter={() => prefetchEpisode(nextEpisode.number)}
             onFocus={() => prefetchEpisode(nextEpisode.number)}
-            className="w-full rounded-xl border px-3 py-2.5 text-left transition-all hover:brightness-110"
+            className="hidden w-full rounded-xl border px-3 py-2.5 text-left transition-all hover:brightness-110 sm:block"
             style={{ background: accentStyle(0.1), borderColor: accentStyle(0.28) }}
           >
             <div className="flex items-center justify-between gap-3">
@@ -1591,7 +1601,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
             </p>
           </button>
         ) : (
-          <div className="rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2.5">
+          <div className="hidden rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2.5 sm:block">
             <p className="text-[10px] font-black uppercase tracking-widest text-white/35">Latest available episode</p>
             <p className="mt-1 text-sm font-bold text-white">You are caught up</p>
           </div>
@@ -1624,7 +1634,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
               placeholder="Filter episodes..."
               value={episodeQuery}
               onChange={(e) => setEpisodeQuery(e.target.value)}
-              className="w-full bg-white/[0.04] border border-white/8 rounded-xl text-sm text-white/80 pl-9 pr-3 py-2.5 outline-none focus:border-white/18"
+              className="h-10 w-full rounded-xl border border-white/8 bg-white/[0.04] py-2 pl-9 pr-3 text-xs text-white/80 outline-none focus:border-white/18 sm:text-sm"
             />
           </div>
           <div className="flex h-10 overflow-hidden rounded-xl border border-white/8 bg-white/[0.03]">
@@ -1649,13 +1659,13 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
         </div>
       </div>
 
-      <div className="watch-episode-panel-body px-3 py-3">
+      <div className="watch-episode-panel-body p-2 sm:px-3 sm:py-3">
         {filteredEpisodes.length === 0 ? (
           <p className="text-white/40 text-sm text-center py-4">
             {`No episodes match "${episodeQuery}"`}
           </p>
         ) : episodeView === "cards" ? (
-          <div className="watch-episode-scroll h-full space-y-2 overflow-y-auto pr-1 hide-scrollbar">
+          <div className="watch-episode-scroll max-h-[244px] space-y-1.5 overflow-y-auto pr-1 hide-scrollbar sm:h-full sm:max-h-none sm:space-y-2">
             {visibleEpisodes.map((episode, visibleIndex) => {
               const active = episode.number === session.episode.number;
               const watched = watchedEpisodes.has(episode.number);
@@ -1679,13 +1689,13 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                   onMouseEnter={() => prefetchEpisode(episode.number)}
                   onFocus={() => prefetchEpisode(episode.number)}
                   data-active-episode={active ? "true" : undefined}
-                  className="group/episode relative flex h-[100px] w-full gap-0 overflow-hidden rounded-[11px] border text-left transition-colors"
+                  className={`group/episode relative flex w-full gap-0 overflow-hidden rounded-[11px] border text-left transition-colors ${episodeArtwork ? "h-[76px] sm:h-[100px]" : "h-[58px] sm:h-[68px]"}`}
                   style={active
                     ? { borderColor: accentStyle(0.95), background: accentStyle(0.68) }
                     : { borderColor: "rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.02)" }}
                 >
                   {episodeArtwork ? (
-                    <div className="relative h-full w-[42%] shrink-0 overflow-hidden rounded-[10px] bg-black">
+                    <div className="relative h-full w-[34%] shrink-0 overflow-hidden rounded-[10px] bg-black sm:w-[42%]">
                       <SafeWatchImage
                         src={episodeArtwork}
                         fill
@@ -1693,7 +1703,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                         loading={eagerArtwork ? "eager" : "lazy"}
                         fetchPriority={eagerArtwork ? "high" : "auto"}
                         quality={90}
-                        sizes="(min-width: 1280px) 160px, 38vw"
+                        sizes="(max-width: 639px) 34vw, (min-width: 1280px) 160px, 38vw"
                         unoptimized
                         className="object-cover transition-transform duration-300 group-hover/episode:scale-[1.025]"
                       />
@@ -1701,13 +1711,19 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                         EP {episode.number}
                       </span>
                     </div>
-                  ) : null}
-                  <div className="flex min-w-0 flex-1 flex-col px-2 py-2">
-                    <p className="line-clamp-1 text-[12px] font-bold leading-4 text-white/85 group-hover/episode:text-white">
+                  ) : (
+                    <div className="flex w-12 shrink-0 items-center justify-center border-r border-white/[0.05] bg-white/[0.015] sm:w-14">
+                      <span className="rounded-md bg-white/[0.08] px-1.5 py-1 text-[9px] font-black text-white/55">
+                        EP {episode.number}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex min-w-0 flex-1 flex-col px-2 py-1.5 sm:py-2">
+                    <p className="line-clamp-1 text-[11px] font-bold leading-4 text-white/85 group-hover/episode:text-white sm:text-[12px]">
                       {episode.title}
                     </p>
                     {description ? (
-                      <p className={`mt-0.5 line-clamp-3 text-[10px] leading-[12px] ${active ? "text-white/72" : "text-white/38"}`}>
+                      <p className={`mt-0.5 line-clamp-2 text-[9px] leading-[11px] sm:line-clamp-3 sm:text-[10px] sm:leading-[12px] ${active ? "text-white/72" : "text-white/38"}`}>
                         {description}
                       </p>
                     ) : null}
@@ -1736,7 +1752,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
           </div>
         ) : episodeView === "list" ? (
           <div
-            className="watch-episode-scroll h-full overflow-y-auto hide-scrollbar -mx-3"
+            className="watch-episode-scroll -mx-2 max-h-[244px] overflow-y-auto hide-scrollbar sm:-mx-3 sm:h-full sm:max-h-none"
             ref={(el) => {
               if (el) {
                 const active = el.querySelector('[data-active-episode="true"]');
@@ -2005,8 +2021,8 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
 
       {/* ── WATCH CONTROLS ───────────────────────── */}
       <div className="relative border-x border-white/10 bg-[#0d0e10] px-2 py-1 md:px-3">
-        <div className="flex flex-wrap items-center justify-between gap-1">
-          <div className="flex flex-wrap items-center gap-0.5">
+        <div className="flex items-center gap-1 overflow-x-auto hide-scrollbar sm:justify-between sm:overflow-visible">
+          <div className="flex shrink-0 flex-nowrap items-center gap-0.5">
             <WatchPreferenceToggle
               icon={Play}
               label="Autoplay"
@@ -2062,7 +2078,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
             />
           </div>
 
-          <div className="flex flex-wrap items-center gap-0.5">
+          <div className="ml-auto flex shrink-0 flex-nowrap items-center gap-0.5">
             <ControlBtn
               icon={ChevronLeft}
               label="Prev"
@@ -2096,11 +2112,11 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
       </div>
 
       {/* ── EPISODE INFO + SERVER STRIP ─────────── */}
-      <div className="relative space-y-3 border-x border-b border-white/10 bg-[#131315] px-4 py-3 sm:rounded-b-2xl md:px-5">
+      <div className="relative space-y-2.5 border-x border-b border-white/10 bg-[#111214] px-3 py-3 sm:space-y-3 sm:rounded-b-2xl sm:bg-[#131315] sm:px-4 md:px-5">
         {/* Top row: episode info + sub/dub/server */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-white text-sm font-medium">
+        <div className="flex flex-col gap-2.5 md:flex-row md:items-center md:justify-between md:gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-xs font-medium text-white/75 sm:text-sm sm:text-white">
               You are watching <strong>Episode {session.episode.number}</strong>
             </span>
             {session.episode.title && session.episode.title !== `Episode ${session.episode.number}` && (
@@ -2108,7 +2124,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
             )}
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex flex-wrap items-center gap-2">
             {/* Sub/Dub/Hindi mode toggle buttons */}
             <button
               type="button"
@@ -2178,10 +2194,10 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
         </div>
 
         {/* Server panel — Anivexa-style grouping, AnimePlay theme */}
-        <div className="space-y-4 border-y border-white/8 bg-black/20 py-3 md:py-4">
+        <div className="space-y-3 rounded-xl border border-white/[0.07] bg-black/20 p-3 sm:space-y-4 sm:p-4">
           <div className="flex flex-wrap items-center gap-2">
             <div
-              className="inline-flex items-center gap-2 rounded-full border px-4 py-2 text-[11px] font-black uppercase tracking-wider"
+              className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[10px] font-black uppercase tracking-wider sm:rounded-full sm:px-4 sm:py-2 sm:text-[11px]"
               style={{ color: accentColor, borderColor: accentStyle(0.45), background: accentStyle(0.12) }}
             >
               <Tv2 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -2194,7 +2210,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
               <button
                 type="button"
                 onClick={() => setShowEmbedServers((value) => !value)}
-                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-[11px] font-black uppercase tracking-wider text-white/65 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white/65 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white sm:rounded-full sm:px-4 sm:py-2 sm:text-[11px]"
                 aria-expanded={embedServersOpen}
                 aria-controls="embed-server-options"
                 title="External embed servers"
@@ -2210,7 +2226,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
             )}
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-2.5 sm:space-y-3">
             {renderServerRow("Hard Subs", internalHardSubServers)}
             {renderServerRow("Soft Subs", internalSoftSubServers)}
             {hasDub && renderServerRow("Dub", internalDubServers, { dubbed: true, accent: "#4ade80" })}
@@ -2302,17 +2318,21 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
           />
         </div>
 
-        <div className="space-y-5 xl:hidden">
-          {episodePanel}
+        <div className="space-y-4 px-3 sm:space-y-5 sm:px-0 xl:hidden">
+          <WatchMobileSynopsis session={session} detail={deferredDetail} />
 
           <CommentSection
             animeId={session.anime.id}
             episodeNumber={session.episode.number}
             currentUserId={resolvedCurrentUserId}
+            mobileSummary
+            accentColor={accentColor}
             onTimestampClick={() => {
               document.querySelector("iframe")?.scrollIntoView({ behavior: "smooth", block: "center" });
             }}
           />
+
+          {episodePanel}
 
           <WatchAnimeDetailsPanel session={session} heroImage={heroImage} detail={deferredDetail} />
 

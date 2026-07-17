@@ -10,6 +10,7 @@ import {
   Eye,
   EyeOff,
   Clock,
+  ChevronDown,
   Send,
   LogIn,
 } from "lucide-react";
@@ -45,6 +46,8 @@ interface CommentSectionProps {
   episodeNumber?: number;
   currentUserId?: string | null;
   onTimestampClick?: (time: number) => void;
+  mobileSummary?: boolean;
+  accentColor?: string;
 }
 
 function timeAgo(dateStr: string): string {
@@ -70,6 +73,8 @@ export default function CommentSection({
   episodeNumber,
   currentUserId,
   onTimestampClick,
+  mobileSummary = false,
+  accentColor = "#ff5500",
 }: CommentSectionProps) {
   const [comments, setComments] = useState<CommentData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -79,6 +84,7 @@ export default function CommentSection({
   const [timestamp, setTimestamp] = useState<number | null>(null);
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [replyContent, setReplyContent] = useState("");
+  const [mobileExpanded, setMobileExpanded] = useState(false);
 
   const fetchComments = useCallback(async () => {
     try {
@@ -211,7 +217,31 @@ export default function CommentSection({
   );
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0f1012]">
+    <>
+      {mobileSummary ? (
+        <button
+          type="button"
+          onClick={() => setMobileExpanded((value) => !value)}
+          className="flex w-full items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#141517] px-4 py-4 text-left sm:hidden"
+          aria-expanded={mobileExpanded}
+        >
+          <span className="min-w-0">
+            <span className="flex items-center gap-2.5 text-lg font-black text-white/90">
+              <MessageCircle className="h-5 w-5" style={{ color: accentColor }} aria-hidden="true" />
+              Comments
+            </span>
+            <span className="mt-1.5 block truncate text-xs text-white/35">
+              EP {episodeNumber || "General"} · {loading ? "Loading comments" : `${totalComments} comments`} · Tap to join the discussion
+            </span>
+          </span>
+          <ChevronDown
+            className={`h-4 w-4 shrink-0 text-white/35 transition-transform ${mobileExpanded ? "rotate-180" : ""}`}
+            aria-hidden="true"
+          />
+        </button>
+      ) : null}
+
+      <div className={`${mobileSummary && !mobileExpanded ? "hidden sm:block" : "block"} overflow-hidden rounded-2xl border border-white/10 bg-[#0f1012]`}>
       {/* Header */}
       <div className="flex items-center justify-between border-b border-white/[0.08] p-5">
         <div className="flex items-center gap-3">
@@ -348,7 +378,8 @@ export default function CommentSection({
           ))
         )}
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 

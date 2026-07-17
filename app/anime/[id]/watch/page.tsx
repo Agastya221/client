@@ -3,9 +3,10 @@ import WatchExperience from "@/components/anime/WatchExperience";
 import WatchPageLoading from "@/components/anime/WatchPageLoading";
 import Navbar from "@/components/ui/Navbar";
 import SiteFooter from "@/components/ui/SiteFooter";
-import { getAniZipEpisodeMetadata, getQuickWatchSession } from "@/lib/anime/api";
+import { getAniZipEpisodeMetadata, getKitsuEpisodeMetadataRange, getQuickWatchSession, getTvMazeEpisodeMetadataRange } from "@/lib/anime/api";
 import {
   getEpisodeArtworkUrl,
+  mergeEpisodeDisplayMetadataSources,
   mergeEpisodeMetadataIntoWatchSession,
 } from "@/lib/anime/episode-metadata";
 import { normalizeProviderParam } from "@/lib/anime/fallback";
@@ -75,10 +76,12 @@ async function loadWatchPageData({
   const [{ id }, query] = await Promise.all([idPromise, searchParamsPromise]);
 
   const dubbed = firstParam(query.dub) === "1" || firstParam(query.dub) === "true";
+  const requestedEpisode = parseEpisodeNumber(firstParam(query.ep)) || 1;
+  const requestedRangeStart = Math.floor((requestedEpisode - 1) / 100) * 100;
 
   const sessionPromise = getQuickWatchSession({
     animeId: id,
-    episodeNumber: parseEpisodeNumber(firstParam(query.ep)),
+    episodeNumber: requestedEpisode,
     provider: normalizeProviderParam(firstParam(query.provider)),
     episodeId: firstParam(query.episodeId) || null,
     dubbed,
@@ -89,10 +92,21 @@ async function loadWatchPageData({
   // cold direct visit, the route loading UI remains visible until the episode
   // screen caps are known; stream resolution remains a separate client task.
   const routeAniListId = parseRouteAniListId(id);
+  const loadEpisodeMetadata = async (anilistId: number) => {
+    const [primary, rangeArtwork, longRunningArtwork] = await Promise.all([
+      getAniZipEpisodeMetadata(anilistId),
+      getKitsuEpisodeMetadataRange(anilistId, requestedRangeStart),
+      getTvMazeEpisodeMetadataRange(anilistId, requestedRangeStart),
+    ]);
+    return mergeEpisodeDisplayMetadataSources(
+      mergeEpisodeDisplayMetadataSources(primary, rangeArtwork),
+      longRunningArtwork,
+    );
+  };
   const episodeMetadataPromise = routeAniListId
-    ? getAniZipEpisodeMetadata(routeAniListId)
+    ? loadEpisodeMetadata(routeAniListId)
     : sessionPromise.then((quickSession) => quickSession.anime.anilistId
-      ? getAniZipEpisodeMetadata(quickSession.anime.anilistId)
+      ? loadEpisodeMetadata(quickSession.anime.anilistId)
       : []);
   const [quickSession, episodeMetadata] = await Promise.all([
     sessionPromise,
@@ -128,7 +142,7 @@ function WatchContent({
     <>
       {/* Breadcrumb */}
       <nav
-        className="mb-3 flex flex-wrap items-center gap-1.5 px-3 text-[11px] uppercase tracking-[0.18em] text-white/40 sm:px-0 xl:hidden"
+        className="mb-3 hidden flex-wrap items-center gap-1.5 px-3 text-[11px] uppercase tracking-[0.18em] text-white/40 sm:flex sm:px-0 xl:hidden"
         style={{ "--accent": accentColor } as React.CSSProperties}
       >
         <Link href="/" className="transition-colors hover:text-white/70">

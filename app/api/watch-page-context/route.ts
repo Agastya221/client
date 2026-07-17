@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getAniZipEpisodeMetadata, getAnivexaEpisodeAvailabilityMetadata } from "@/lib/anime/api";
+import { getAniZipEpisodeMetadata, getAnivexaEpisodeAvailabilityMetadata, getKitsuEpisodeMetadataRange, getTvMazeEpisodeMetadataRange } from "@/lib/anime/api";
 import type { EpisodeDisplayMetadata } from "@/lib/anime/episode-metadata";
 import {
   getAnilistDetail,
@@ -44,7 +44,7 @@ function mergeEpisodeMetadataSources(
     entries.set(incoming.number, existing ? {
       ...incoming,
       ...existing,
-      title: incoming.title || existing.title,
+      title: existing.title || incoming.title,
       image: existing.image || incoming.image,
       description: existing.description || incoming.description,
       airDate: existing.airDate || incoming.airDate,
@@ -146,9 +146,11 @@ export async function GET(request: NextRequest) {
   const title = String(searchParams.get("title") || "").trim();
   const genres = parseGenres(searchParams.get("genres"));
   const anilistId = parseAnilistId(searchParams.get("anilistId"));
+  const requestedStart = Math.max(0, Number.parseInt(searchParams.get("episodeStart") || "0", 10) || 0);
+  const episodeRangeStart = Math.floor(requestedStart / 100) * 100;
 
   try {
-    const [authSession, discovery, aniZipMetadata, availabilityMetadata] = await Promise.all([
+    const [authSession, discovery, aniZipMetadata, kitsuMetadata, tvMazeMetadata, availabilityMetadata] = await Promise.all([
       auth().catch(() => null),
       measureAsync(
         "route.watch_page_context",
@@ -163,10 +165,22 @@ export async function GET(request: NextRequest) {
         ? getAniZipEpisodeMetadata(anilistId).catch(() => [])
         : Promise.resolve([]),
       anilistId
+        ? getKitsuEpisodeMetadataRange(anilistId, episodeRangeStart).catch(() => [])
+        : Promise.resolve([]),
+      anilistId
+        ? getTvMazeEpisodeMetadataRange(anilistId, episodeRangeStart).catch(() => [])
+        : Promise.resolve([]),
+      anilistId
         ? getAnivexaEpisodeAvailabilityMetadata(anilistId).catch(() => [])
         : Promise.resolve([]),
     ]);
-    const episodeMetadata = mergeEpisodeMetadataSources(aniZipMetadata, availabilityMetadata);
+    const episodeMetadata = mergeEpisodeMetadataSources(
+      mergeEpisodeMetadataSources(
+        mergeEpisodeMetadataSources(aniZipMetadata, kitsuMetadata),
+        tvMazeMetadata,
+      ),
+      availabilityMetadata,
+    );
 
     return NextResponse.json({
       currentUserId: authSession?.user?.id ?? null,

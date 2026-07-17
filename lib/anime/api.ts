@@ -1473,7 +1473,14 @@ export function normalizeAniZipEpisodesPayload(data: JsonValue): EpisodeModel[] 
     .sort((left, right) => left.number - right.number);
 }
 
-async function fetchAniZipEpisodeArtwork(anilistId: number): Promise<EpisodeModel[]> {
+interface AniZipEpisodeBundle {
+  episodes: EpisodeModel[];
+  kitsuId: number | null;
+  title: string | null;
+  premiereYear: string | null;
+}
+
+async function fetchAniZipEpisodeArtwork(anilistId: number): Promise<AniZipEpisodeBundle> {
   try {
     const response = await fetch(`https://api.ani.zip/mappings?anilist_id=${anilistId}`, {
       headers: {
@@ -1486,11 +1493,52 @@ async function fetchAniZipEpisodeArtwork(anilistId: number): Promise<EpisodeMode
       cache: "no-store",
       signal: AbortSignal.timeout(4_000),
     });
-    if (!response.ok) return [];
-    return normalizeAniZipEpisodesPayload(await response.json() as JsonValue);
+    if (!response.ok) return { episodes: [], kitsuId: null, title: null, premiereYear: null };
+    const payload = await response.json() as JsonValue;
+    const normalizedPayload = typeof payload === "string"
+      ? (() => {
+          try {
+            return JSON.parse(payload) as JsonValue;
+          } catch {
+            return {} as JsonValue;
+          }
+        })()
+      : payload;
+    const kitsuId = Number(normalizedPayload?.mappings?.kitsu_id);
+    const title = pickFirstNonEmpty(
+      normalizedPayload?.titles?.en,
+      normalizedPayload?.titles?.["x-jat"],
+      normalizedPayload?.titles?.ja,
+    ) || null;
+    const firstEpisode = normalizedPayload?.episodes?.["1"] || normalizedPayload?.episodes?.[1];
+    const premiereYear = parseYear(pickFirstNonEmpty(firstEpisode?.airDate, firstEpisode?.airdate));
+    return {
+      episodes: normalizeAniZipEpisodesPayload(normalizedPayload),
+      kitsuId: Number.isInteger(kitsuId) && kitsuId > 0 ? kitsuId : null,
+      title,
+      premiereYear,
+    };
   } catch {
-    return [];
+    return { episodes: [], kitsuId: null, title: null, premiereYear: null };
   }
+}
+
+async function getAniZipEpisodeBundle(anilistId: number): Promise<AniZipEpisodeBundle> {
+  return cacheFetch(
+    `anizip-episode-bundle:${anilistId}`,
+    () => fetchAniZipEpisodeArtwork(anilistId),
+    {
+      freshMs: EPISODE_ARTWORK_REVALIDATE_SECONDS * 1000,
+      expireMs: 7 * EPISODE_ARTWORK_REVALIDATE_SECONDS * 1000,
+      shouldCache: (value) => Boolean(
+        value &&
+        typeof value === "object" &&
+        "episodes" in value &&
+        Array.isArray(value.episodes) &&
+        value.episodes.length > 0
+      ),
+    },
+  );
 }
 
 /**
@@ -1503,23 +1551,181 @@ export async function getAniZipEpisodeMetadata(
 ): Promise<EpisodeDisplayMetadata[]> {
   if (!Number.isInteger(anilistId) || anilistId <= 0) return [];
 
+  const { episodes } = await getAniZipEpisodeBundle(anilistId);
+  return episodes.map((episode) => ({
+    number: episode.number,
+    title: episode.title || null,
+    image: episode.image || null,
+    description: episode.description || null,
+    airDate: episode.airDate || null,
+  }));
+}
+
+const KITSU_EPISODE_PAGE_SIZE = 20;
+const KITSU_EPISODE_RANGE_SIZE = 100;
+
+function normalizeKitsuEpisodePayload(payload: JsonValue): EpisodeDisplayMetadata[] {
+  return ensureArray(payload?.data).flatMap((entry) => {
+    const attributes = entry?.attributes || {};
+    const number = Number(attributes.number);
+    if (!Number.isFinite(number) || number <= 0) return [];
+
+    return [{
+      number,
+      title: pickFirstNonEmpty(attributes.canonicalTitle, attributes.titles?.en_jp, attributes.titles?.en_us) || null,
+      image: pickFirstNonEmpty(
+        attributes.thumbnail?.original,
+        attributes.thumbnail?.large,
+        attributes.thumbnail?.medium,
+      ) || null,
+      description: normalizeEpisodeDescription(pickFirstNonEmpty(attributes.synopsis, attributes.description)),
+      airDate: pickFirstNonEmpty(attributes.airdate) || null,
+    } satisfies EpisodeDisplayMetadata];
+  });
+}
+
+/**
+ * Loads only the visible 100-episode range from Kitsu. This fills artwork gaps
+ * for long-running shows without issuing dozens of requests for the full run.
+ */
+export async function getKitsuEpisodeMetadataRange(
+  anilistId: number,
+  rangeStart = 0,
+): Promise<EpisodeDisplayMetadata[]> {
+  if (!Number.isInteger(anilistId) || anilistId <= 0) return [];
+  const normalizedStart = Math.max(0, Math.floor(rangeStart / KITSU_EPISODE_RANGE_SIZE) * KITSU_EPISODE_RANGE_SIZE);
+
   return cacheFetch(
-    `anizip-episode-metadata:${anilistId}`,
+    `kitsu-episode-metadata:${anilistId}:${normalizedStart}`,
     async () => {
-      const episodes = await fetchAniZipEpisodeArtwork(anilistId);
-      return episodes.map((episode) => ({
-        number: episode.number,
-        title: episode.title || null,
-        image: episode.image || null,
-        description: episode.description || null,
-        airDate: episode.airDate || null,
-      }));
+      const { kitsuId } = await getAniZipEpisodeBundle(anilistId);
+      if (!kitsuId) return [];
+
+      const requests = Array.from(
+        { length: KITSU_EPISODE_RANGE_SIZE / KITSU_EPISODE_PAGE_SIZE },
+        (_, index) => {
+          const offset = normalizedStart + index * KITSU_EPISODE_PAGE_SIZE;
+          const url = `https://kitsu.io/api/edge/anime/${kitsuId}/episodes?page%5Blimit%5D=${KITSU_EPISODE_PAGE_SIZE}&page%5Boffset%5D=${offset}`;
+          return fetch(url, {
+            headers: {
+              Accept: "application/vnd.api+json",
+              "User-Agent": "Tatakai-Frontend/1.0",
+            },
+            cache: "no-store",
+            signal: AbortSignal.timeout(5_000),
+          })
+            .then(async (response) => response.ok
+              ? normalizeKitsuEpisodePayload(await response.json() as JsonValue)
+              : [] as EpisodeDisplayMetadata[])
+            .catch(() => [] as EpisodeDisplayMetadata[]);
+        },
+      );
+
+      const pages = await Promise.all(requests);
+      return pages
+        .flat()
+        .filter((episode) => episode.number > normalizedStart && episode.number <= normalizedStart + KITSU_EPISODE_RANGE_SIZE)
+        .sort((left, right) => left.number - right.number);
     },
     {
-      freshMs: EPISODE_ARTWORK_REVALIDATE_SECONDS * 1000,
-      expireMs: 7 * EPISODE_ARTWORK_REVALIDATE_SECONDS * 1000,
-      shouldCache: (value) => Array.isArray(value) && value.length > 0,
+      freshMs: 24 * 60 * 60 * 1000,
+      staleMs: 24 * 60 * 60 * 1000,
+      expireMs: 7 * 24 * 60 * 60 * 1000,
+      shouldCache: (value) => Array.isArray(value) && value.some((episode) => Boolean(episode?.image)),
     },
+  );
+}
+
+const TVMAZE_EPISODE_RANGE_SIZE = 100;
+
+function normalizeTvMazeEpisodePayload(payload: unknown): EpisodeDisplayMetadata[] {
+  return ensureArray(payload)
+    .filter((entry) => entry?.type === "regular" && Number.isFinite(Number(entry?.number)))
+    .sort((left, right) => {
+      const airDateComparison = String(left?.airdate || "").localeCompare(String(right?.airdate || ""));
+      return airDateComparison || Number(left?.id || 0) - Number(right?.id || 0);
+    })
+    .map((entry, index) => ({
+      // TVMaze resets `number` each broadcast year for long-running anime.
+      // Chronological regular episodes correspond to the absolute episode run.
+      number: index + 1,
+      title: pickFirstNonEmpty(entry?.name) || null,
+      image: pickFirstNonEmpty(entry?.image?.original, entry?.image?.medium) || null,
+      description: normalizeEpisodeDescription(
+        String(entry?.summary || "").replace(/<[^>]*>/g, " "),
+      ),
+      airDate: pickFirstNonEmpty(entry?.airdate) || null,
+    }));
+}
+
+/**
+ * Artwork fallback for long-running shows whose AniZip/Kitsu records are
+ * incomplete. The full upstream response is cached, then only the requested
+ * 100-episode range is returned to the watch UI.
+ */
+export async function getTvMazeEpisodeMetadataRange(
+  anilistId: number,
+  rangeStart = 0,
+): Promise<EpisodeDisplayMetadata[]> {
+  if (!Number.isInteger(anilistId) || anilistId <= 0) return [];
+  const normalizedStart = Math.max(0, Math.floor(rangeStart / TVMAZE_EPISODE_RANGE_SIZE) * TVMAZE_EPISODE_RANGE_SIZE);
+  const aniZipBundle = await getAniZipEpisodeBundle(anilistId);
+  const requestedAniZipEpisodes = aniZipBundle.episodes.filter(
+    (episode) => episode.number > normalizedStart && episode.number <= normalizedStart + TVMAZE_EPISODE_RANGE_SIZE,
+  );
+  if (requestedAniZipEpisodes.length > 0 && requestedAniZipEpisodes.every((episode) => Boolean(episode.image))) {
+    return [];
+  }
+
+  const allEpisodes = await cacheFetch(
+    `tvmaze-episode-metadata:${anilistId}`,
+    async () => {
+      const { title, premiereYear } = aniZipBundle;
+      if (!title) return [];
+
+      const searchResponse = await fetch(`https://api.tvmaze.com/search/shows?q=${encodeURIComponent(title)}`, {
+        headers: { Accept: "application/json", "User-Agent": "Tatakai-Frontend/1.0" },
+        cache: "no-store",
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (!searchResponse.ok) return [];
+
+      const expectedTitle = normalizeText(title);
+      const candidates = ensureArray(await searchResponse.json() as JsonValue);
+      const ranked = candidates
+        .map((candidate) => {
+          const show = candidate?.show || {};
+          const candidateYear = parseYear(show?.premiered);
+          let score = Number(candidate?.score || 0);
+          if (normalizeText(String(show?.name || "")) === expectedTitle) score += 5;
+          if (premiereYear && candidateYear === premiereYear) score += 4;
+          if (String(show?.type || "").toLowerCase() === "animation") score += 2;
+          if (String(show?.language || "").toLowerCase() === "japanese") score += 1;
+          return { id: Number(show?.id), score };
+        })
+        .filter((candidate) => Number.isInteger(candidate.id) && candidate.id > 0)
+        .sort((left, right) => right.score - left.score);
+      if (!ranked[0]) return [];
+
+      const episodesResponse = await fetch(`https://api.tvmaze.com/shows/${ranked[0].id}/episodes?specials=0`, {
+        headers: { Accept: "application/json", "User-Agent": "Tatakai-Frontend/1.0" },
+        cache: "no-store",
+        signal: AbortSignal.timeout(8_000),
+      });
+      return episodesResponse.ok
+        ? normalizeTvMazeEpisodePayload(await episodesResponse.json())
+        : [];
+    },
+    {
+      freshMs: 24 * 60 * 60 * 1000,
+      staleMs: 24 * 60 * 60 * 1000,
+      expireMs: 7 * 24 * 60 * 60 * 1000,
+      shouldCache: (value) => Array.isArray(value) && value.some((episode) => Boolean(episode?.image)),
+    },
+  );
+
+  return allEpisodes.filter(
+    (episode) => episode.number > normalizedStart && episode.number <= normalizedStart + TVMAZE_EPISODE_RANGE_SIZE,
   );
 }
 

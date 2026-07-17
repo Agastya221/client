@@ -10,6 +10,29 @@ export interface EpisodeDisplayMetadata {
   isDubbed?: boolean;
 }
 
+export function mergeEpisodeDisplayMetadataSources(
+  primary: EpisodeDisplayMetadata[],
+  fallback: EpisodeDisplayMetadata[],
+): EpisodeDisplayMetadata[] {
+  const entries = new Map(primary.map((entry) => [entry.number, { ...entry }]));
+
+  for (const incoming of fallback) {
+    const existing = entries.get(incoming.number);
+    entries.set(incoming.number, existing ? {
+      ...incoming,
+      ...existing,
+      title: existing.title || incoming.title,
+      image: existing.image || incoming.image,
+      description: existing.description || incoming.description,
+      airDate: existing.airDate || incoming.airDate,
+      isSubbed: incoming.isSubbed ?? existing.isSubbed,
+      isDubbed: incoming.isDubbed ?? existing.isDubbed,
+    } : { ...incoming });
+  }
+
+  return Array.from(entries.values()).sort((left, right) => left.number - right.number);
+}
+
 function isGenericEpisodeTitle(title: string): boolean {
   return /^episode\s+\d+(?:\.\d+)?$/i.test(title.trim());
 }

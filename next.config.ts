@@ -12,6 +12,7 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "i.ibb.co" },
       { protocol: "https", hostname: "i.ibb.co.com" },
       { protocol: "https", hostname: "media.kitsu.app" },
+      { protocol: "https", hostname: "static.tvmaze.com" },
       { protocol: "https", hostname: "gogocdn.net" },
       { protocol: "https", hostname: "artworks.thetvdb.com", pathname: "/banners/**" },
       { protocol: "https", hostname: "placehold.co" },

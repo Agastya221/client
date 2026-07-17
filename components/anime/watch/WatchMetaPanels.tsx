@@ -127,6 +127,24 @@ function SafeArtwork({
   );
 }
 
+export function WatchMobileSynopsis({
+  session,
+  detail,
+}: {
+  session: WatchSessionModel;
+  detail?: AnilistMedia | null;
+}) {
+  const synopsis = cleanDescription(detail?.description || session.anime.description);
+
+  if (!synopsis) return null;
+
+  return (
+    <section className="rounded-2xl border border-white/10 bg-[#0f1012] px-4 py-4 sm:hidden">
+      <p className="line-clamp-6 text-[13px] leading-[1.45rem] text-white/48">{synopsis}</p>
+    </section>
+  );
+}
+
 export function WatchAnimeDetailsPanel({
   session,
   heroImage,
@@ -182,13 +200,13 @@ export function WatchAnimeDetailsPanel({
           </div>
         ) : null}
 
-        <div className="relative grid gap-5 p-4 sm:grid-cols-[156px_minmax(0,1fr)] sm:p-5">
-          <div className="mx-auto w-[138px] sm:mx-0 sm:w-[156px]">
+        <div className="relative grid grid-cols-[112px_minmax(0,1fr)] gap-4 p-3 sm:grid-cols-[156px_minmax(0,1fr)] sm:gap-5 sm:p-5">
+          <div className="w-full sm:w-[156px]">
             <div className="relative aspect-[2/3] overflow-hidden rounded-xl border border-white/10 bg-white/[0.03] shadow-[0_20px_50px_rgba(0,0,0,0.48)]">
               <SafeArtwork src={poster} accentColor={accentColor} sizes="156px" quality={70} />
             </div>
 
-            <div className="mt-2.5 grid grid-cols-2 gap-2">
+            <div className="mt-2.5 hidden grid-cols-2 gap-2 sm:grid">
               {trailerHref ? (
                 <a
                   href={trailerHref}
@@ -227,16 +245,16 @@ export function WatchAnimeDetailsPanel({
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <Link href={session.anime.href} className="group">
-                  <h2 className="text-2xl font-black leading-tight text-white transition-opacity group-hover:opacity-80 sm:text-[1.7rem]">
+                  <h2 className="text-xl font-black leading-tight text-white transition-opacity group-hover:opacity-80 sm:text-[1.7rem]">
                     {session.anime.title}
                   </h2>
                 </Link>
                 {session.anime.subtitle ? (
-                  <p className="mt-1 text-sm italic text-white/38">{session.anime.subtitle}</p>
+                  <p className="mt-1 line-clamp-2 text-xs italic text-white/38 sm:text-sm">{session.anime.subtitle}</p>
                 ) : null}
               </div>
               {score ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/25 px-3 py-1.5 text-xs font-bold text-white/78">
+                <span className="hidden items-center gap-1.5 rounded-full border border-white/10 bg-black/25 px-3 py-1.5 text-xs font-bold text-white/78 sm:inline-flex">
                   <Star className="h-3.5 w-3.5 fill-current" style={{ color: accentColor }} aria-hidden="true" />
                   {score}
                 </span>
@@ -244,12 +262,12 @@ export function WatchAnimeDetailsPanel({
             </div>
 
             {genres.length > 0 ? (
-              <div className="mt-3 flex flex-wrap gap-2">
+              <div className="mt-3 flex flex-wrap gap-1.5 sm:gap-2">
                 {genres.map((genre) => (
                   <Link
                     key={genre}
                     href={"/search?genre=" + encodeURIComponent(genre)}
-                    className="rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wide transition-opacity hover:opacity-75"
+                    className="rounded-full border px-2.5 py-1 text-[10px] font-bold tracking-wide transition-opacity hover:opacity-75 sm:px-3 sm:uppercase"
                     style={{ color: accentColor, borderColor: accentColor + "45", backgroundColor: accentColor + "16" }}
                   >
                     {genre}
@@ -258,13 +276,22 @@ export function WatchAnimeDetailsPanel({
               </div>
             ) : null}
 
+            <dl className="mt-4 space-y-2 sm:hidden">
+              {facts.slice(0, 4).map(({ label, value }) => (
+                <div key={label} className="flex min-w-0 items-baseline gap-1.5 text-xs">
+                  <dt className="text-white/38">{label}:</dt>
+                  <dd className="truncate font-bold text-white/82" title={value}>{value}</dd>
+                </div>
+              ))}
+            </dl>
+
             {synopsis ? (
-              <p className="mt-4 rounded-xl border border-white/[0.07] bg-black/25 px-4 py-3 text-[13px] leading-6 text-white/55">
+              <p className="mt-4 hidden rounded-xl border border-white/[0.07] bg-black/25 px-4 py-3 text-[13px] leading-6 text-white/55 sm:block">
                 {synopsis}
               </p>
             ) : null}
 
-            <dl className="mt-4 grid gap-x-8 gap-y-3 border-y border-white/[0.07] py-4 sm:grid-cols-2 lg:grid-cols-3">
+            <dl className="mt-4 hidden gap-x-8 gap-y-3 border-y border-white/[0.07] py-4 sm:grid sm:grid-cols-2 lg:grid-cols-3">
               {facts.map(({ label, value, icon: Icon }) => (
                 <div key={label} className="flex min-w-0 items-center gap-2 text-xs">
                   <Icon className="h-3.5 w-3.5 shrink-0" style={{ color: accentColor }} aria-hidden="true" />
@@ -274,7 +301,7 @@ export function WatchAnimeDetailsPanel({
               ))}
             </dl>
 
-            <div className="mt-4 flex flex-wrap items-center gap-2">
+            <div className="mt-4 hidden flex-wrap items-center gap-2 sm:flex">
               <Link
                 href={session.anime.href}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-[11px] font-bold text-white/75 transition-colors hover:bg-white/[0.08] hover:text-white"
