@@ -61,7 +61,7 @@ import {
 } from "lucide-react";
 import Image, { type ImageProps } from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 
 const EPISODE_PAGE_SIZE = 100;
 const EPISODE_DATE_FORMATTER = new Intl.DateTimeFormat("en-GB", {
@@ -653,6 +653,9 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     const activeIndex = initialSession.episodes.findIndex((episode) => episode.number === initialSession.episode.number);
     return Math.floor(Math.max(0, activeIndex) / EPISODE_PAGE_SIZE) * EPISODE_PAGE_SIZE;
   });
+  const [episodeRangeMenuOpen, setEpisodeRangeMenuOpen] = useState(false);
+  const [episodeMetadataLoading, setEpisodeMetadataLoading] = useState(false);
+  const watchContextLoadedRef = useRef(false);
   const [episodeView, setEpisodeView] = useState<"grid" | "list" | "cards">("cards");
   const [showEmbedServers, setShowEmbedServers] = useState(() => Boolean(initialSession.activeServerId && isEmbedServerOption(initialSession.activeServerId)));
   const [focusMode, setFocusMode] = useState(false);
@@ -850,8 +853,11 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     if (session.anime.title) params.set("title", session.anime.title);
     if (animeGenresKey) params.set("genres", animeGenresKey.replaceAll("|", ","));
     params.set("episodeStart", String(episodeRangeStart));
+    const metadataOnly = watchContextLoadedRef.current;
+    if (metadataOnly) params.set("metadataOnly", "1");
 
     const controller = new AbortController();
+    if (metadataOnly) setEpisodeMetadataLoading(true);
 
     void fetch(`/api/watch-page-context?${params.toString()}`, {
       cache: "no-store",
@@ -887,18 +893,26 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
               ? mergeEpisodeMetadataIntoWatchSession(current, combinedMetadata)
               : current);
         }
-        setDeferredDetail(payload.detail ?? null);
-        setDeferredSeasons(payload.seasons ?? []);
-        setDeferredRelated(payload.related ?? []);
-        setDeferredRecommendations(payload.recommendations ?? []);
-        setResolvedCurrentUserId(payload.currentUserId ?? null);
+        if (!metadataOnly) {
+          setDeferredDetail(payload.detail ?? null);
+          setDeferredSeasons(payload.seasons ?? []);
+          setDeferredRelated(payload.related ?? []);
+          setDeferredRecommendations(payload.recommendations ?? []);
+          setResolvedCurrentUserId(payload.currentUserId ?? null);
+          watchContextLoadedRef.current = true;
+        }
       })
       .catch(() => {
         if (controller.signal.aborted) return;
-        setDeferredDetail(null);
-        setDeferredSeasons([]);
-        setDeferredRelated((current) => current ?? []);
-        setDeferredRecommendations((current) => current ?? []);
+        if (!metadataOnly) {
+          setDeferredDetail(null);
+          setDeferredSeasons([]);
+          setDeferredRelated((current) => current ?? []);
+          setDeferredRecommendations((current) => current ?? []);
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted && metadataOnly) setEpisodeMetadataLoading(false);
       });
 
     return () => controller.abort();
@@ -1609,23 +1623,46 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
 
         <div className="flex items-center gap-2">
           {episodeRangeCount > 1 && !episodeQuery.trim() ? (
-            <label className="relative shrink-0">
-              <span className="sr-only">Episode range</span>
-              <select
-                value={episodeRangeStart}
-                onChange={(event) => setEpisodeRangeStart(Number(event.target.value))}
-                className="h-10 appearance-none rounded-xl border border-white/8 bg-white/[0.04] py-2 pl-3 pr-8 text-[11px] font-bold text-white/70 outline-none transition-colors hover:border-white/15 focus:border-white/20"
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setEpisodeRangeMenuOpen((open) => !open)}
+                className="flex h-10 min-w-[92px] items-center justify-between gap-2 rounded-xl border border-white/8 bg-white/[0.04] px-3 text-[11px] font-bold text-white/70 outline-none transition-colors hover:border-white/15 focus-visible:border-white/25"
                 aria-label="Episode range"
+                aria-expanded={episodeRangeMenuOpen}
               >
-                {Array.from({ length: episodeRangeCount }, (_, index) => {
-                  const start = index * EPISODE_PAGE_SIZE;
-                  const first = filteredEpisodes[start]?.number ?? start + 1;
-                  const last = filteredEpisodes[Math.min(start + EPISODE_PAGE_SIZE - 1, filteredEpisodes.length - 1)]?.number ?? first;
-                  return <option key={start} value={start}>{first}-{last}</option>;
-                })}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/35" aria-hidden="true" />
-            </label>
+                <span>{visibleEpisodes[0]?.number ?? episodeRangeStart + 1}-{visibleEpisodes.at(-1)?.number ?? episodeRangeStart + 1}</span>
+                {episodeMetadataLoading ? (
+                  <RefreshCcw className="h-3.5 w-3.5 animate-spin" style={{ color: accentColor }} aria-hidden="true" />
+                ) : (
+                  <ChevronDown className={`h-3.5 w-3.5 text-white/35 transition-transform ${episodeRangeMenuOpen ? "rotate-180" : ""}`} aria-hidden="true" />
+                )}
+              </button>
+              {episodeRangeMenuOpen ? (
+                <div className="absolute left-0 top-11 z-50 max-h-64 min-w-full overflow-y-auto rounded-xl border border-white/10 bg-[#151619] p-1.5 shadow-2xl shadow-black/60">
+                  {Array.from({ length: episodeRangeCount }, (_, index) => {
+                    const start = index * EPISODE_PAGE_SIZE;
+                    const first = filteredEpisodes[start]?.number ?? start + 1;
+                    const last = filteredEpisodes[Math.min(start + EPISODE_PAGE_SIZE - 1, filteredEpisodes.length - 1)]?.number ?? first;
+                    const active = start === episodeRangeStart;
+                    return (
+                      <button
+                        key={start}
+                        type="button"
+                        onClick={() => {
+                          setEpisodeRangeMenuOpen(false);
+                          startTransition(() => setEpisodeRangeStart(start));
+                        }}
+                        className="flex w-full items-center rounded-lg px-3 py-2 text-left text-[11px] font-bold transition-colors hover:bg-white/[0.07]"
+                        style={active ? { background: accentStyle(0.16), color: accentColor } : { color: "rgba(255,255,255,0.62)" }}
+                      >
+                        {first}-{last}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
           ) : null}
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30" aria-hidden="true" />
@@ -1702,9 +1739,8 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                         priority={eagerArtwork}
                         loading={eagerArtwork ? "eager" : "lazy"}
                         fetchPriority={eagerArtwork ? "high" : "auto"}
-                        quality={90}
-                        sizes="(max-width: 639px) 34vw, (min-width: 1280px) 160px, 38vw"
-                        unoptimized
+                        quality={55}
+                        sizes="(max-width: 639px) 132px, (min-width: 1280px) 160px, 150px"
                         className="object-cover transition-transform duration-300 group-hover/episode:scale-[1.025]"
                       />
                       <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/75 px-1.5 py-0.5 text-[9px] font-black text-white">

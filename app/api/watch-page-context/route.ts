@@ -148,8 +148,33 @@ export async function GET(request: NextRequest) {
   const anilistId = parseAnilistId(searchParams.get("anilistId"));
   const requestedStart = Math.max(0, Number.parseInt(searchParams.get("episodeStart") || "0", 10) || 0);
   const episodeRangeStart = Math.floor(requestedStart / 100) * 100;
+  const metadataOnly = searchParams.get("metadataOnly") === "1";
 
   try {
+    if (metadataOnly) {
+      if (!anilistId) return NextResponse.json({ episodeMetadata: [] });
+
+      const [aniZipMetadata, tvMazeMetadata] = await Promise.all([
+        getAniZipEpisodeMetadata(anilistId).catch(() => []),
+        getTvMazeEpisodeMetadataRange(anilistId, episodeRangeStart).catch(() => []),
+      ]);
+      let episodeMetadata = mergeEpisodeMetadataSources(aniZipMetadata, tvMazeMetadata);
+      const requestedEpisodes = episodeMetadata.filter(
+        (episode) => episode.number > episodeRangeStart && episode.number <= episodeRangeStart + 100,
+      );
+      const needsKitsu = requestedEpisodes.length === 0 || requestedEpisodes.some((episode) => !episode.image);
+      if (needsKitsu) {
+        const kitsuMetadata = await getKitsuEpisodeMetadataRange(anilistId, episodeRangeStart).catch(() => []);
+        episodeMetadata = mergeEpisodeMetadataSources(episodeMetadata, kitsuMetadata);
+      }
+
+      return NextResponse.json({
+        episodeMetadata: episodeMetadata.filter(
+          (episode) => episode.number > episodeRangeStart && episode.number <= episodeRangeStart + 100,
+        ),
+      });
+    }
+
     const [authSession, discovery, aniZipMetadata, kitsuMetadata, tvMazeMetadata, availabilityMetadata] = await Promise.all([
       auth().catch(() => null),
       measureAsync(
