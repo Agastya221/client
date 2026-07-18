@@ -9,6 +9,8 @@ export interface EpisodeDisplayMetadata {
   airDate?: string | null;
   isSubbed?: boolean;
   isDubbed?: boolean;
+  /** Prefer this catalog artwork over a provider screencap for the player. */
+  preferArtwork?: boolean;
 }
 
 export function mergeEpisodeDisplayMetadataSources(
@@ -42,6 +44,8 @@ function isGenericEpisodeTitle(title: string): boolean {
 export function normalizeEpisodeDescription(value: string | null | undefined): string | null {
   const normalized = String(value || "")
     .replace(/<[^>]*>/g, " ")
+    .replace(/([A-Za-z])`([A-Za-z])/g, "$1'$2")
+    .replace(/\s+Source:\s*[^.?!]+$/i, "")
     .replace(/\s+(?:—|–|--+)\s+/g, ", ")
     .replace(/\s+/g, " ")
     .trim();
@@ -89,7 +93,9 @@ function mergeEpisodeDisplayMetadata(
   // Keep a unique provider screencap when one exists: providers can expose a
   // larger original than AniZip/TVDB's 640px metadata image. Repeated provider
   // artwork is normally a series banner, so AniZip remains the fallback there.
-  const image = preferProviderArtwork && episode.image
+  const image = metadata.preferArtwork && metadata.image
+    ? metadata.image
+    : preferProviderArtwork && episode.image
     ? episode.image
     : metadata.image || episode.image || null;
   const thumbnail = metadata.thumbnail || episode.thumbnail || image;

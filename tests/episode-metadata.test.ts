@@ -50,6 +50,26 @@ test("episode metadata supplies titles and preserves unique provider screen caps
   assert.strictEqual(merged.serverOptions, session.serverOptions);
 });
 
+test("preferred HD catalog artwork replaces a unique provider thumbnail", () => {
+  const providerArtwork = "https://provider.example/episode-1.jpg";
+  const session = {
+    anime: { id: "anilist~21" },
+    episode: episode(1, "Episode 1", providerArtwork),
+    episodes: [episode(1, "Episode 1", providerArtwork)],
+  } as unknown as WatchSessionModel;
+
+  const merged = mergeEpisodeMetadataIntoWatchSession(session, [{
+    number: 1,
+    title: null,
+    image: "https://static.tvmaze.com/original/episode-1.jpg",
+    thumbnail: "https://static.tvmaze.com/medium/episode-1.jpg",
+    preferArtwork: true,
+  }]);
+
+  assert.equal(merged.episode.image, "https://static.tvmaze.com/original/episode-1.jpg");
+  assert.equal(merged.episode.thumbnail, "https://static.tvmaze.com/medium/episode-1.jpg");
+});
+
 test("episode descriptions use clean source typography", () => {
   const session = {
     anime: { id: "anilist~21" },
@@ -58,10 +78,10 @@ test("episode descriptions use clean source typography", () => {
   } as unknown as WatchSessionModel;
 
   const merged = mergeEpisodeMetadataIntoWatchSession(session, [
-    { number: 1, title: null, image: null, description: "He leaves — until she returns -- with news." },
+    { number: 1, title: null, image: null, description: "He leaves — until she returns -- with news. It`s true! Source: crunchyroll" },
   ]);
 
-  assert.equal(merged.episode.description, "He leaves, until she returns, with news.");
+  assert.equal(merged.episode.description, "He leaves, until she returns, with news. It's true!");
 });
 
 test("episode language badges follow per-episode counts and confirmed current servers", () => {

@@ -56,6 +56,28 @@ function mergeEpisodeMetadataSources(
   return Array.from(entries.values()).sort((left, right) => left.number - right.number);
 }
 
+/** Keep primary text/availability, but promote a verified HD artwork source. */
+function mergePreferredEpisodeArtwork(
+  primary: EpisodeDisplayMetadata[],
+  artwork: EpisodeDisplayMetadata[],
+): EpisodeDisplayMetadata[] {
+  const entries = new Map(primary.map((entry) => [entry.number, { ...entry }]));
+  for (const incoming of artwork) {
+    const existing = entries.get(incoming.number);
+    entries.set(incoming.number, existing ? {
+      ...incoming,
+      ...existing,
+      title: existing.title || incoming.title,
+      description: existing.description || incoming.description,
+      airDate: existing.airDate || incoming.airDate,
+      image: incoming.image || existing.image,
+      thumbnail: incoming.thumbnail || existing.thumbnail,
+      preferArtwork: incoming.preferArtwork || existing.preferArtwork,
+    } : { ...incoming });
+  }
+  return Array.from(entries.values()).sort((left, right) => left.number - right.number);
+}
+
 async function fetchWatchDiscovery(
   anilistId: number | null,
   title: string,
@@ -150,9 +172,18 @@ export async function GET(request: NextRequest) {
   const requestedStart = Math.max(0, Number.parseInt(searchParams.get("episodeStart") || "0", 10) || 0);
   const episodeRangeStart = Math.floor(requestedStart / 100) * 100;
   const metadataOnly = searchParams.get("metadataOnly") === "1";
+  const availabilityOnly = searchParams.get("availabilityOnly") === "1";
   const discoveryOnly = searchParams.get("discoveryOnly") === "1";
 
   try {
+    if (availabilityOnly) {
+      if (!anilistId) return NextResponse.json({ episodeMetadata: [] });
+      const episodeMetadata = await getAnivexaEpisodeAvailabilityMetadata(anilistId).catch(() => []);
+      return NextResponse.json({ episodeMetadata }, {
+        headers: { "Cache-Control": "public, max-age=300, stale-while-revalidate=21600" },
+      });
+    }
+
     if (metadataOnly) {
       if (!anilistId) return NextResponse.json({ episodeMetadata: [] });
 
@@ -162,7 +193,7 @@ export async function GET(request: NextRequest) {
         getFandomEpisodeMetadataRange(anilistId, episodeRangeStart).catch(() => []),
       ]);
       let episodeMetadata = mergeEpisodeMetadataSources(
-        mergeEpisodeMetadataSources(aniZipMetadata, tvMazeMetadata),
+        mergePreferredEpisodeArtwork(aniZipMetadata, tvMazeMetadata),
         fandomMetadata,
       );
       const requestedEpisodes = episodeMetadata.filter(
@@ -173,11 +204,14 @@ export async function GET(request: NextRequest) {
         const kitsuMetadata = await getKitsuEpisodeMetadataRange(anilistId, episodeRangeStart).catch(() => []);
         episodeMetadata = mergeEpisodeMetadataSources(episodeMetadata, kitsuMetadata);
       }
-
       return NextResponse.json({
         episodeMetadata: episodeMetadata.filter(
           (episode) => episode.number > episodeRangeStart && episode.number <= episodeRangeStart + 100,
         ),
+      }, {
+        headers: {
+          "Cache-Control": "public, max-age=300, stale-while-revalidate=86400",
+        },
       });
     }
 
@@ -234,7 +268,7 @@ export async function GET(request: NextRequest) {
         : Promise.resolve([]),
     ]);
     const episodeMetadata = mergeEpisodeMetadataSources(
-      mergeEpisodeMetadataSources(
+      mergePreferredEpisodeArtwork(
         mergeEpisodeMetadataSources(aniZipMetadata, kitsuMetadata),
         tvMazeMetadata,
       ),

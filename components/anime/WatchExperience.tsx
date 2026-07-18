@@ -57,12 +57,13 @@ import {
   Play,
   RefreshCcw,
   Search,
+  Share2,
   Tv2,
 } from "lucide-react";
 import Image, { type ImageProps } from "next/image";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { startTransition, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const VideoPlayer = dynamic(
   () => import("@/components/anime/watch/VideoPlayer"),
@@ -79,6 +80,98 @@ const VideoPlayer = dynamic(
 );
 
 const EPISODE_PAGE_SIZE = 100;
+const EPISODE_METADATA_CACHE_LIMIT = 12;
+const episodeMetadataRangeCache = new Map<string, EpisodeDisplayMetadata[]>();
+const episodeMetadataRangeRequests = new Map<string, Promise<EpisodeDisplayMetadata[]>>();
+const episodeAvailabilityCache = new Map<number, EpisodeDisplayMetadata[]>();
+const episodeAvailabilityRequests = new Map<number, Promise<EpisodeDisplayMetadata[]>>();
+type WatchDiscoveryPayload = {
+  currentUserId?: string | null;
+  detail?: AnilistMedia | null;
+  seasons?: AnilistSeasonEntry[];
+  related?: RelatedAnimeEntry[];
+  recommendations?: AnilistMedia[];
+};
+const watchDiscoveryCache = new Map<string, WatchDiscoveryPayload>();
+const watchDiscoveryRequests = new Map<string, Promise<WatchDiscoveryPayload>>();
+
+function cacheEpisodeMetadataRange(key: string, entries: EpisodeDisplayMetadata[]) {
+  episodeMetadataRangeCache.delete(key);
+  episodeMetadataRangeCache.set(key, entries);
+  while (episodeMetadataRangeCache.size > EPISODE_METADATA_CACHE_LIMIT) {
+    const oldestKey = episodeMetadataRangeCache.keys().next().value;
+    if (typeof oldestKey !== "string") break;
+    episodeMetadataRangeCache.delete(oldestKey);
+  }
+}
+
+function loadEpisodeMetadataRange(anilistId: number, episodeRangeStart: number) {
+  const key = `${anilistId}:${episodeRangeStart}`;
+  const cached = episodeMetadataRangeCache.get(key);
+  if (cached) {
+    cacheEpisodeMetadataRange(key, cached);
+    return Promise.resolve(cached);
+  }
+  const pending = episodeMetadataRangeRequests.get(key);
+  if (pending) return pending;
+
+  const params = new URLSearchParams({
+    anilistId: String(anilistId),
+    episodeStart: String(episodeRangeStart),
+    metadataOnly: "1",
+    // Version the browser-cache key when the metadata payload shape/source
+    // changes. This prevents an older description-only response from hiding
+    // newly available TVMaze artwork for the full max-age window.
+    v: "2",
+  });
+  const request = fetch(`/api/watch-page-context?${params.toString()}`)
+    .then(async (response) => {
+      if (!response.ok) throw new Error(`Watch page context failed with ${response.status}`);
+      const payload = await response.json() as { episodeMetadata?: EpisodeDisplayMetadata[] };
+      const entries = payload.episodeMetadata ?? [];
+      cacheEpisodeMetadataRange(key, entries);
+      return entries;
+    })
+    .finally(() => episodeMetadataRangeRequests.delete(key));
+  episodeMetadataRangeRequests.set(key, request);
+  return request;
+}
+
+function loadEpisodeAvailability(anilistId: number) {
+  const cached = episodeAvailabilityCache.get(anilistId);
+  if (cached) return Promise.resolve(cached);
+  const pending = episodeAvailabilityRequests.get(anilistId);
+  if (pending) return pending;
+  const params = new URLSearchParams({ anilistId: String(anilistId), availabilityOnly: "1" });
+  const request = fetch(`/api/watch-page-context?${params.toString()}`)
+    .then(async (response) => {
+      if (!response.ok) throw new Error(`Episode availability failed with ${response.status}`);
+      const payload = await response.json() as { episodeMetadata?: EpisodeDisplayMetadata[] };
+      const entries = payload.episodeMetadata ?? [];
+      episodeAvailabilityCache.set(anilistId, entries);
+      return entries;
+    })
+    .finally(() => episodeAvailabilityRequests.delete(anilistId));
+  episodeAvailabilityRequests.set(anilistId, request);
+  return request;
+}
+
+function loadWatchDiscovery(key: string, params: URLSearchParams) {
+  const cached = watchDiscoveryCache.get(key);
+  if (cached) return Promise.resolve(cached);
+  const pending = watchDiscoveryRequests.get(key);
+  if (pending) return pending;
+  const request = fetch(`/api/watch-page-context?${params.toString()}`)
+    .then(async (response) => {
+      if (!response.ok) throw new Error(`Watch discovery failed with ${response.status}`);
+      const payload = await response.json() as WatchDiscoveryPayload;
+      watchDiscoveryCache.set(key, payload);
+      return payload;
+    })
+    .finally(() => watchDiscoveryRequests.delete(key));
+  watchDiscoveryRequests.set(key, request);
+  return request;
+}
 const EPISODE_DATE_FORMATTER = new Intl.DateTimeFormat("en-GB", {
   day: "2-digit",
   month: "short",
@@ -690,6 +783,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   const hoverPrefetchKeyRef = useRef<string | null>(null);
   const pendingSessionKeyRef = useRef<string | null>(null);
   const nearEndPrefetchedRef = useRef<string | null>(null);
+  const automaticEmbedFallbackRef = useRef<string | null>(null);
   const sessionRequestSeqRef = useRef(0);
   const userActivatedPlayerRef = useRef(false);
   const playbackProgressRef = useRef({
@@ -706,6 +800,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     animeId: initialSession.anime.id,
     entries: initialEpisodeMetadata,
   } : null);
+  const activeMetadataRequestKeyRef = useRef<string | null>(null);
   const failedServerIdsRef = useRef<Set<string>>(new Set());
   const [deferredRecommendations, setDeferredRecommendations] = useState<AnilistMedia[] | null>(initialRecommendations);
   const [deferredRelated, setDeferredRelated] = useState<RelatedAnimeEntry[] | null>(initialRelated);
@@ -716,6 +811,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [bookmarkChecked, setBookmarkChecked] = useState(false);
   const [reportStatus, setReportStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [shareStatus, setShareStatus] = useState<"idle" | "shared" | "copied" | "error">("idle");
 
   useEffect(() => {
     setAutoSkip(playerPrefs.getAutoSkip());
@@ -750,6 +846,31 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
         status: "PLAN_TO_WATCH",
       });
       setIsBookmarked(true);
+    }
+  };
+
+  const shareEpisode = async () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("ep", String(session.episode.number));
+    const title = `${session.anime.title} · Episode ${session.episode.number}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title, text: `Watch ${title}`, url: url.toString() });
+        setShareStatus("shared");
+      } else {
+        await navigator.clipboard.writeText(url.toString());
+        setShareStatus("copied");
+      }
+      window.setTimeout(() => setShareStatus("idle"), 2500);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      try {
+        await navigator.clipboard.writeText(url.toString());
+        setShareStatus("copied");
+        window.setTimeout(() => setShareStatus("idle"), 2500);
+      } catch {
+        setShareStatus("error");
+      }
     }
   };
 
@@ -886,29 +1007,13 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   useEffect(() => {
     if (!session.anime.anilistId) return;
 
-    const params = new URLSearchParams({
-      anilistId: String(session.anime.anilistId),
-      episodeStart: String(episodeRangeStart),
-      metadataOnly: "1",
-    });
-    const controller = new AbortController();
-    setEpisodeMetadataLoading(true);
+    const cacheKey = `${session.anime.anilistId}:${episodeRangeStart}`;
+    activeMetadataRequestKeyRef.current = cacheKey;
+    const cachedMetadata = episodeMetadataRangeCache.get(cacheKey);
+    setEpisodeMetadataLoading(!cachedMetadata);
 
-    void fetch(`/api/watch-page-context?${params.toString()}`, {
-      cache: "no-store",
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error(`Watch page context failed with ${response.status}`);
-        }
-        return response.json() as Promise<{
-          episodeMetadata?: EpisodeDisplayMetadata[];
-        }>;
-      })
-      .then((payload) => {
-        if (controller.signal.aborted) return;
-        const episodeMetadata = payload.episodeMetadata ?? [];
+    void loadEpisodeMetadataRange(session.anime.anilistId, episodeRangeStart)
+      .then((episodeMetadata) => {
         const previousMetadata = episodeMetadataRef.current?.animeId === session.anime.id
           ? episodeMetadataRef.current.entries
           : [];
@@ -926,11 +1031,35 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
       })
       .catch(() => undefined)
       .finally(() => {
-        if (!controller.signal.aborted) setEpisodeMetadataLoading(false);
+        if (activeMetadataRequestKeyRef.current === cacheKey) {
+          setEpisodeMetadataLoading(false);
+        }
       });
-
-    return () => controller.abort();
   }, [episodeRangeStart, session.anime.anilistId, session.anime.id]);
+
+  // Resolve catalogue-wide sub/dub badges separately from artwork. This keeps
+  // the episode rail fast while still exposing dub from internal or embedded
+  // AniVexa providers before an episode is selected.
+  useEffect(() => {
+    if (!session.anime.anilistId) return;
+    let cancelled = false;
+    void loadEpisodeAvailability(session.anime.anilistId)
+      .then((availability) => {
+        if (cancelled || availability.length === 0) return;
+        const previousMetadata = episodeMetadataRef.current?.animeId === session.anime.id
+          ? episodeMetadataRef.current.entries
+          : [];
+        const combinedMetadata = mergeEpisodeDisplayMetadataSources(previousMetadata, availability);
+        episodeMetadataRef.current = { animeId: session.anime.id, entries: combinedMetadata };
+        setSession((current) => current.anime.id === session.anime.id
+          ? mergeEpisodeMetadataIntoWatchSession(current, combinedMetadata)
+          : current);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [session.anime.anilistId, session.anime.id]);
 
   // Seasons, recommendations, auth state, and related anime are below the
   // fold. Let the poster, controls, and source resolver get the first network
@@ -941,24 +1070,11 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     if (session.anime.title) params.set("title", session.anime.title);
     if (animeGenresKey) params.set("genres", animeGenresKey.replaceAll("|", ","));
 
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => {
-      void fetch(`/api/watch-page-context?${params.toString()}`, {
-        cache: "no-store",
-        signal: controller.signal,
-      })
-        .then(async (response) => {
-          if (!response.ok) throw new Error(`Watch discovery failed with ${response.status}`);
-          return response.json() as Promise<{
-            currentUserId?: string | null;
-            detail?: AnilistMedia | null;
-            seasons?: AnilistSeasonEntry[];
-            related?: RelatedAnimeEntry[];
-            recommendations?: AnilistMedia[];
-          }>;
-        })
+    let cancelled = false;
+    const discoveryKey = `${session.anime.anilistId || session.anime.id}:${animeGenresKey}`;
+    void loadWatchDiscovery(discoveryKey, params)
         .then((payload) => {
-          if (controller.signal.aborted) return;
+          if (cancelled) return;
           setDeferredDetail(payload.detail ?? null);
           setDeferredSeasons(payload.seasons ?? []);
           setDeferredRelated(payload.related ?? []);
@@ -966,17 +1082,15 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
           setResolvedCurrentUserId(payload.currentUserId ?? null);
         })
         .catch(() => {
-          if (controller.signal.aborted) return;
+          if (cancelled) return;
           setDeferredDetail(null);
           setDeferredSeasons([]);
           setDeferredRelated((current) => current ?? []);
           setDeferredRecommendations((current) => current ?? []);
         });
-    }, 350);
 
     return () => {
-      window.clearTimeout(timer);
-      controller.abort();
+      cancelled = true;
     };
   }, [animeGenresKey, session.anime.anilistId, session.anime.id, session.anime.title]);
 
@@ -1372,7 +1486,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
       : null;
     if (failedKey) failedServerIdsRef.current.add(failedKey);
 
-    const scraperCandidates = session.serverOptions.filter((entry) => {
+    const playableCandidates = session.serverOptions.filter((entry) => {
       const sameLanguage = language === "dub"
         ? entry.category === "dub"
         : entry.category === "sub" || !entry.category;
@@ -1381,19 +1495,18 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
       return sameLanguage &&
         sameSubMode &&
         entry.id !== activeServerId &&
-        !failedServerIdsRef.current.has(failedCandidateKey) &&
-        !isEmbedServerOption(entry.id);
-    });
+        !failedServerIdsRef.current.has(failedCandidateKey);
+    }).sort((left, right) => Number(isEmbedServerOption(left.id)) - Number(isEmbedServerOption(right.id)));
 
-    const currentIndex = scraperCandidates.findIndex((entry) => entry.id === activeServerId);
+    const currentIndex = playableCandidates.findIndex((entry) => entry.id === activeServerId);
     const orderedCandidates =
       currentIndex >= 0
-        ? [...scraperCandidates.slice(currentIndex + 1), ...scraperCandidates.slice(0, currentIndex)]
-        : scraperCandidates;
+        ? [...playableCandidates.slice(currentIndex + 1), ...playableCandidates.slice(0, currentIndex)]
+        : playableCandidates;
     const next = orderedCandidates[0];
 
     if (!next) {
-      watchDebug("playback_error.no_scraper_candidate", {
+      watchDebug("playback_error.no_candidate", {
         provider: session.provider,
         activeServerId,
         language,
@@ -1401,13 +1514,13 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
       });
       setPlaybackMessage(
         activeServer?.subType === "hard"
-          ? "All internal hard-sub servers failed. Try an embed server or another audio mode."
-          : "All internal servers for this mode failed. Try an embed server or another audio mode.",
+          ? "No working hard-sub or embedded server was found for this episode."
+          : "No working server was found for this episode or audio mode.",
       );
       return;
     }
 
-    watchDebug("playback_error.try_next_scraper", {
+    watchDebug("playback_error.try_next_server", {
       failedProvider: session.provider,
       failedServer: activeServerId,
       nextProvider: next.provider,
@@ -1427,6 +1540,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
 
   useEffect(() => {
     failedServerIdsRef.current.clear();
+    automaticEmbedFallbackRef.current = null;
   }, [session.anime.id, session.episode.number, session.dubbed]);
 
   const prefetchEpisode = (episodeNumber: number) => {
@@ -1577,6 +1691,27 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     };
   }, [session.stale, session.anime.id, session.episode.number, session.provider, session.dubbed, session.activeServerId]);
 
+  // Defensive client fallback: if a resolver response still arrives without a
+  // source but already advertises an embed, select it automatically. This
+  // prevents the transient "No source" state and requires no user click.
+  useEffect(() => {
+    if (session.stale || session.source || isSessionLoading) return;
+    const category = session.dubbed ? "dub" : "sub";
+    const fallback = session.serverOptions.find((option) =>
+      option.category === category && isEmbedServerOption(option.id),
+    );
+    if (!fallback) return;
+    const key = `${session.anime.id}|${session.episode.number}|${category}|${fallback.id}`;
+    if (automaticEmbedFallbackRef.current === key) return;
+    automaticEmbedFallbackRef.current = key;
+    queueSession({
+      episodeNumber: session.episode.number,
+      provider: fallback.provider,
+      server: fallback.id,
+      dubbed: session.dubbed,
+    });
+  }, [isSessionLoading, session.anime.id, session.dubbed, session.episode.number, session.serverOptions, session.source, session.stale]);
+
   /* ── Server buttons helper ───────────────────── */
   // Priority: optimistic click → pending staged session → committed session
   const effectiveActiveServerId = optimisticServerId || pendingSession?.activeServerId || session.activeServerId;
@@ -1641,7 +1776,12 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     const activeIndex = filteredEpisodes.findIndex((episode) => episode.number === displayedEpisodeNumber);
     const nextRangeStart = Math.floor(Math.max(0, activeIndex) / EPISODE_PAGE_SIZE) * EPISODE_PAGE_SIZE;
     setEpisodeRangeStart(nextRangeStart);
-  }, [displayedEpisodeNumber, episodeQuery, filteredEpisodes]);
+  // Metadata hydration replaces the episode array after a range is selected.
+  // Do not follow that array identity here: doing so snapped the rail back to
+  // the currently-playing episode as soon as titles/artwork arrived. The range
+  // should only follow an actual episode change or a search-mode change.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayedEpisodeNumber, episodeQuery]);
 
   const episodeRangeCount = Math.ceil(filteredEpisodes.length / EPISODE_PAGE_SIZE);
   const visibleEpisodes = episodeQuery.trim()
@@ -1793,7 +1933,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                         type="button"
                         onClick={() => {
                           setEpisodeRangeMenuOpen(false);
-                          startTransition(() => setEpisodeRangeStart(start));
+                          setEpisodeRangeStart(start);
                         }}
                         className="flex w-full items-center rounded-lg px-3 py-2 text-left text-[11px] font-bold transition-colors hover:bg-white/[0.07]"
                         style={active ? { background: accentStyle(0.16), color: accentColor } : { color: "rgba(255,255,255,0.62)" }}
@@ -1844,7 +1984,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
             {`No episodes match "${episodeQuery}"`}
           </p>
         ) : episodeView === "cards" ? (
-          <div className="watch-episode-scroll max-h-[244px] space-y-1.5 overflow-y-auto pr-1 hide-scrollbar sm:h-full sm:max-h-none sm:space-y-2">
+          <div key={`cards-${episodeRangeStart}`} className="watch-episode-range watch-episode-scroll max-h-[244px] space-y-1.5 overflow-y-auto pr-1 hide-scrollbar sm:h-full sm:max-h-none sm:space-y-2">
             {visibleEpisodes.map((episode, visibleIndex) => {
               const active = episode.number === displayedEpisodeNumber;
               const watched = watchedEpisodes.has(episode.number);
@@ -1868,7 +2008,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                   onMouseEnter={() => prefetchEpisode(episode.number)}
                   onFocus={() => prefetchEpisode(episode.number)}
                   data-active-episode={active ? "true" : undefined}
-                  className={`group/episode relative flex w-full gap-0 overflow-hidden rounded-[11px] border text-left transition-colors ${episodeArtwork ? "h-[76px] sm:h-[100px]" : "h-[58px] sm:h-[68px]"}`}
+                  className={`watch-episode-card group/episode relative flex w-full gap-0 overflow-hidden rounded-[11px] border text-left transition-[transform,border-color,background-color,box-shadow] duration-200 ease-out hover:-translate-y-px hover:shadow-[0_8px_24px_rgba(0,0,0,0.28)] ${episodeArtwork ? "h-[76px] sm:h-[100px]" : "h-[58px] sm:h-[68px]"}`}
                   style={active
                     ? { borderColor: accentStyle(0.95), background: accentStyle(0.68) }
                     : watched
@@ -1933,7 +2073,8 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
           </div>
         ) : episodeView === "list" ? (
           <div
-            className="watch-episode-scroll max-h-[244px] space-y-1 overflow-y-auto pr-1 hide-scrollbar sm:h-full sm:max-h-none"
+            key={`list-${episodeRangeStart}`}
+            className="watch-episode-range watch-episode-scroll max-h-[244px] space-y-1 overflow-y-auto pr-1 hide-scrollbar sm:h-full sm:max-h-none"
             ref={(el) => {
               if (el) {
                 const active = el.querySelector('[data-active-episode="true"]');
@@ -1984,7 +2125,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
             })}
           </div>
         ) : (
-          <div className="watch-episode-scroll h-full min-h-0 overflow-y-auto pr-1">
+          <div key={`grid-${episodeRangeStart}`} className="watch-episode-range watch-episode-scroll h-full min-h-0 overflow-y-auto pr-1">
             <EpisodeNumberGrid
               episodes={visibleEpisodes}
               activeNumber={displayedEpisodeNumber}
@@ -2449,8 +2590,8 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
           </div>
         )}
 
-        {/* Report / Refresh stream */}
-        <div className="flex items-center justify-between pt-1 border-t border-white/[0.04]">
+        {/* Share and playback diagnostics */}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.05] pt-2.5">
           <p className="text-[10px] text-white/25">
             {reportStatus === "sent"
               ? "✓ Stream reported — refreshing in background"
@@ -2458,43 +2599,50 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                 ? "⚠ Report failed — please try again"
                 : "Stream not working?"}
           </p>
-          <button
-            id="report-stream-btn"
-            type="button"
-            disabled={reportStatus === "sending" || reportStatus === "sent"}
-            onClick={async () => {
-              if (reportStatus !== "idle" && reportStatus !== "error") return;
-              setReportStatus("sending");
-              try {
-                const res = await fetch("/api/watch/report", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    anilistId: session.anime.anilistId,
-                    episodeNumber: session.episode.number,
-                    dubbed: session.dubbed,
-                  }),
-                });
-                setReportStatus(res.ok ? "sent" : "error");
-                if (res.ok) {
-                  // Reset to idle after 8 seconds so user can report again if needed
-                  setTimeout(() => setReportStatus("idle"), 8000);
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={shareEpisode}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.035] px-3 text-[10px] font-bold text-white/55 transition-all duration-200 hover:-translate-y-px hover:border-white/20 hover:bg-white/[0.07] hover:text-white"
+            >
+              <Share2 className="h-3.5 w-3.5" aria-hidden="true" />
+              {shareStatus === "copied" ? "Link copied" : shareStatus === "shared" ? "Shared" : shareStatus === "error" ? "Try again" : "Share"}
+            </button>
+            <button
+              id="report-stream-btn"
+              type="button"
+              disabled={reportStatus === "sending" || reportStatus === "sent" || !session.anime.anilistId}
+              onClick={async () => {
+                if (reportStatus !== "idle" && reportStatus !== "error") return;
+                setReportStatus("sending");
+                try {
+                  const res = await fetch("/api/watch/report", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      anilistId: session.anime.anilistId,
+                      episodeNumber: session.episode.number,
+                      dubbed: session.dubbed,
+                    }),
+                  });
+                  setReportStatus(res.ok ? "sent" : "error");
+                  if (res.ok) window.setTimeout(() => setReportStatus("idle"), 8000);
+                } catch {
+                  setReportStatus("error");
                 }
-              } catch {
-                setReportStatus("error");
-              }
-            }}
-            className={`flex items-center gap-1.5 text-[10px] font-semibold px-2.5 py-1 rounded transition-all ${
-              reportStatus === "sent"
-                ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 opacity-60 cursor-default"
-                : reportStatus === "sending"
-                  ? "bg-white/5 text-white/30 border border-white/8 cursor-wait"
-                  : "bg-white/[0.04] text-white/40 border border-white/8 hover:text-amber-400 hover:border-amber-500/30 hover:bg-amber-500/[0.06]"
-            }`}
-          >
-            <AlertTriangle className="w-3 h-3" aria-hidden="true" />
-            {reportStatus === "sending" ? "Reporting…" : reportStatus === "sent" ? "Reported" : "Report stream"}
-          </button>
+              }}
+              className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-[10px] font-bold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40 ${
+                reportStatus === "sent"
+                  ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
+                  : reportStatus === "sending"
+                    ? "border-white/8 bg-white/5 text-white/30"
+                    : "border-white/10 bg-white/[0.035] text-white/55 hover:-translate-y-px hover:border-amber-500/35 hover:bg-amber-500/[0.08] hover:text-amber-300"
+              }`}
+            >
+              <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+              {reportStatus === "sending" ? "Sending…" : reportStatus === "sent" ? "Reported" : "Bug report"}
+            </button>
+          </div>
         </div>
       </div>
 

@@ -121,6 +121,26 @@ body {
   overscroll-behavior-y: contain;
 }
 
+@keyframes watchEpisodeRangeIn {
+  from { opacity: 0.55; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.watch-episode-range {
+  animation: watchEpisodeRangeIn 160ms ease-out both;
+}
+
+.watch-episode-card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 100px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .watch-episode-range {
+    animation: none;
+  }
+}
+
 .watch-sidebar-rail {
   scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
   scrollbar-width: thin;

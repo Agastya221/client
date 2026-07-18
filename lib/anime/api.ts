@@ -60,7 +60,7 @@ export const ANIVEXA_WORKER_URL = resolveAnivexaWorkerUrl();
 type AniviexaProvider = "reanime" | "allmanga" | "anikoto" | "animegg" | "anineko";
 const ANIVEXA_PROVIDERS: AniviexaProvider[] = ["reanime", "allmanga", "anikoto", "animegg", "anineko"];
 const ANIVEXA_PROVIDER_SET = new Set<ProviderId>(ANIVEXA_PROVIDERS);
-type AnivexaWorkerProvider = AniviexaProvider | "animepahe" | "anidbapp" | "2dhive" | "anizone" | "animenosub";
+type AnivexaWorkerProvider = AniviexaProvider | "animepahe" | "anidbapp" | "2dhive" | "anizone" | "animenosub" | "anibd" | "senshi";
 const ANIVEXA_WORKER_PROVIDERS: AnivexaWorkerProvider[] = [
   "animegg",
   "anineko",
@@ -70,9 +70,15 @@ const ANIVEXA_WORKER_PROVIDERS: AnivexaWorkerProvider[] = [
   "anidbapp",
   "2dhive",
   "animenosub",
+  "anizone",
+  "anibd",
+  "senshi",
 ];
-const ANIVEXA_AUTO_SUB_PROVIDERS: AnivexaWorkerProvider[] = ["anikoto", "anineko", "animegg"];
-const ANIVEXA_AUTO_DUB_PROVIDERS: AnivexaWorkerProvider[] = ["anineko", "anikoto"];
+const ANIVEXA_AUTO_SUB_PROVIDERS: AnivexaWorkerProvider[] = ["anikoto", "senshi", "anibd", "anineko", "animegg"];
+const ANIVEXA_AUTO_DUB_PROVIDERS: AnivexaWorkerProvider[] = ["senshi", "anibd", "anineko", "anikoto"];
+const ANIVEXA_AVAILABILITY_PROVIDERS: AnivexaWorkerProvider[] = [
+  "anikoto", "anineko", "senshi", "anibd",
+];
 const ANIVEXA_WORKER_WATCH_ALIAS: Partial<Record<AnivexaWorkerProvider, AnivexaWorkerProvider>> = {
   anikoto: "anikoto",
 };
@@ -87,6 +93,8 @@ const ANIVEXA_DISPLAY_NAMES: Record<AnivexaWorkerProvider, string> = {
   "2dhive": "Hive",
   anizone: "Zone",
   animenosub: "Mori",
+  anibd: "Nova",
+  senshi: "Kage",
 };
 const ANIVEXA_HARD_SUB_PROVIDERS = new Set<AnivexaWorkerProvider>(["animegg", "allmanga"]);
 const ANIVEXA_HLS_ONLY_PROVIDERS = new Set<AnivexaWorkerProvider>(["anikoto"]);
@@ -1476,8 +1484,10 @@ export function normalizeAniZipEpisodesPayload(data: JsonValue): EpisodeModel[] 
 interface AniZipEpisodeBundle {
   episodes: EpisodeModel[];
   kitsuId: number | null;
+  tvdbShowId: number | null;
   title: string | null;
   premiereYear: string | null;
+  premiereDate: string | null;
 }
 
 async function fetchAniZipEpisodeArtwork(anilistId: number): Promise<AniZipEpisodeBundle> {
@@ -1493,7 +1503,7 @@ async function fetchAniZipEpisodeArtwork(anilistId: number): Promise<AniZipEpiso
       cache: "no-store",
       signal: AbortSignal.timeout(4_000),
     });
-    if (!response.ok) return { episodes: [], kitsuId: null, title: null, premiereYear: null };
+    if (!response.ok) return { episodes: [], kitsuId: null, tvdbShowId: null, title: null, premiereYear: null, premiereDate: null };
     const payload = await response.json() as JsonValue;
     const normalizedPayload = typeof payload === "string"
       ? (() => {
@@ -1511,15 +1521,19 @@ async function fetchAniZipEpisodeArtwork(anilistId: number): Promise<AniZipEpiso
       normalizedPayload?.titles?.ja,
     ) || null;
     const firstEpisode = normalizedPayload?.episodes?.["1"] || normalizedPayload?.episodes?.[1];
-    const premiereYear = parseYear(pickFirstNonEmpty(firstEpisode?.airDate, firstEpisode?.airdate));
+    const tvdbShowId = Number(firstEpisode?.tvdbShowId);
+    const premiereDate = pickFirstNonEmpty(firstEpisode?.airDate, firstEpisode?.airdate) || null;
+    const premiereYear = parseYear(premiereDate);
     return {
       episodes: normalizeAniZipEpisodesPayload(normalizedPayload),
       kitsuId: Number.isInteger(kitsuId) && kitsuId > 0 ? kitsuId : null,
+      tvdbShowId: Number.isInteger(tvdbShowId) && tvdbShowId > 0 ? tvdbShowId : null,
       title,
       premiereYear,
+      premiereDate,
     };
   } catch {
-    return { episodes: [], kitsuId: null, title: null, premiereYear: null };
+    return { episodes: [], kitsuId: null, tvdbShowId: null, title: null, premiereYear: null, premiereDate: null };
   }
 }
 
@@ -1644,13 +1658,43 @@ export async function getKitsuEpisodeMetadataRange(
 
 const TVMAZE_EPISODE_RANGE_SIZE = 100;
 
-function normalizeTvMazeEpisodePayload(payload: unknown): EpisodeDisplayMetadata[] {
-  return ensureArray(payload)
+function getTvMazeSearchTitles(title: string): string[] {
+  const baseTitle = title
+    .replace(/\s+(?:season|part|cour)\s*\d+\s*$/i, "")
+    .replace(/\s+\d+(?:st|nd|rd|th)\s+season\s*$/i, "")
+    .trim();
+  return baseTitle && baseTitle !== title ? [title, baseTitle] : [title];
+}
+
+function normalizeTvMazeEpisodePayload(
+  payload: unknown,
+  premiereDate: string | null,
+): EpisodeDisplayMetadata[] {
+  const episodes = ensureArray(payload)
     .filter((entry) => entry?.type === "regular" && Number.isFinite(Number(entry?.number)))
     .sort((left, right) => {
       const airDateComparison = String(left?.airdate || "").localeCompare(String(right?.airdate || ""));
       return airDateComparison || Number(left?.id || 0) - Number(right?.id || 0);
-    })
+    });
+  // AniList models sequels and split cours as separate anime while TVMaze
+  // commonly stores them as later seasons of one show. Align episode 1 using
+  // its air date, then renumber that chronological slice for the AniList entry.
+  const expectedPremiereTime = premiereDate ? Date.parse(premiereDate) : Number.NaN;
+  let premiereIndex = -1;
+  let smallestPremiereDifference = Number.POSITIVE_INFINITY;
+  if (Number.isFinite(expectedPremiereTime)) {
+    episodes.forEach((entry, index) => {
+      const candidateTime = Date.parse(String(entry?.airdate || ""));
+      const difference = Math.abs(candidateTime - expectedPremiereTime);
+      if (Number.isFinite(candidateTime) && difference <= 14 * 24 * 60 * 60 * 1000 && difference < smallestPremiereDifference) {
+        premiereIndex = index;
+        smallestPremiereDifference = difference;
+      }
+    });
+  }
+
+  return episodes
+    .slice(Math.max(0, premiereIndex))
     .map((entry, index) => ({
       // TVMaze resets `number` each broadcast year for long-running anime.
       // Chronological regular episodes correspond to the absolute episode run.
@@ -1662,6 +1706,7 @@ function normalizeTvMazeEpisodePayload(payload: unknown): EpisodeDisplayMetadata
         String(entry?.summary || "").replace(/<[^>]*>/g, " "),
       ),
       airDate: pickFirstNonEmpty(entry?.airdate) || null,
+      preferArtwork: Boolean(entry?.image?.original),
     }));
 }
 
@@ -1677,28 +1722,35 @@ export async function getTvMazeEpisodeMetadataRange(
   if (!Number.isInteger(anilistId) || anilistId <= 0) return [];
   const normalizedStart = Math.max(0, Math.floor(rangeStart / TVMAZE_EPISODE_RANGE_SIZE) * TVMAZE_EPISODE_RANGE_SIZE);
   const aniZipBundle = await getAniZipEpisodeBundle(anilistId);
-  const requestedAniZipEpisodes = aniZipBundle.episodes.filter(
-    (episode) => episode.number > normalizedStart && episode.number <= normalizedStart + TVMAZE_EPISODE_RANGE_SIZE,
-  );
-  if (requestedAniZipEpisodes.length > 0 && requestedAniZipEpisodes.every((episode) => Boolean(episode.image))) {
-    return [];
-  }
 
   const allEpisodes = await cacheFetch(
-    `tvmaze-episode-metadata:v2:${anilistId}`,
+    `tvmaze-episode-metadata:v4:${anilistId}`,
     async () => {
-      const { title, premiereYear } = aniZipBundle;
+      const { title, premiereYear, premiereDate, tvdbShowId } = aniZipBundle;
       if (!title) return [];
 
-      const searchResponse = await fetch(`https://api.tvmaze.com/search/shows?q=${encodeURIComponent(title)}`, {
+      const requestOptions = {
         headers: { Accept: "application/json", "User-Agent": "Tatakai-Frontend/1.0" },
-        cache: "no-store",
+        cache: "no-store" as const,
         signal: AbortSignal.timeout(5_000),
-      });
-      if (!searchResponse.ok) return [];
+      };
+
+      const linkedShow = tvdbShowId
+        ? await fetch(`https://api.tvmaze.com/lookup/shows?thetvdb=${tvdbShowId}`, requestOptions)
+            .then((response) => response.ok ? response.json() as Promise<JsonValue> : null)
+            .catch(() => null)
+        : null;
 
       const expectedTitle = normalizeText(title);
-      const candidates = ensureArray(await searchResponse.json() as JsonValue);
+      let candidates = linkedShow ? [{ score: 10, show: linkedShow }] : [];
+      for (const searchTitle of getTvMazeSearchTitles(title)) {
+        if (candidates.length > 0) break;
+        const searchResponse = await fetch(
+          `https://api.tvmaze.com/search/shows?q=${encodeURIComponent(searchTitle)}`,
+          requestOptions,
+        );
+        if (searchResponse.ok) candidates = ensureArray(await searchResponse.json() as JsonValue);
+      }
       const ranked = candidates
         .map((candidate) => {
           const show = candidate?.show || {};
@@ -1720,7 +1772,7 @@ export async function getTvMazeEpisodeMetadataRange(
         signal: AbortSignal.timeout(8_000),
       });
       return episodesResponse.ok
-        ? normalizeTvMazeEpisodePayload(await episodesResponse.json())
+        ? normalizeTvMazeEpisodePayload(await episodesResponse.json(), premiereDate)
         : [];
     },
     {
@@ -4025,21 +4077,27 @@ export async function getAnivexaEpisodeAvailabilityMetadata(
   return cacheFetch(
     `anivexa-episode-availability:${anilistId}`,
     async () => {
-      const response = await fetch(
-        `${ANIVEXA_WORKER_URL}/episodes/anineko/animegg/${anilistId}?map=false`,
-        {
-          headers: { Accept: "application/json", "User-Agent": "Tatakai-Frontend/1.0" },
-          cache: "no-store",
-          signal: AbortSignal.timeout(7_000),
-        },
-      );
-      if (!response.ok) return [];
-
-      const payload = await response.json() as JsonValue;
+      // Keep each Worker invocation below its subrequest budget. Both groups
+      // run concurrently and their results are merged into one catalogue.
+      const providerGroups = [
+        ANIVEXA_AVAILABILITY_PROVIDERS.slice(0, 2),
+        ANIVEXA_AVAILABILITY_PROVIDERS.slice(2),
+      ].filter((group) => group.length > 0);
+      const payloads: JsonValue[] = await Promise.all(providerGroups.map(async (providers): Promise<JsonValue> => {
+        const response = await fetch(
+          `${ANIVEXA_WORKER_URL}/episodes/${providers.join("/")}/${anilistId}?map=false`,
+          {
+            headers: { Accept: "application/json", "User-Agent": "Tatakai-Frontend/1.0" },
+            next: { revalidate: 6 * 60 * 60 },
+            signal: AbortSignal.timeout(12_000),
+          },
+        ).catch(() => null);
+        return response?.ok ? response.json() as Promise<JsonValue> : {} as JsonValue;
+      }));
       const entriesByNumber = new Map<number, EpisodeDisplayMetadata>();
 
-      for (const providerName of ["anineko", "animegg"]) {
-        const provider = payload?.[providerName] || {};
+      for (const providerName of ANIVEXA_AVAILABILITY_PROVIDERS) {
+        const provider = payloads.find((payload) => payload?.[providerName])?.[providerName] || {};
         for (const audio of ["sub", "dub"] as const) {
           for (const rawEpisode of ensureArray(provider?.episodes?.[audio])) {
             const number = Number(rawEpisode.number || rawEpisode.episode);
@@ -6257,6 +6315,7 @@ export async function resolveStreamSource(input: {
       }
 
       const watchAttempts: WatchAttempt[] = [];
+      let collectedServerOptions: ServerOption[] = [];
       for (const provider of order) {
         const providerEpisodeId =
           (provider === preferredProvider && input.episodeId) ||
@@ -6270,21 +6329,12 @@ export async function resolveStreamSource(input: {
         }
         try {
           const session = await fetchProviderWatch(provider, providerEpisodeId, Boolean(input.dubbed), input.server || null);
+          collectedServerOptions = Array.from(new Map(
+            [...collectedServerOptions, ...session.serverOptions].map((option) => [option.id, option]),
+          ).values());
           if (!session.source) {
             watchAttempts.push({ provider, server: input.server || undefined, ok: false, reason: "No playable source" });
             recordCounter("anime.provider.failure", 1, { mode: "resolve", provider, reason: "no_source" });
-            if (provider === preferredProvider) {
-              return {
-                source: null,
-                subtitles: session.subtitles,
-                serverOptions: appendCustomEmbedServers(session.serverOptions, detail.anime, provider),
-                activeServerId: session.activeServerId,
-                provider,
-                intro: session.intro || null,
-                outro: session.outro || null,
-                watchAttempts,
-              };
-            }
             continue;
           }
 
@@ -6313,6 +6363,45 @@ export async function resolveStreamSource(input: {
         }
       }
 
+      // A failed preferred/internal provider must not strand the player on
+      // "No source" when a known embed is available. Resolve the first embed
+      // immediately and return it as the active source.
+      const fallbackServerOptions = appendCustomEmbedServers(
+        collectedServerOptions,
+        detail.anime,
+        preferredProvider,
+      );
+      const fallbackEmbed = fallbackServerOptions.find((option) =>
+        option.category === (input.dubbed ? "dub" : "sub") &&
+        option.transport === "embed" &&
+        /^(megaplay|animeplay|tryembed|mostream)-/.test(option.id),
+      );
+      const fallbackEmbedSource = fallbackEmbed
+        ? resolveCustomEmbedSource(fallbackEmbed.id, detail.anime, resolvedTargetEp.number)
+        : null;
+      if (fallbackEmbed && fallbackEmbedSource) {
+        watchAttempts.push({
+          provider: preferredProvider,
+          server: fallbackEmbed.id,
+          ok: true,
+          reason: "Internal sources unavailable; embedded fallback ready",
+        });
+        recordCounter("anime.fallback.used", 1, {
+          mode: "resolve",
+          preferredProvider,
+          provider: preferredProvider,
+          transport: "embed",
+        });
+        return {
+          source: fallbackEmbedSource,
+          subtitles: [],
+          serverOptions: fallbackServerOptions,
+          activeServerId: fallbackEmbed.id,
+          provider: preferredProvider,
+          watchAttempts,
+        };
+      }
+
       invalidateAnimeRuntimeCaches(input.animeId);
       recordCounter("anime.stream.failure", 1, { reason: "all_providers_failed" });
       recordLog(
@@ -6325,7 +6414,7 @@ export async function resolveStreamSource(input: {
         watchAttempts.map((attempt) => `${attempt.provider}:${attempt.reason}`).join(" | "),
       );
       return {
-        source: null, subtitles: [], serverOptions: appendCustomEmbedServers([], detail.anime, preferredProvider), activeServerId: null,
+        source: null, subtitles: [], serverOptions: fallbackServerOptions, activeServerId: null,
         provider: preferredProvider, watchAttempts,
       };
     },
