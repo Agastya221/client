@@ -2021,7 +2021,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                   onMouseEnter={() => prefetchEpisode(episode.number)}
                   onFocus={() => prefetchEpisode(episode.number)}
                   data-active-episode={active ? "true" : undefined}
-                  className={`watch-episode-card group/episode relative flex w-full gap-0 overflow-hidden rounded-[11px] border text-left transition-[transform,border-color,background-color,box-shadow] duration-200 ease-out hover:-translate-y-px hover:shadow-[0_8px_24px_rgba(0,0,0,0.28)] ${episodeArtwork ? "h-[76px] sm:h-[100px]" : "h-[58px] sm:h-[68px]"}`}
+                  className={`watch-episode-card group/episode relative flex w-full gap-0 overflow-hidden rounded-[11px] border text-left transition-[border-color,background-color,box-shadow,filter] duration-200 ease-out hover:shadow-[0_8px_24px_rgba(0,0,0,0.28)] active:brightness-110 ${episodeArtwork ? "h-[76px] sm:h-[100px]" : "h-[58px] sm:h-[68px]"}`}
                   style={active
                     ? { borderColor: accentStyle(0.95), background: accentStyle(0.68) }
                     : watched
@@ -2088,14 +2088,6 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
           <div
             key={`list-${episodeRangeStart}`}
             className="watch-episode-range watch-episode-scroll max-h-[244px] space-y-1 overflow-y-auto pr-1 hide-scrollbar sm:h-full sm:max-h-none"
-            ref={(el) => {
-              if (el) {
-                const active = el.querySelector('[data-active-episode="true"]');
-                if (active instanceof HTMLElement) {
-                  el.scrollTop = Math.max(0, active.offsetTop - (el.clientHeight - active.offsetHeight) / 2);
-                }
-              }
-            }}
           >
             {visibleEpisodes.map((episode) => {
               const active = episode.number === displayedEpisodeNumber;
