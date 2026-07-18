@@ -1998,11 +1998,14 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
           </p>
         ) : episodeView === "cards" ? (
           <div key={`cards-${episodeRangeStart}`} className="watch-episode-range watch-episode-scroll max-h-[244px] space-y-1.5 overflow-y-auto pr-1 hide-scrollbar sm:h-full sm:max-h-none sm:space-y-2">
-            {visibleEpisodes.map((episode, visibleIndex) => {
+            {visibleEpisodes.map((episode) => {
               const active = episode.number === displayedEpisodeNumber;
               const watched = watchedEpisodes.has(episode.number);
               const episodeArtwork = deliverEpisodeArtwork(getEpisodeArtworkUrl(episode.thumbnail || episode.image, session.anime));
-              const eagerArtwork = active || visibleIndex < 6;
+              // Keep the player poster as the only critical image request. The
+              // episode rail can fill in immediately afterwards without
+              // competing for bandwidth during the first player paint.
+              const eagerArtwork = active;
               const airDate = formatEpisodeAirDate(episode.airDate);
               const description = normalizeEpisodeDescription(episode.description);
               const languageAvailability = resolveEpisodeLanguageAvailability(episode, {
@@ -2176,11 +2179,10 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                   key={playerPosterImage}
                   src={playerPosterImage}
                   fill
-                  priority
+                  preload
                   fetchPriority="high"
-                  quality={90}
+                  quality={70}
                   sizes="(min-width: 1280px) calc(100vw - 440px), 100vw"
-                  unoptimized
                   className="object-cover"
                 />
               ) : null}

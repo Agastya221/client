@@ -4,7 +4,7 @@ import path from "path";
 const nextConfig: NextConfig = {
   images: {
     minimumCacheTTL: 604800,
-    qualities: [45, 55, 60, 65, 70, 75, 90],
+    qualities: [45, 55, 60, 65, 70, 75, 80, 85, 90],
     remotePatterns: [
       { protocol: "https", hostname: "s4.anilist.co" },
       { protocol: "https", hostname: "img.anili.st" },

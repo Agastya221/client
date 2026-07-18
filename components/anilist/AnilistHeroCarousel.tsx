@@ -7,6 +7,7 @@ import WatchIntentLink from "@/components/anime/WatchIntentLink";
 import { Play, Bookmark, BookmarkCheck, ChevronLeft, ChevronRight, Star, Calendar, Tv } from "lucide-react";
 import Link from "next/link";
 import { getImageProps } from "next/image";
+import { preload } from "react-dom";
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 
 interface HeroCarouselProps {
@@ -106,18 +107,30 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
     src: slide.bannerImage || slide.coverImage.extraLarge,
     alt: title,
     fill: true,
-    priority: true,
-    quality: 70,
+    quality: 85,
     sizes: "100vw",
   }).props;
   const mobileBackdrop = getImageProps({
     src: slide.coverImage.extraLarge || slide.bannerImage || "",
     alt: title,
     fill: true,
-    priority: true,
-    quality: 65,
+    quality: 80,
     sizes: "67vw",
   }).props;
+  preload(desktopBackdrop.src, {
+    as: "image",
+    fetchPriority: "high",
+    imageSrcSet: desktopBackdrop.srcSet,
+    imageSizes: desktopBackdrop.sizes,
+    media: "(min-width: 1024px)",
+  });
+  preload(mobileBackdrop.src, {
+    as: "image",
+    fetchPriority: "high",
+    imageSrcSet: mobileBackdrop.srcSet,
+    imageSizes: mobileBackdrop.sizes,
+    media: "(max-width: 1023px)",
+  });
   const watchEpisode = slide.status === "RELEASING" && slide.nextAiringEpisode
     ? Math.max(1, slide.nextAiringEpisode.episode - 1)
     : 1;
@@ -153,7 +166,6 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
         <picture>
           <source media="(max-width: 1023px)" srcSet={mobileBackdrop.srcSet} sizes={mobileBackdrop.sizes} />
           <source media="(min-width: 1024px)" srcSet={desktopBackdrop.srcSet} sizes={desktopBackdrop.sizes} />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             {...desktopBackdrop}
             alt={title}
