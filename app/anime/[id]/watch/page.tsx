@@ -1,8 +1,19 @@
 import WatchExperience from "@/components/anime/WatchExperience";
 import Navbar from "@/components/ui/Navbar";
 import SiteFooter from "@/components/ui/SiteFooter";
-import { getQuickWatchSession } from "@/lib/anime/api";
+import {
+  getAniZipEpisodeMetadata,
+  getFandomEpisodeMetadataRange,
+  getKitsuEpisodeMetadataRange,
+  getQuickWatchSession,
+  getTvMazeEpisodeMetadataRange,
+} from "@/lib/anime/api";
 import { normalizeProviderParam } from "@/lib/anime/fallback";
+import {
+  mergeEpisodeDisplayMetadataSources,
+  mergeEpisodeMetadataIntoWatchSession,
+  type EpisodeDisplayMetadata,
+} from "@/lib/anime/episode-metadata";
 import {
   getAnilistDetail,
   anilistTitle,
@@ -53,6 +64,34 @@ function parseEpisodeNumber(value: string): number | undefined {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+async function loadInitialEpisodeMetadata(
+  anilistId: number | null,
+  requestedEpisode: number,
+): Promise<EpisodeDisplayMetadata[]> {
+  if (!anilistId) return [];
+  const rangeStart = Math.floor(Math.max(0, requestedEpisode - 1) / 100) * 100;
+  const [tvMaze, aniZip, fandom] = await Promise.all([
+    getTvMazeEpisodeMetadataRange(anilistId, rangeStart).catch(() => []),
+    getAniZipEpisodeMetadata(anilistId).catch(() => []),
+    getFandomEpisodeMetadataRange(anilistId, rangeStart).catch(() => []),
+  ]);
+
+  // TVMaze is the preferred stable image source. AniZip supplies missing text,
+  // while Fandom is only used for remaining gaps.
+  let metadata = mergeEpisodeDisplayMetadataSources(tvMaze, aniZip);
+  metadata = mergeEpisodeDisplayMetadataSources(metadata, fandom);
+  const rangeEntries = metadata.filter(
+    (episode) => episode.number > rangeStart && episode.number <= rangeStart + 100,
+  );
+  if (rangeEntries.length === 0 || rangeEntries.some((episode) => !episode.image)) {
+    const kitsu = await getKitsuEpisodeMetadataRange(anilistId, rangeStart).catch(() => []);
+    metadata = mergeEpisodeDisplayMetadataSources(metadata, kitsu);
+  }
+  return metadata.filter(
+    (episode) => episode.number > rangeStart && episode.number <= rangeStart + 100,
+  );
+}
+
 async function loadWatchPageData({
   idPromise,
   searchParamsPromise,
@@ -64,24 +103,35 @@ async function loadWatchPageData({
 
   const dubbed = firstParam(query.dub) === "1" || firstParam(query.dub) === "true";
   const requestedEpisode = parseEpisodeNumber(firstParam(query.ep)) || 1;
-  const session = await getQuickWatchSession({
-    animeId: id,
-    episodeNumber: requestedEpisode,
-    provider: normalizeProviderParam(firstParam(query.provider)),
-    episodeId: firstParam(query.episodeId) || null,
-    dubbed,
-    server: firstParam(query.server) || null,
-  });
+  const parsedAnilistId = id.startsWith("anilist~")
+    ? Number.parseInt(id.slice("anilist~".length), 10)
+    : Number.NaN;
+  const anilistId = Number.isInteger(parsedAnilistId) && parsedAnilistId > 0 ? parsedAnilistId : null;
+  const [rawSession, initialEpisodeMetadata] = await Promise.all([
+    getQuickWatchSession({
+      animeId: id,
+      episodeNumber: requestedEpisode,
+      provider: normalizeProviderParam(firstParam(query.provider)),
+      episodeId: firstParam(query.episodeId) || null,
+      dubbed,
+      server: firstParam(query.server) || null,
+    }),
+    loadInitialEpisodeMetadata(anilistId, requestedEpisode),
+  ]);
+  const session = mergeEpisodeMetadataIntoWatchSession(rawSession, initialEpisodeMetadata);
 
   return {
     session,
+    initialEpisodeMetadata,
   };
 }
 
 function WatchContent({
   session,
+  initialEpisodeMetadata,
 }: {
   session: Awaited<ReturnType<typeof getQuickWatchSession>>;
+  initialEpisodeMetadata: EpisodeDisplayMetadata[];
 }) {
   const accentColor = session.anime.color || "#ff5500";
 
@@ -112,6 +162,7 @@ function WatchContent({
           session.activeServerId || "",
         ].join("|")}
         initialSession={session}
+        initialEpisodeMetadata={initialEpisodeMetadata}
       />
     </>
   );
@@ -124,7 +175,7 @@ export default async function WatchPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { session } = await loadWatchPageData({
+  const { session, initialEpisodeMetadata } = await loadWatchPageData({
     idPromise: params,
     searchParamsPromise: searchParams,
   });
@@ -136,7 +187,7 @@ export default async function WatchPage({
       <section className="relative flex-1 overflow-x-clip px-0 pb-12 pt-[4.75rem] sm:px-4 sm:pt-20 md:px-6">
         <div className="absolute inset-0" style={{ background: 'radial-gradient(circle at top center, rgba(255,255,255,0.02), transparent 50%)' }} />
         <div className="relative mx-auto max-w-[110rem]">
-          <WatchContent session={session} />
+          <WatchContent session={session} initialEpisodeMetadata={initialEpisodeMetadata} />
         </div>
       </section>
 

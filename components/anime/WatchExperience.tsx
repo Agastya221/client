@@ -660,6 +660,19 @@ function SafeWatchImage({ src, ...props }: SafeWatchImageProps) {
   );
 }
 
+function deliverEpisodeArtwork(src: string | null): string | null {
+  if (!src) return null;
+  try {
+    const url = new URL(src);
+    if (url.hostname === "static.wikia.nocookie.net") {
+      return `/api/proxy/episode-image?url=${encodeURIComponent(src)}`;
+    }
+  } catch {
+    // Relative and already-proxied URLs are safe to use as-is.
+  }
+  return src;
+}
+
 function WatchPreferenceToggle({
   label,
   active,
@@ -1739,7 +1752,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     ? session.episodes.find((episode) => episode.number === optimisticEpisodeNumber) || session.episode
     : session.episode;
   const displayedEpisodeNumber = displayedEpisode.number;
-  const playerPosterImage = getEpisodeArtworkUrl(displayedEpisode.image, session.anime);
+  const playerPosterImage = deliverEpisodeArtwork(getEpisodeArtworkUrl(displayedEpisode.image, session.anime));
   const savedProgress = getEpisodeProgress(session.anime.id, session.episode.number);
   const liveProgress = playbackProgressRef.current;
   const resumeTime = liveProgress.animeId === session.anime.id && liveProgress.episodeNumber === session.episode.number && liveProgress.time > 0
@@ -1988,7 +2001,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
             {visibleEpisodes.map((episode, visibleIndex) => {
               const active = episode.number === displayedEpisodeNumber;
               const watched = watchedEpisodes.has(episode.number);
-              const episodeArtwork = getEpisodeArtworkUrl(episode.thumbnail || episode.image, session.anime);
+              const episodeArtwork = deliverEpisodeArtwork(getEpisodeArtworkUrl(episode.thumbnail || episode.image, session.anime));
               const eagerArtwork = active || visibleIndex < 6;
               const airDate = formatEpisodeAirDate(episode.airDate);
               const description = normalizeEpisodeDescription(episode.description);
