@@ -261,3 +261,47 @@ model SeedingState {
   @@index([nextAiringAt])
   @@index([lastCheckedAt])
 }
+
+// ─── Watch Party (Watch2Together) ───────────────────────────────────────────
+
+/// A shared watch room identified by a short code (e.g. "ANIM4X").
+/// Anonymous — members are stored as JSON. Rooms expire after 6 h of inactivity.
+model WatchPartyRoom {
+  id            String   @id @default(cuid())
+  code          String   @unique          // e.g. "ANIM4X" — user-facing room code
+  hostId        String                    // anonymous UUID stored in client localStorage
+  animeId       String                    // e.g. "anilist~12345"
+  animeTitle    String
+  animePoster   String?
+  episodeNumber Int      @default(1)
+  currentTime   Float    @default(0)      // current playback position in seconds
+  isPlaying     Boolean  @default(false)
+  members       Json     @default("[]")   // [{ id, name, joinedAt }]
+  lastActivityAt DateTime @default(now())
+  expiresAt     DateTime                  // room is deleted after this time
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  events WatchPartyEvent[]
+
+  @@index([code])
+  @@index([expiresAt])
+  @@index([lastActivityAt])
+}
+
+/// Ephemeral event queue for SSE delivery.
+/// Events older than 60s are cleaned up by the stream endpoint.
+model WatchPartyEvent {
+  id        String   @id @default(cuid())
+  roomCode  String
+  memberId  String                        // who sent it
+  memberName String
+  type      String                        // "play"|"pause"|"seek"|"episode"|"chat"|"join"|"leave"
+  payload   Json                          // event-specific data
+  createdAt DateTime @default(now())
+
+  room WatchPartyRoom @relation(fields: [roomCode], references: [code], onDelete: Cascade)
+
+  @@index([roomCode, createdAt])
+  @@index([createdAt])
+}

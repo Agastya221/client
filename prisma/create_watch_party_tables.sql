@@ -1,0 +1,25 @@
+CREATE TABLE IF NOT EXISTS "WatchPartyRoom" (
+  "id" TEXT NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  "code" TEXT NOT NULL UNIQUE,
+  "hostId" TEXT NOT NULL,
+  "animeId" TEXT NOT NULL,
+  "animeTitle" TEXT NOT NULL,
+  "animePoster" TEXT,
+  "episodeNumber" INTEGER NOT NULL DEFAULT 1,
+  "currentTime" DOUBLE PRECISION NOT NULL DEFAULT 0,
+  "isPlaying" BOOLEAN NOT NULL DEFAULT false,
+  "members" JSONB NOT NULL DEFAULT '[]',
+  "expiresAt" TIMESTAMP(3) NOT NULL,
+  "lastActivityAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS "WatchPartyEvent" (
+  "id" TEXT NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  "roomCode" TEXT NOT NULL,
+  "memberId" TEXT NOT NULL,
+  "memberName" TEXT NOT NULL,
+  "type" TEXT NOT NULL,
+  "payload" JSONB NOT NULL DEFAULT '{}',
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

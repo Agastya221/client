@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Suspense } from "react";
-import { Inter, Geist_Mono } from "next/font/google";
+import { Plus_Jakarta_Sans, Outfit, Geist_Mono } from "next/font/google";
 import WatchHistorySyncClient from "@/components/anime/WatchHistorySyncClient";
 import ScrollToTop from "@/components/ui/ScrollToTop";
 import NavigationPendingController from "@/components/ui/NavigationPendingController";
@@ -9,10 +9,18 @@ import RootLoading from "@/app/loading";
 import AnimeDetailLoading from "@/app/anime/[id]/loading";
 import "./globals.css";
 
-const inter = Inter({
-  variable: "--font-inter",
+const plusJakartaSans = Plus_Jakarta_Sans({
+  variable: "--font-sans",
   subsets: ["latin"],
   display: "swap",
+  weight: ["400", "500", "600", "700", "800"],
+});
+
+const outfit = Outfit({
+  variable: "--font-display",
+  subsets: ["latin"],
+  display: "swap",
+  weight: ["400", "500", "600", "700", "800", "900"],
 });
 
 const geistMono = Geist_Mono({
@@ -52,7 +60,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${inter.variable} ${geistMono.variable} antialiased bg-surface text-on-surface`}
+        className={`${plusJakartaSans.variable} ${outfit.variable} ${geistMono.variable} antialiased bg-surface text-on-surface`}
         suppressHydrationWarning
       >
         <WatchHistorySyncClient />

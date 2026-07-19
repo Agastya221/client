@@ -59,11 +59,15 @@ import {
   Search,
   Share2,
   Tv2,
+  Users,
 } from "lucide-react";
 import Image, { type ImageProps } from "next/image";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+const WatchPartyModal = dynamic(() => import("@/components/anime/WatchPartyModal"), { ssr: false });
+const WatchPartyPanel = dynamic(() => import("@/components/anime/WatchParty"), { ssr: false });
 
 const VideoPlayer = dynamic(
   () => import("@/components/anime/watch/VideoPlayer"),
@@ -876,6 +880,50 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   const [bookmarkChecked, setBookmarkChecked] = useState(false);
   const [reportStatus, setReportStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [shareStatus, setShareStatus] = useState<"idle" | "shared" | "copied" | "error">("idle");
+
+  // ── Watch Party ────────────────────────────────────────────────────
+  const [partyModalOpen, setPartyModalOpen] = useState(false);
+  const [partyRoomCode, setPartyRoomCode] = useState<string | null>(null);
+  const [partyIsHost, setPartyIsHost] = useState(false);
+  const [partyMemberId] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    let id = localStorage.getItem("watch-party-member-id");
+    if (!id) { id = crypto.randomUUID(); localStorage.setItem("watch-party-member-id", id); }
+    return id;
+  });
+  const [partyMemberName] = useState<string>(() => {
+    if (typeof window === "undefined") return "Guest";
+    const stored = localStorage.getItem("watch-party-member-name");
+    return stored || `Guest${Math.floor(Math.random() * 9000) + 1000}`;
+  });
+  const [partyCurrentTime, setPartyCurrentTime] = useState(0);
+  const [partyIsPlaying, setPartyIsPlaying] = useState(false);
+
+  // Auto-join from URL ?party=CODE
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("party");
+    if (!code) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("party");
+    window.history.replaceState({}, "", url.toString());
+    fetch("/api/watch-party/join", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, memberId: partyMemberId, memberName: partyMemberName }),
+    })
+      .then((res) => { if (res.ok) { setPartyRoomCode(code.toUpperCase()); setPartyIsHost(false); } })
+      .catch(() => undefined);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Callbacks called by WatchPartyPanel when remote events arrive
+  const partyCallbacks = useCallback(() => ({
+    onEpisodeChange: (epNum: number) => {
+      queueSession({ episodeNumber: epNum, provider: session.provider, dubbed: session.dubbed });
+    },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [session.provider, session.dubbed]);
 
   useEffect(() => {
     setAutoSkip(playerPrefs.getAutoSkip());
@@ -2527,8 +2575,9 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
 
       {/* ── EPISODE INFO + SERVER STRIP ─────────── */}
       <div className="relative mt-3 space-y-2.5 rounded-2xl border border-white/10 bg-[#111214] px-3 py-3 sm:space-y-3 sm:bg-[#131315] sm:px-4 md:px-5">
-        {/* Top row: episode info + sub/dub/server */}
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Top row: Language toggles on the left, Watch Together on the right */}
+        <div className="flex flex-wrap items-center justify-between gap-3 sm:flex-nowrap">
+          <div className="flex flex-wrap items-center gap-2">
             {/* Sub/Dub/Hindi mode toggle buttons */}
             <button
               type="button"
@@ -2594,6 +2643,30 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                 Hindi
               </button>
             )}
+          </div>
+
+          {/* Watch Together pill — aligned to the right side, prominent */}
+          <div className="flex items-center gap-3 ml-auto shrink-0">
+            {partyRoomCode && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-0.5 text-[9px] font-bold text-emerald-400">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Party active
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => setPartyModalOpen(true)}
+              className="group inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-[11px] font-bold transition-all duration-200 hover:-translate-y-px hover:shadow-lg"
+              style={partyRoomCode
+                ? { borderColor: `${accentColor}60`, background: `${accentColor}18`, color: accentColor, boxShadow: `0 0 16px ${accentColor}22` }
+                : { borderColor: "rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.60)" }}
+            >
+              <Users className="h-3.5 w-3.5 transition-transform duration-200 group-hover:scale-110" aria-hidden="true" />
+              {partyRoomCode ? (
+                <span>Watch Party <span className="ml-1 rounded-md px-1.5 py-0.5 text-[9px] font-black tracking-wider" style={{ background: `${accentColor}30`, color: accentColor }}>{partyRoomCode}</span></span>
+              ) : "Watch Together"}
+            </button>
+          </div>
         </div>
 
         {/* Server panel — Anivexa-style grouping, AnimePlay theme */}
@@ -2760,6 +2833,21 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
 
         <aside className="watch-sidebar-rail hidden space-y-4 xl:sticky xl:top-20 xl:block xl:h-[calc(100vh-5.5rem)] xl:min-h-0 xl:self-start xl:overflow-y-auto xl:overscroll-contain xl:pr-1 xl:[scrollbar-gutter:stable]">
           {episodePanel}
+          {/* Watch Party panel — shown when a room is active */}
+          {partyRoomCode && (
+            <WatchPartyPanel
+              roomCode={partyRoomCode}
+              memberId={partyMemberId}
+              memberName={partyMemberName}
+              isHost={partyIsHost}
+              accentColor={accentColor}
+              currentTime={partyCurrentTime}
+              isPlaying={partyIsPlaying}
+              currentEpisode={session.episode.number}
+              callbacks={partyCallbacks()}
+              onLeave={() => { setPartyRoomCode(null); setPartyIsHost(false); }}
+            />
+          )}
           <WatchRecommendationsPanel
             seasons={deferredSeasons}
             related={deferredRelated}
@@ -2770,6 +2858,25 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
         </aside>
       </div>
     </div>
+
+    {/* Watch Party Modal */}
+    {partyModalOpen && (
+      <WatchPartyModal
+        animeId={session.anime.id}
+        animeTitle={session.anime.title}
+        animePoster={session.anime.poster || undefined}
+        episodeNumber={session.episode.number}
+        memberId={partyMemberId}
+        memberName={partyMemberName}
+        accentColor={accentColor}
+        onClose={() => setPartyModalOpen(false)}
+        onRoomReady={(code, isHost) => {
+          setPartyRoomCode(code);
+          setPartyIsHost(isHost);
+          setPartyModalOpen(false);
+        }}
+      />
+    )}
     </>
   );
 }

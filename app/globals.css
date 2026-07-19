@@ -1,7 +1,8 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: var(--font-inter);
+  --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
   --font-mono: var(--font-geist-mono);
   
   /* AnimePlay Core Colors */
@@ -44,6 +45,12 @@
 body {
   background-color: var(--color-surface);
   color: var(--color-on-surface);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+/* Apply Outfit display font to headings */
+h1, h2, h3 {
+  font-family: var(--font-display), var(--font-sans), system-ui, sans-serif;
 }
 
 /* Momentum scroll for mobile viewports */
@@ -161,4 +168,23 @@ body {
 
 .watch-sidebar-rail::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.28);
+}
+
+/* Watch party animations */
+@keyframes partyPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes partySlideIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.party-member-enter {
+  animation: partySlideIn 200ms ease-out both;
+}
+
+.party-sync-pulse {
+  animation: partyPulse 2s ease-in-out infinite;
 }
