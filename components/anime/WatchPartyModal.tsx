@@ -14,7 +14,7 @@ interface WatchPartyModalProps {
   memberName: string;
   accentColor?: string;
   onClose: () => void;
-  onRoomReady: (code: string, isHost: boolean) => void;
+  onRoomReady: (code: string, isHost: boolean, animeId?: string, episodeNumber?: number) => void;
   activeRoomCode?: string | null;
   onLeaveRoom?: () => void;
 }
@@ -78,7 +78,8 @@ export default function WatchPartyModal({
       if (res.status === 404) { setErrorMsg("Room not found or expired"); setStatus("idle"); return; }
       if (res.status === 409) { setErrorMsg("Room is full (max 20 members)"); setStatus("idle"); return; }
       if (!res.ok) throw new Error();
-      onRoomReady(code, false);
+      const room = await res.json() as { animeId: string; episodeNumber: number };
+      onRoomReady(code, false, room.animeId, room.episodeNumber);
     } catch {
       setErrorMsg("Could not join room. Please try again.");
       setStatus("idle");

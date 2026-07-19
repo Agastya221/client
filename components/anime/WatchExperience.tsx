@@ -2952,10 +2952,16 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
         activeRoomCode={partyRoomCode}
         onLeaveRoom={handleLeaveRoom}
         onClose={() => setPartyModalOpen(false)}
-        onRoomReady={(code, isHost) => {
-          setPartyRoomCode(code);
-          setPartyIsHost(isHost);
-          setPartyModalOpen(false);
+        onRoomReady={(code, isHost, roomAnimeId, roomEpisodeNumber) => {
+          if (roomAnimeId && (roomAnimeId !== session.anime.id || roomEpisodeNumber !== session.episode.number)) {
+            sessionStorage.setItem("watch-party-active-room-code", code);
+            sessionStorage.setItem("watch-party-is-host", isHost ? "true" : "false");
+            window.location.assign(`/anime/${roomAnimeId}/watch?ep=${roomEpisodeNumber}`);
+          } else {
+            setPartyRoomCode(code);
+            setPartyIsHost(isHost);
+            setPartyModalOpen(false);
+          }
         }}
       />
     )}
