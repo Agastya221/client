@@ -294,7 +294,7 @@ export default function NavbarClient({ user }: NavbarClientProps) {
             </Link>
 
             {/* Search bar (desktop) */}
-            <div ref={desktopSearchRef} className="relative hidden lg:block flex-1 max-w-sm">
+            <div ref={desktopSearchRef} className={`relative hidden lg:block flex-1 transition-all duration-300 ease-out ${isDesktopFocused ? "max-w-[320px]" : "max-w-[200px]"}`}>
               <form
                 onSubmit={handleSearch}
                 className="flex items-center gap-2 rounded-full bg-white/5 hover:bg-white/8 px-4 py-2 border border-white/5 hover:border-white/10 w-full transition-all"
@@ -356,6 +356,7 @@ export default function NavbarClient({ user }: NavbarClientProps) {
                                   src={media.coverImage.medium || media.coverImage.large}
                                   alt=""
                                   className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                  loading="lazy"
                                 />
                               </div>
                               <div className="flex flex-col min-w-0 flex-1 text-left gap-0.5">
@@ -412,13 +413,13 @@ export default function NavbarClient({ user }: NavbarClientProps) {
 
           {/* Nav links (desktop) */}
           <div className="hidden lg:flex items-center gap-5 text-xs font-bold uppercase tracking-wider text-white/50">
-            <Link href="/search?sort=trending" className="hover:text-white transition-colors">Trending</Link>
-            <Link href="/new" className="hover:text-white transition-colors text-emerald-400">New</Link>
-            <Link href="/search?sort=season" className="hover:text-white transition-colors">This Season</Link>
-            <Link href="/search" className="hover:text-white transition-colors">Browse</Link>
-            <Link href="/genres" className="hover:text-white transition-colors">Genres</Link>
-            <Link href="/types" className="hover:text-white transition-colors">Types</Link>
-            <Link href="/updates" className="hover:text-white transition-colors">Schedule</Link>
+            <Link href="/search?sort=trending" className="nav-link hover:text-white transition-colors">Trending</Link>
+            <Link href="/new" className="nav-link hover:text-white transition-colors text-emerald-400">New</Link>
+            <Link href="/search?sort=season" className="nav-link hover:text-white transition-colors">This Season</Link>
+            <Link href="/search" className="nav-link hover:text-white transition-colors">Browse</Link>
+            <Link href="/genres" className="nav-link hover:text-white transition-colors">Genres</Link>
+            <Link href="/types" className="nav-link hover:text-white transition-colors">Types</Link>
+            <Link href="/updates" className="nav-link hover:text-white transition-colors">Schedule</Link>
 
             <div className="flex items-center gap-3 ml-2 border-l border-white/10 pl-5">
               <Link href="/random" className="hover:text-white transition-colors" aria-label="Random anime">

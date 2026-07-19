@@ -102,7 +102,7 @@ export default function WatchPartyModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-backdrop-in"
       style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(8px)" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       role="dialog"
@@ -110,7 +110,7 @@ export default function WatchPartyModal({
       aria-label="Watch Party"
     >
       <div
-        className="relative w-full max-w-md overflow-hidden rounded-2xl border border-white/10 shadow-2xl"
+        className="relative w-full max-w-md overflow-hidden rounded-2xl border border-white/10 shadow-2xl animate-modal-in"
         style={{
           background: "linear-gradient(135deg, #0f1012 0%, #141618 100%)",
           boxShadow: `0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06), 0 0 60px ${accentColor}18`,
@@ -125,7 +125,7 @@ export default function WatchPartyModal({
           <div className="relative flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div
-                className="flex h-9 w-9 items-center justify-center rounded-xl"
+                className="flex h-9 w-9 items-center justify-center rounded-[12px]"
                 style={{ background: `${accentColor}22`, border: `1px solid ${accentColor}44` }}
               >
                 <Users className="h-4 w-4" style={{ color: accentColor }} />
@@ -139,7 +139,7 @@ export default function WatchPartyModal({
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white btn-press-active"
             >
               <X className="h-4 w-4" />
             </button>
@@ -151,90 +151,109 @@ export default function WatchPartyModal({
           {!createdCode ? (
             <>
               {/* Mode tabs */}
-              <div className="mb-6 flex rounded-xl border border-white/[0.08] bg-white/[0.03] p-1">
+              <div className="relative mb-6 flex rounded-[12px] border border-white/[0.08] bg-white/[0.03] p-1">
+                {/* Sliding active pill indicator */}
+                <div
+                  className="absolute bottom-1 top-1 rounded-[8px] transition-all duration-300 ease-out"
+                  style={{
+                    width: "calc(50% - 4px)",
+                    background: accentColor,
+                    boxShadow: `0 4px 16px ${accentColor}44`,
+                    transform: mode === "create" ? "translateX(0)" : "translateX(100%)",
+                    left: "4px",
+                  }}
+                />
+                
                 {(["create", "join"] as PartyMode[]).map((m) => (
                   <button
                     key={m}
                     type="button"
                     onClick={() => { setMode(m); setErrorMsg(""); }}
-                    className="flex-1 rounded-lg py-2 text-[12px] font-bold capitalize transition-all duration-150"
-                    style={
-                      mode === m
-                        ? { background: accentColor, color: "#fff", boxShadow: `0 4px 16px ${accentColor}44` }
-                        : { color: "rgba(255,255,255,0.4)" }
-                    }
+                    className="relative z-10 flex-1 py-2 text-[12px] font-bold capitalize transition-colors duration-200"
+                    style={{
+                      color: mode === m ? "#fff" : "rgba(255,255,255,0.4)",
+                    }}
                   >
                     {m === "create" ? "Create Room" : "Join Room"}
                   </button>
                 ))}
               </div>
 
-              {mode === "create" ? (
-                <div className="space-y-4">
-                  <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-4">
-                    <p className="text-[12px] text-white/50 leading-relaxed">
-                      Create a private room and share the code with friends. You&apos;ll control playback — everyone follows your lead.
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-3 flex items-center gap-3">
-                    {animePoster && (
-                      <img src={animePoster} alt="" className="h-12 w-8 rounded-md object-cover shrink-0" />
-                    )}
-                    <div className="min-w-0">
-                      <p className="text-[11px] font-bold text-white/90 truncate">{animeTitle}</p>
-                      <p className="text-[10px] text-white/40 mt-0.5">Episode {episodeNumber}</p>
+              <div
+                className="transition-[max-height] duration-300 ease-in-out overflow-hidden"
+                style={{
+                  maxHeight: mode === "create"
+                    ? (errorMsg ? "380px" : "300px")
+                    : (errorMsg ? "240px" : "180px")
+                }}
+              >
+                {mode === "create" ? (
+                  <div className="space-y-4 animate-message-in">
+                    <div className="rounded-[12px] border border-white/[0.07] bg-white/[0.025] p-4">
+                      <p className="text-[12px] text-white/50 leading-relaxed">
+                        Create a private room and share the code with friends. You&apos;ll control playback — everyone follows your lead.
+                      </p>
                     </div>
-                  </div>
-                  {errorMsg && (
-                    <p className="text-[11px] text-red-400 bg-red-400/10 border border-red-400/20 rounded-lg px-3 py-2">{errorMsg}</p>
-                  )}
-                  <button
-                    type="button"
-                    onClick={handleCreate}
-                    disabled={status === "loading"}
-                    className="w-full flex items-center justify-center gap-2 rounded-xl py-3.5 text-[13px] font-bold text-white transition-all disabled:opacity-60"
-                    style={{ background: accentColor, boxShadow: `0 8px 24px ${accentColor}44` }}
-                  >
-                    {status === "loading" ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Users className="h-4 w-4" />
+                    <div className="rounded-[12px] border border-white/[0.07] bg-white/[0.025] p-3 flex items-center gap-3">
+                      {animePoster && (
+                        <img src={animePoster} alt="" className="h-12 w-8 rounded-md object-cover shrink-0" />
+                      )}
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-bold text-white/90 truncate">{animeTitle}</p>
+                        <p className="text-[10px] text-white/40 mt-0.5">Episode {episodeNumber}</p>
+                      </div>
+                    </div>
+                    {errorMsg && (
+                      <p className="text-[11px] text-red-400 bg-red-400/10 border border-red-400/20 rounded-lg px-3 py-2">{errorMsg}</p>
                     )}
-                    {status === "loading" ? "Creating…" : "Create Room"}
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div>
-                    <label className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-white/40">
-                      Room Code
-                    </label>
-                    <input
-                      ref={joinInputRef}
-                      type="text"
-                      value={joinCode}
-                      onChange={(e) => setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))}
-                      onKeyDown={(e) => { if (e.key === "Enter") handleJoin(); }}
-                      placeholder="ANIM4X"
-                      maxLength={6}
-                      className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3.5 text-center text-2xl font-black tracking-[0.3em] text-white placeholder-white/20 outline-none transition-all focus:border-white/25"
-                    />
+                    <button
+                      type="button"
+                      onClick={handleCreate}
+                      disabled={status === "loading"}
+                      className="w-full flex items-center justify-center gap-2 rounded-[12px] py-3.5 text-[13px] font-bold text-white transition-all disabled:opacity-60 btn-press-active"
+                      style={{ background: accentColor, boxShadow: `0 8px 24px ${accentColor}44` }}
+                    >
+                      {status === "loading" ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Users className="h-4 w-4" />
+                      )}
+                      {status === "loading" ? "Creating…" : "Create Room"}
+                    </button>
                   </div>
-                  {errorMsg && (
-                    <p className="text-[11px] text-red-400 bg-red-400/10 border border-red-400/20 rounded-lg px-3 py-2">{errorMsg}</p>
-                  )}
-                  <button
-                    type="button"
-                    onClick={handleJoin}
-                    disabled={status === "loading" || joinCode.length < 4}
-                    className="w-full flex items-center justify-center gap-2 rounded-xl py-3.5 text-[13px] font-bold text-white transition-all disabled:opacity-50"
-                    style={{ background: accentColor }}
-                  >
-                    {status === "loading" ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
-                    {status === "loading" ? "Joining…" : "Join Room"}
-                  </button>
-                </div>
-              )}
+                ) : (
+                  <div className="space-y-4 animate-message-in">
+                    <div>
+                      <label className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-white/40">
+                        Room Code
+                      </label>
+                      <input
+                        ref={joinInputRef}
+                        type="text"
+                        value={joinCode}
+                        onChange={(e) => setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))}
+                        onKeyDown={(e) => { if (e.key === "Enter") handleJoin(); }}
+                        placeholder="ANIM4X"
+                        maxLength={6}
+                        className="w-full rounded-[12px] border border-white/10 bg-white/[0.04] px-4 py-3.5 text-center text-2xl font-black tracking-[0.3em] text-white placeholder-white/20 outline-none transition-all focus:border-white/25"
+                      />
+                    </div>
+                    {errorMsg && (
+                      <p className="text-[11px] text-red-400 bg-red-400/10 border border-red-400/20 rounded-lg px-3 py-2">{errorMsg}</p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleJoin}
+                      disabled={status === "loading" || joinCode.length < 4}
+                      className="w-full flex items-center justify-center gap-2 rounded-[12px] py-3.5 text-[13px] font-bold text-white transition-all disabled:opacity-50 btn-press-active"
+                      style={{ background: accentColor }}
+                    >
+                      {status === "loading" ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
+                      {status === "loading" ? "Joining…" : "Join Room"}
+                    </button>
+                  </div>
+                )}
+              </div>
             </>
           ) : (
             /* Room created — show code */
@@ -244,7 +263,7 @@ export default function WatchPartyModal({
                 <button
                   type="button"
                   onClick={copyCode}
-                  className="group mx-auto flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-8 py-4 transition-all hover:bg-white/[0.07]"
+                  className="group mx-auto flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-8 py-4 transition-all hover:bg-white/[0.07] btn-press-active"
                 >
                   <span
                     className="text-4xl font-black tracking-[0.25em]"
@@ -260,7 +279,7 @@ export default function WatchPartyModal({
               <button
                 type="button"
                 onClick={copyLink}
-                className="w-full flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] py-2.5 text-[12px] font-bold text-white/60 transition-all hover:bg-white/[0.07] hover:text-white"
+                className="w-full flex items-center justify-center gap-2 rounded-[12px] border border-white/10 bg-white/[0.04] py-2.5 text-[12px] font-bold text-white/60 transition-all hover:bg-white/[0.07] hover:text-white btn-press-active"
               >
                 <Link2 className="h-3.5 w-3.5" />
                 {copied ? "Link copied!" : "Copy invite link"}
@@ -269,7 +288,7 @@ export default function WatchPartyModal({
               <button
                 type="button"
                 onClick={handleEnterRoom}
-                className="w-full flex items-center justify-center gap-2 rounded-xl py-3.5 text-[13px] font-bold text-white transition-all"
+                className="w-full flex items-center justify-center gap-2 rounded-[12px] py-3.5 text-[13px] font-bold text-white transition-all btn-press-active"
                 style={{ background: accentColor, boxShadow: `0 8px 24px ${accentColor}44` }}
               >
                 <Play className="h-4 w-4 fill-current" />

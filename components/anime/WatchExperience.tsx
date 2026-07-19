@@ -2137,11 +2137,11 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                   onFocus={() => prefetchEpisode(episode.number)}
                   data-active-episode={active ? "true" : undefined}
                   className={`watch-episode-card group/episode relative flex w-full gap-0 overflow-hidden rounded-[11px] border text-left transition-[border-color,background-color,box-shadow,filter] duration-200 ease-out hover:shadow-[0_8px_24px_rgba(0,0,0,0.28)] active:brightness-110 ${episodeArtwork ? "h-[76px] sm:h-[100px]" : "h-[58px] sm:h-[68px]"}`}
-                  style={active
-                    ? { borderColor: accentStyle(0.95), background: accentStyle(0.68) }
-                    : watched
-                      ? { borderColor: accentStyle(0.38), background: accentStyle(0.13) }
-                      : { borderColor: "rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.02)" }}
+                  style={{
+                    borderColor: active ? accentStyle(0.95) : watched ? accentStyle(0.38) : "rgba(255,255,255,0.07)",
+                    background: active ? accentStyle(0.68) : watched ? accentStyle(0.13) : "rgba(255,255,255,0.02)",
+                    "--accent-hover-shadow": `0 8px 24px ${accentStyle(0.24)}`,
+                  } as React.CSSProperties}
                 >
                   {episodeArtwork ? (
                     <div className="relative h-full w-[34%] shrink-0 overflow-hidden rounded-[10px] bg-black sm:w-[42%]">
@@ -2664,7 +2664,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
               <Users className="h-3.5 w-3.5 transition-transform duration-200 group-hover:scale-110" aria-hidden="true" />
               {partyRoomCode ? (
                 <span>Watch Party <span className="ml-1 rounded-md px-1.5 py-0.5 text-[9px] font-black tracking-wider" style={{ background: `${accentColor}30`, color: accentColor }}>{partyRoomCode}</span></span>
-              ) : "Watch Together"}
+              ) : "WatchTogether"}
             </button>
           </div>
         </div>

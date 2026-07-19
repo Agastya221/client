@@ -8,6 +8,7 @@ import type { AnimeSeasonEntry, EpisodeModel, ProviderId } from "@/lib/anime/typ
 import { Clapperboard, Layers3, Play, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { Suspense } from "react";
+import ExpandableSynopsis from "@/components/anime/ExpandableSynopsis";
 
 function firstParam(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] || "" : value || "";
@@ -179,12 +180,12 @@ async function DetailContent({ idPromise, searchParamsPromise }: { idPromise: Pr
         )}
 
         <div className="relative mx-auto max-w-7xl px-6">
-          <div className="grid items-end gap-10 lg:grid-cols-[18rem_1fr]">
+          <div className="grid items-start gap-10 lg:grid-cols-[18rem_1fr]">
             <div className="flex justify-center lg:block">
               <img
                 src={detail.anime.poster || heroImage}
                 alt={detail.anime.title}
-                className="w-48 sm:w-60 lg:w-full rounded-2xl border border-white/10 shadow-2xl"
+                className="w-48 sm:w-60 lg:w-full rounded-2xl border border-white/10 shadow-2xl animate-modal-in"
                 style={{ aspectRatio: "2/3", objectFit: "cover" }}
               />
             </div>
@@ -206,7 +207,9 @@ async function DetailContent({ idPromise, searchParamsPromise }: { idPromise: Pr
 
               <div>
                 <h1 className="text-4xl font-black text-white tracking-tight">{detail.anime.title}</h1>
-                <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/60">{detail.synopsis}</p>
+                <div className="mt-3 max-w-2xl">
+                  <ExpandableSynopsis text={detail.synopsis} accentColor="#ff5500" />
+                </div>
               </div>
 
               <div className="grid grid-cols-3 gap-3">

@@ -26,6 +26,7 @@ import {
 import Image from "next/image";
 import Link from "next/link";
 import { useRef, type CSSProperties, type ReactNode } from "react";
+import ExpandableSynopsis from "@/components/anime/ExpandableSynopsis";
 
 interface RelatedAnimeEntry {
   relationType: string;
@@ -268,9 +269,9 @@ export function WatchAnimeDetailsPanel({
             </dl>
 
             {synopsis ? (
-              <p className="mt-4 hidden rounded-xl border border-white/[0.07] bg-black/25 px-4 py-3 text-[13px] leading-6 text-white/55 sm:block">
-                {synopsis}
-              </p>
+              <div className="mt-4 hidden rounded-xl border border-white/[0.07] bg-black/25 px-4 py-3 sm:block animate-modal-in">
+                <ExpandableSynopsis text={synopsis} accentColor={accentColor} />
+              </div>
             ) : null}
 
             <dl className="mt-4 hidden gap-x-8 gap-y-3 border-y border-white/[0.07] py-4 sm:grid sm:grid-cols-2 lg:grid-cols-3">

@@ -19,6 +19,7 @@ import type { Metadata } from "next";
 import AddToListButton from "@/components/anime/AddToListButton";
 import StreamPrefetch from "@/components/anime/StreamPrefetch";
 import WatchIntentLink from "@/components/anime/WatchIntentLink";
+import ExpandableSynopsis from "@/components/anime/ExpandableSynopsis";
 
 
 
@@ -140,7 +141,7 @@ async function AnilistDetailContent({
         />
 
         <div className="relative z-10 mx-auto max-w-7xl px-6 pt-28 pb-16">
-          <div className="grid gap-10 lg:grid-cols-[280px_1fr] items-end">
+          <div className="grid gap-10 lg:grid-cols-[280px_1fr] items-start">
             {/* Poster */}
             <div className="hidden lg:block">
               <div className="relative">
@@ -261,12 +262,12 @@ async function AnilistDetailContent({
 
             {/* Synopsis */}
             {description && (
-              <div className="bg-white/5 rounded-2xl p-6 border border-white/5">
+              <div className="bg-white/5 rounded-2xl p-6 border border-white/5 animate-modal-in">
                 <div className="flex items-center gap-2 mb-4">
                   <BookOpen className="w-4 h-4 text-white/40" />
                   <h2 className="text-sm font-black uppercase tracking-widest text-white/40">Synopsis</h2>
                 </div>
-                <p className="text-white/70 leading-relaxed text-sm">{description}</p>
+                <ExpandableSynopsis text={description} accentColor="#ff5500" />
               </div>
             )}
 

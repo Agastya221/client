@@ -17,6 +17,7 @@ import "@vidstack/react/player/styles/default/layouts/video.css";
 import SkipButton from "./SkipButton";
 import { fetchSkipTimes, type SkipTimes } from "@/lib/player/aniskip";
 import type { SubtitleTrack, StreamSource } from "@/lib/anime/types";
+import { Play, Pause } from "lucide-react";
 import "./player.css";
 
 interface VidstackPlayerProps {
@@ -63,6 +64,22 @@ export default function VidstackPlayer({
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+
+  // Play/Pause Overlay Animation
+  const [showPlayOverlay, setShowPlayOverlay] = useState(false);
+  const [overlayIcon, setOverlayIcon] = useState<"play" | "pause" | null>(null);
+  const isFirstRender = useRef(true);
+
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    setOverlayIcon(playing ? "play" : "pause");
+    setShowPlayOverlay(true);
+    const t = setTimeout(() => setShowPlayOverlay(false), 500);
+    return () => clearTimeout(t);
+  }, [playing]);
 
   // Skip times
   const [skipTimes, setSkipTimes] = useState<SkipTimes | null>(null);
@@ -313,6 +330,19 @@ export default function VidstackPlayer({
           autoSkip={autoSkip}
           onSkip={handleSkip}
         />
+
+        {/* Play/Pause Overlay Animation */}
+        {showPlayOverlay && overlayIcon && (
+          <div className="absolute left-1/2 top-1/2 z-40 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm animate-play-overlay">
+              {overlayIcon === "play" ? (
+                <Play className="h-8 w-8 fill-current" />
+              ) : (
+                <Pause className="h-8 w-8 fill-current" />
+              )}
+            </div>
+          </div>
+        )}
 
       </MediaPlayer>
     </div>

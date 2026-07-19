@@ -428,7 +428,7 @@ export default function WatchParty({
               <div className="flex flex-col gap-0">
                 <div className="h-[140px] overflow-y-auto px-3 py-2 space-y-1.5 hide-scrollbar">
                   {chat.map((msg) => (
-                    <div key={msg.id} className="party-member-enter">
+                    <div key={msg.id} className="animate-message-in">
                       {msg.isSystem ? (
                         <p className="text-[10px] text-white/25 text-center italic">{msg.text}</p>
                       ) : (
@@ -467,7 +467,7 @@ export default function WatchParty({
                     type="button"
                     onClick={sendChat}
                     disabled={!chatInput.trim()}
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors disabled:opacity-30"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors disabled:opacity-30 btn-press-active"
                     style={{ background: accentColor }}
                   >
                     <Send className="h-3.5 w-3.5 text-white" />

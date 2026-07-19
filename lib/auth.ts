@@ -9,6 +9,9 @@ function AniList(options: OAuthUserConfig<{ id: number; name: { full: string }; 
     id: "anilist",
     name: "AniList",
     type: "oauth",
+    client: {
+      token_endpoint_auth_method: "client_secret_post",
+    },
     authorization: {
       url: "https://anilist.co/api/v2/oauth/authorize",
       params: { response_type: "code" },
