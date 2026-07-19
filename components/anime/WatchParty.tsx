@@ -129,6 +129,24 @@ export default function WatchParty({
   );
 
   // SSE connection
+  // Refs to prevent SSE reconnection when player state updates
+  const isHostRef = useRef(isHost);
+  const isPlayingRef = useRef(isPlaying);
+  const currentTimeRef = useRef(currentTime);
+  const currentEpisodeRef = useRef(currentEpisode);
+  const callbacksRef = useRef(callbacks);
+  const chatOpenRef = useRef(chatOpen);
+  const broadcastEventRef = useRef(broadcastEvent);
+
+  useEffect(() => { isHostRef.current = isHost; }, [isHost]);
+  useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
+  useEffect(() => { currentTimeRef.current = currentTime; }, [currentTime]);
+  useEffect(() => { currentEpisodeRef.current = currentEpisode; }, [currentEpisode]);
+  useEffect(() => { callbacksRef.current = callbacks; }, [callbacks]);
+  useEffect(() => { chatOpenRef.current = chatOpen; }, [chatOpen]);
+  useEffect(() => { broadcastEventRef.current = broadcastEvent; }, [broadcastEvent]);
+
+  // SSE connection
   const connect = useCallback(() => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
@@ -148,17 +166,17 @@ export default function WatchParty({
       setMembers(data.room.members);
       addSystemMessage(`Connected to room ${roomCode}`);
       // If host, broadcast current state so new joiner syncs
-      if (isHost) {
+      if (isHostRef.current) {
         setTimeout(() => {
-          broadcastEvent(isPlaying ? "play" : "pause", { time: currentTime });
+          broadcastEventRef.current(isPlayingRef.current ? "play" : "pause", { time: currentTimeRef.current });
         }, 500);
       } else {
         // Non-host: accept host's state
         setRemoteTime(data.room.currentTime);
-        if (data.room.isPlaying) callbacks.onPlay?.(data.room.currentTime);
-        else callbacks.onPause?.(data.room.currentTime);
-        if (data.room.episodeNumber !== currentEpisode) {
-          callbacks.onEpisodeChange(data.room.episodeNumber);
+        if (data.room.isPlaying) callbacksRef.current.onPlay?.(data.room.currentTime);
+        else callbacksRef.current.onPause?.(data.room.currentTime);
+        if (data.room.episodeNumber !== currentEpisodeRef.current) {
+          callbacksRef.current.onEpisodeChange(data.room.episodeNumber);
         }
       }
     });
@@ -168,7 +186,7 @@ export default function WatchParty({
       if (ev.memberId === memberId) return;
       const time = (ev.payload.time as number) ?? 0;
       setRemoteTime(time);
-      callbacks.onPlay?.(time);
+      callbacksRef.current.onPlay?.(time);
       setIsSynced(true);
     });
 
@@ -177,7 +195,7 @@ export default function WatchParty({
       if (ev.memberId === memberId) return;
       const time = (ev.payload.time as number) ?? 0;
       setRemoteTime(time);
-      callbacks.onPause?.(time);
+      callbacksRef.current.onPause?.(time);
       setIsSynced(true);
     });
 
@@ -186,7 +204,7 @@ export default function WatchParty({
       if (ev.memberId === memberId) return;
       const time = (ev.payload.time as number) ?? 0;
       setRemoteTime(time);
-      callbacks.onSeek?.(time);
+      callbacksRef.current.onSeek?.(time);
       setIsSynced(true);
     });
 
@@ -205,7 +223,7 @@ export default function WatchParty({
         ...prev,
         { id: ev.id, memberId: ev.memberId, memberName: ev.memberName, text: ev.payload.text as string, ts: ev.ts },
       ]);
-      if (!chatOpen) setUnreadCount((n) => n + 1);
+      if (!chatOpenRef.current) setUnreadCount((n) => n + 1);
     });
 
     es.addEventListener("join", (e) => {
@@ -226,7 +244,7 @@ export default function WatchParty({
       setConnState("disconnected");
       reconnectTimer.current = setTimeout(connect, 3000);
     });
-  }, [roomCode, memberId, isHost, isPlaying, currentTime, currentEpisode, callbacks, addSystemMessage, broadcastEvent, chatOpen]);
+  }, [roomCode, memberId, addSystemMessage]);
 
   useEffect(() => {
     connect();
