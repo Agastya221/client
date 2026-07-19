@@ -668,46 +668,40 @@ function SafeWatchImage({ src, onImageLoad, ...props }: SafeWatchImageProps) {
 
 /**
  * Player poster with progressive loading.
- * Shows the anime poster/banner as a blurred backdrop immediately (already in
- * memory — zero extra requests), then fades the HD episode artwork in on top.
- * Never shows a pure black rectangle.
+ * Reuses the selected episode's cached rail thumbnail as the blurred first
+ * frame, then fades the HD artwork for that same episode in on top. Series
+ * artwork is intentionally never used here, so the subject cannot change while
+ * the sharper image is loading.
  */
 function PlayerPosterImage({
+  thumbnailArtwork,
   episodeArtwork,
-  fallbackImage,
 }: {
+  thumbnailArtwork: string | null;
   episodeArtwork: string | null;
-  fallbackImage: string;
 }) {
   const [hdLoaded, setHdLoaded] = useState(false);
-  // Show blurred fallback until the HD episode artwork is decoded
-  const showBlur = !hdLoaded;
 
   return (
     <>
-      {/* Blurred anime poster/banner — renders instantly from browser cache */}
-      {showBlur && (
-        <div
-          className="absolute inset-0 z-[1] bg-cover bg-center"
-          style={{
-            backgroundImage: `url(${fallbackImage})`,
-            filter: "blur(18px) brightness(0.6)",
-            transform: "scale(1.1)",
-          }}
-          aria-hidden="true"
+      {!hdLoaded && thumbnailArtwork ? (
+        <SafeWatchImage
+          src={thumbnailArtwork}
+          fill
+          unoptimized
+          sizes="100vw"
+          className="z-[1] scale-[1.04] object-cover blur-md brightness-75"
         />
-      )}
-      {/* HD episode artwork — fades in once loaded */}
+      ) : null}
       {episodeArtwork ? (
         <SafeWatchImage
-          key={episodeArtwork}
           src={episodeArtwork}
           fill
           preload
           fetchPriority="high"
-          quality={50}
+          unoptimized
           sizes="(min-width: 1280px) calc(100vw - 440px), 100vw"
-          className={`object-cover transition-opacity duration-500 ease-out z-[2] ${
+          className={`z-[2] object-cover transition-opacity duration-300 ease-out ${
             hdLoaded ? "opacity-100" : "opacity-0"
           }`}
           onImageLoad={() => setHdLoaded(true)}
@@ -1817,10 +1811,12 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     ? session.episodes.find((episode) => episode.number === optimisticEpisodeNumber) || session.episode
     : session.episode;
   const displayedEpisodeNumber = displayedEpisode.number;
-  // The rail thumbnail has normally loaded before an episode is clicked. Reuse
-  // that exact cached episode frame immediately when the separate HD field has
-  // not arrived yet; never fall back to the anime banner or a black player.
-  const playerPosterImage = deliverEpisodeArtwork(getEpisodeArtworkUrl(displayedEpisode.image || displayedEpisode.thumbnail, session.anime));
+  const playerThumbnailImage = deliverEpisodeArtwork(
+    getEpisodeArtworkUrl(displayedEpisode.thumbnail || displayedEpisode.image, session.anime),
+  );
+  const playerPosterImage = deliverEpisodeArtwork(
+    getEpisodeArtworkUrl(displayedEpisode.image || displayedEpisode.thumbnail, session.anime),
+  );
   const savedProgress = getEpisodeProgress(session.anime.id, session.episode.number);
   const liveProgress = playbackProgressRef.current;
   const resumeTime = liveProgress.animeId === session.anime.id && liveProgress.episodeNumber === session.episode.number && liveProgress.time > 0
@@ -2243,8 +2239,9 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
               style={{ "--tw-ring-color": accentColor } as React.CSSProperties}
             >
               <PlayerPosterImage
+                key={`${displayedEpisode.number}:${playerThumbnailImage || "none"}:${playerPosterImage || "none"}`}
+                thumbnailArtwork={playerThumbnailImage}
                 episodeArtwork={playerPosterImage}
-                fallbackImage={heroImage}
               />
               <span className="absolute left-1/2 top-1/2 z-[3] inline-flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-black/10 bg-white/95 text-black shadow-[0_10px_30px_rgba(0,0,0,0.38)] transition-all duration-200 group-hover:scale-105 group-hover:bg-white group-focus-visible:scale-105 sm:h-14 sm:w-14">
                 <Play className="h-5 w-5 translate-x-px fill-current sm:h-6 sm:w-6" aria-hidden="true" />
