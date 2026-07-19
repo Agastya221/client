@@ -102,6 +102,7 @@ export default function WatchParty({
   const [pendingEpisode, setPendingEpisode] = useState<number | null>(null);
   const [isSynced, setIsSynced] = useState(true);
   const [remoteTime, setRemoteTime] = useState<number | null>(null);
+  const [confirmingLeave, setConfirmingLeave] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -248,9 +249,15 @@ export default function WatchParty({
     return () => clearTimeout(t);
   }, [episodeCountdown, pendingEpisode, callbacks]);
 
-  // Scroll chat to bottom
+  // Scroll chat to bottom inside chat container only (prevents viewport scroll)
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const chatContainer = chatEndRef.current?.parentElement;
+    if (chatContainer) {
+      chatContainer.scrollTo({
+        top: chatContainer.scrollHeight,
+        behavior: "smooth"
+      });
+    }
   }, [chat]);
 
   // Clear unread when chat is opened
@@ -326,23 +333,43 @@ export default function WatchParty({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setPanelOpen((o) => !o)}
-            className="flex h-6 w-6 items-center justify-center rounded-md text-white/40 hover:text-white"
-          >
-            {panelOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-          </button>
-          <button
-            type="button"
-            onClick={handleLeave}
-            title="Leave room"
-            className="flex h-6 w-6 items-center justify-center rounded-md text-white/30 hover:text-red-400"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
+        {confirmingLeave ? (
+          <div className="flex items-center gap-1.5 text-[10px] animate-message-in">
+            <span className="text-red-400 font-bold tracking-wide">Leave?</span>
+            <button
+              type="button"
+              onClick={handleLeave}
+              className="rounded bg-red-600/90 hover:bg-red-700 px-2 py-0.5 font-extrabold text-white text-[9px] transition-colors btn-press-active"
+            >
+              Yes
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmingLeave(false)}
+              className="rounded bg-white/10 hover:bg-white/20 px-2 py-0.5 font-extrabold text-white/70 text-[9px] transition-colors btn-press-active"
+            >
+              No
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setPanelOpen((o) => !o)}
+              className="flex h-6 w-6 items-center justify-center rounded-md text-white/40 hover:text-white"
+            >
+              {panelOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmingLeave(true)}
+              title="Leave room"
+              className="flex h-6 w-6 items-center justify-center rounded-md text-white/30 hover:text-red-400"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
       </div>
 
       {panelOpen && (

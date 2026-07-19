@@ -15,6 +15,8 @@ interface WatchPartyModalProps {
   accentColor?: string;
   onClose: () => void;
   onRoomReady: (code: string, isHost: boolean) => void;
+  activeRoomCode?: string | null;
+  onLeaveRoom?: () => void;
 }
 
 export default function WatchPartyModal({
@@ -27,6 +29,8 @@ export default function WatchPartyModal({
   accentColor = "#ff5500",
   onClose,
   onRoomReady,
+  activeRoomCode,
+  onLeaveRoom,
 }: WatchPartyModalProps) {
   const [mode, setMode] = useState<PartyMode>("create");
   const [joinCode, setJoinCode] = useState("");
@@ -93,6 +97,14 @@ export default function WatchPartyModal({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const copyLinkActive = async () => {
+    if (!activeRoomCode) return;
+    const url = `${window.location.origin}/watch-party?code=${activeRoomCode}`;
+    await navigator.clipboard.writeText(url).catch(() => undefined);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   const copyCode = async () => {
     if (!createdCode) return;
     await navigator.clipboard.writeText(createdCode).catch(() => undefined);
@@ -148,7 +160,47 @@ export default function WatchPartyModal({
 
         {/* Body */}
         <div className="p-6">
-          {!createdCode ? (
+          {activeRoomCode ? (
+            /* Active Room Details / Leave Warning */
+            <div className="space-y-5 animate-message-in">
+              <div className="rounded-[12px] border border-red-500/20 bg-red-500/5 p-4">
+                <h3 className="text-xs font-bold text-red-400 uppercase tracking-wider mb-1">Active Watch Party</h3>
+                <p className="text-[12px] text-white/60 leading-relaxed">
+                  You are currently connected to Watch Together room <strong className="text-white">{activeRoomCode}</strong>.
+                  Leaving this room will disconnect you and you will stop syncing with other members.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={copyLinkActive}
+                className="w-full flex items-center justify-center gap-2 rounded-[12px] border border-white/10 bg-white/[0.04] py-2.5 text-[12px] font-bold text-white/60 transition-all hover:bg-white/[0.07] hover:text-white btn-press-active"
+              >
+                <Link2 className="h-3.5 w-3.5" />
+                {copied ? "Invite link copied!" : "Copy invite link"}
+              </button>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="flex-1 rounded-[12px] border border-white/10 bg-white/[0.03] py-3.5 text-[13px] font-bold text-white/50 hover:text-white transition-all btn-press-active"
+                >
+                  Keep Watching
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onLeaveRoom?.();
+                    onClose();
+                  }}
+                  className="flex-1 rounded-[12px] bg-red-600 hover:bg-red-700 py-3.5 text-[13px] font-bold text-white transition-all btn-press-active shadow-lg shadow-red-600/20"
+                >
+                  Leave Party
+                </button>
+              </div>
+            </div>
+          ) : !createdCode ? (
             <>
               {/* Mode tabs */}
               <div className="relative mb-6 flex rounded-[12px] border border-white/[0.08] bg-white/[0.03] p-1">

@@ -883,8 +883,14 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
 
   // ── Watch Party ────────────────────────────────────────────────────
   const [partyModalOpen, setPartyModalOpen] = useState(false);
-  const [partyRoomCode, setPartyRoomCode] = useState<string | null>(null);
-  const [partyIsHost, setPartyIsHost] = useState(false);
+  const [partyRoomCode, setPartyRoomCode] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return sessionStorage.getItem("watch-party-active-room-code");
+  });
+  const [partyIsHost, setPartyIsHost] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return sessionStorage.getItem("watch-party-is-host") === "true";
+  });
   const [partyMemberId] = useState<string>(() => {
     if (typeof window === "undefined") return "";
     let id = localStorage.getItem("watch-party-member-id");
@@ -898,6 +904,46 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   });
   const [partyCurrentTime, setPartyCurrentTime] = useState(0);
   const [partyIsPlaying, setPartyIsPlaying] = useState(false);
+
+  const handleLeaveRoom = async () => {
+    if (partyRoomCode) {
+      await fetch(`/api/watch-party/join?code=${partyRoomCode}&memberId=${partyMemberId}&memberName=${encodeURIComponent(partyMemberName)}`, {
+        method: "DELETE",
+      }).catch(() => undefined);
+    }
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem("watch-party-active-room-code");
+      sessionStorage.removeItem("watch-party-is-host");
+    }
+    setPartyRoomCode(null);
+    setPartyIsHost(false);
+  };
+
+  // Sync watch party state to sessionStorage
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (partyRoomCode) {
+      sessionStorage.setItem("watch-party-active-room-code", partyRoomCode);
+      sessionStorage.setItem("watch-party-is-host", partyIsHost ? "true" : "false");
+    } else {
+      sessionStorage.removeItem("watch-party-active-room-code");
+      sessionStorage.removeItem("watch-party-is-host");
+    }
+  }, [partyRoomCode, partyIsHost]);
+
+  // Prompt before reloading or closing if connected to a Watch Party
+  useEffect(() => {
+    if (!partyRoomCode) return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "You are currently connected to a Watch Together room. Are you sure you want to leave?";
+      return e.returnValue;
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [partyRoomCode]);
 
   // Auto-join from URL ?party=CODE
   useEffect(() => {
@@ -1837,7 +1883,13 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   const effectiveDubbed = optimisticDubbed ?? pendingSession?.dubbed ?? session.dubbed;
   const effectiveProvider = optimisticProvider ?? pendingSession?.provider ?? session.provider;
   const activeIsEmbedServer = Boolean(effectiveActiveServerId && isEmbedServerOption(effectiveActiveServerId));
-  const embedServersOpen = showEmbedServers || activeIsEmbedServer;
+
+  // Auto-open/close embed panel based on current active server type
+  useEffect(() => {
+    setShowEmbedServers(activeIsEmbedServer);
+  }, [activeIsEmbedServer]);
+
+  const embedServersOpen = showEmbedServers;
   const usableServerOptions = session.serverOptions.filter((option) => !isKnownBrokenServerOption(option.id));
   const { subServers, softSubServers, hardSubServers, dubServers, hindiServers } = summarizeServerGroups(usableServerOptions);
   const effectiveActiveServer = session.serverOptions.find((entry) => entry.id === effectiveActiveServerId);
@@ -2646,25 +2698,33 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
           </div>
 
           {/* Watch Together pill — aligned to the right side, prominent */}
-          <div className="flex items-center gap-3 ml-auto shrink-0">
-            {partyRoomCode && (
-              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-0.5 text-[9px] font-bold text-emerald-400">
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Party active
-              </span>
-            )}
+          <div className="flex items-center ml-auto shrink-0">
             <button
               type="button"
               onClick={() => setPartyModalOpen(true)}
               className="group inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-[11px] font-bold transition-all duration-200 hover:-translate-y-px hover:shadow-lg"
               style={partyRoomCode
-                ? { borderColor: `${accentColor}60`, background: `${accentColor}18`, color: accentColor, boxShadow: `0 0 16px ${accentColor}22` }
+                ? { borderColor: "rgba(16, 185, 129, 0.4)", background: "rgba(16, 185, 129, 0.08)", color: "#10b981", boxShadow: "0 0 16px rgba(16, 185, 129, 0.15)" }
                 : { borderColor: "rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.60)" }}
             >
-              <Users className="h-3.5 w-3.5 transition-transform duration-200 group-hover:scale-110" aria-hidden="true" />
               {partyRoomCode ? (
-                <span>Watch Party <span className="ml-1 rounded-md px-1.5 py-0.5 text-[9px] font-black tracking-wider" style={{ background: `${accentColor}30`, color: accentColor }}>{partyRoomCode}</span></span>
-              ) : "WatchTogether"}
+                <span className="relative flex h-2 w-2 shrink-0">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                </span>
+              ) : (
+                <Users className="h-3.5 w-3.5 transition-transform duration-200 group-hover:scale-110" aria-hidden="true" />
+              )}
+              {partyRoomCode ? (
+                <span className="flex items-center gap-1.5">
+                  Watch Party
+                  <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-black tracking-wider text-emerald-400">
+                    {partyRoomCode}
+                  </span>
+                </span>
+              ) : (
+                "WatchTogether"
+              )}
             </button>
           </div>
         </div>
@@ -2673,12 +2733,15 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
         <div className="space-y-3 rounded-xl border border-white/[0.07] bg-black/20 p-3 sm:space-y-4 sm:p-4">
           <div className="flex flex-wrap items-center gap-2">
             <div
-              className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[10px] font-black uppercase tracking-wider sm:rounded-full sm:px-4 sm:py-2 sm:text-[11px]"
-              style={{ color: accentColor, borderColor: accentStyle(0.45), background: accentStyle(0.12) }}
+              className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[10px] font-black uppercase tracking-wider sm:rounded-full sm:px-4 sm:py-2 sm:text-[11px] transition-all"
+              style={!activeIsEmbedServer
+                ? { color: accentColor, borderColor: accentStyle(0.45), background: accentStyle(0.12) }
+                : { color: "rgba(255,255,255,0.4)", borderColor: "rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.02)" }
+              }
             >
               <Tv2 className="h-3.5 w-3.5" aria-hidden="true" />
               Internal
-              <span className="rounded-full px-2 py-0.5 text-[10px] text-white" style={{ background: accentStyle(0.35) }}>
+              <span className="rounded-full px-2 py-0.5 text-[10px]" style={!activeIsEmbedServer ? { background: accentStyle(0.35), color: "#fff" } : { background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.4)" }}>
                 {internalServerCount}
               </span>
             </div>
@@ -2686,11 +2749,11 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
               <button
                 type="button"
                 onClick={() => setShowEmbedServers((value) => !value)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white/65 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white sm:rounded-full sm:px-4 sm:py-2 sm:text-[11px]"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white/65 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white sm:rounded-full sm:px-4 sm:py-2 sm:text-[11px] btn-press-active"
                 aria-expanded={embedServersOpen}
                 aria-controls="embed-server-options"
                 title="External embed servers"
-                style={embedServersOpen ? { color: accentColor, borderColor: accentStyle(0.35), background: accentStyle(0.08) } : undefined}
+                style={activeIsEmbedServer || embedServersOpen ? { color: accentColor, borderColor: accentStyle(0.35), background: accentStyle(0.08) } : undefined}
               >
                 <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                 Embed
@@ -2802,6 +2865,23 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
         </div>
 
         <div className="space-y-4 px-3 sm:space-y-5 sm:px-0 xl:hidden">
+          {partyRoomCode && (
+            <div className="animate-modal-in">
+              <WatchPartyPanel
+                roomCode={partyRoomCode}
+                memberId={partyMemberId}
+                memberName={partyMemberName}
+                isHost={partyIsHost}
+                accentColor={accentColor}
+                currentTime={partyCurrentTime}
+                isPlaying={partyIsPlaying}
+                currentEpisode={session.episode.number}
+                callbacks={partyCallbacks()}
+                onLeave={handleLeaveRoom}
+              />
+            </div>
+          )}
+
           <CommentSection
             animeId={session.anime.id}
             episodeNumber={session.episode.number}
@@ -2845,7 +2925,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
               isPlaying={partyIsPlaying}
               currentEpisode={session.episode.number}
               callbacks={partyCallbacks()}
-              onLeave={() => { setPartyRoomCode(null); setPartyIsHost(false); }}
+              onLeave={handleLeaveRoom}
             />
           )}
           <WatchRecommendationsPanel
@@ -2869,6 +2949,8 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
         memberId={partyMemberId}
         memberName={partyMemberName}
         accentColor={accentColor}
+        activeRoomCode={partyRoomCode}
+        onLeaveRoom={handleLeaveRoom}
         onClose={() => setPartyModalOpen(false)}
         onRoomReady={(code, isHost) => {
           setPartyRoomCode(code);

@@ -207,6 +207,13 @@ export default function NavbarClient({ user }: NavbarClientProps) {
                 />
               </form>
 
+              {isMobileFocused && (
+                <div
+                  className="fixed inset-0 top-16 z-40 bg-black/60 backdrop-blur-sm lg:hidden animate-backdrop-in"
+                  onClick={() => setMobileFocused(false)}
+                />
+              )}
+
               {isMobileFocused && searchValue.trim() && (
                 <div className="absolute top-full left-0 right-0 z-50 mt-1 rounded-2xl border border-white/10 bg-[#0f1012]/98 p-2 shadow-2xl flex flex-col gap-1">
                   {isSearching ? (
@@ -278,16 +285,14 @@ export default function NavbarClient({ user }: NavbarClientProps) {
         <div className={`h-16 w-full items-center justify-between px-4 lg:px-12 xl:px-16 gap-6 ${mobileSearchActive ? "hidden lg:flex" : "flex"}`}>
           {/* Logo */}
           <div className="flex shrink-0 items-center gap-3 lg:gap-8">
-            {isWatchPage ? (
-              <button
-                type="button"
-                onClick={() => setMobileMenuOpen(true)}
-                className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 transition-colors hover:bg-white/10 lg:hidden"
-                aria-label="Open navigation menu"
-              >
-                <Menu className="h-5 w-5 text-white/65" aria-hidden="true" />
-              </button>
-            ) : null}
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(true)}
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 transition-colors hover:bg-white/10 lg:hidden"
+              aria-label="Open navigation menu"
+            >
+              <Menu className="h-5 w-5 text-white/65" aria-hidden="true" />
+            </button>
             <Link href="/" className="flex items-center text-2xl font-black tracking-tight">
               <span className="text-white">Anime</span>
               <span className="text-[#52ff7f]">PLAY</span>
@@ -440,16 +445,6 @@ export default function NavbarClient({ user }: NavbarClientProps) {
               <Search className="w-4 h-4 text-white/60" aria-hidden="true" />
             </button>
             <UserMenu user={resolvedUser} />
-            {!isWatchPage ? (
-              <button
-                type="button"
-                onClick={() => setMobileMenuOpen(true)}
-                className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center border border-white/10 hover:bg-white/10 transition-colors"
-                aria-label="Open navigation menu"
-              >
-                <Menu className="w-4 h-4 text-white/60" aria-hidden="true" />
-              </button>
-            ) : null}
           </div>
         </div>
       </nav>
@@ -463,7 +458,7 @@ export default function NavbarClient({ user }: NavbarClientProps) {
         />
 
         {/* Menu panel */}
-        <div className={`absolute right-0 top-0 bottom-0 w-[80%] max-w-sm bg-[#0f1012] border-l border-white/10 shadow-2xl flex flex-col transform transition-transform duration-300 ease-out ${mobileMenuOpen ? "translate-x-0" : "translate-x-full"}`}>
+        <div className={`absolute left-0 top-0 bottom-0 w-[80%] max-w-sm bg-[#0f1012] border-r border-white/10 shadow-2xl flex flex-col transform transition-transform duration-300 ease-out ${mobileMenuOpen ? "translate-x-0" : "-translate-x-full"}`}>
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
               <span className="text-lg font-black text-white">
