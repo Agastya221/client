@@ -262,6 +262,10 @@ function isEmbedServerOption(serverId: string): boolean {
   return serverId.includes("-embed") || serverId.endsWith("-embed") || isCustomEmbedServer(serverId);
 }
 
+function isKnownBrokenServerOption(serverId: string | null | undefined): boolean {
+  return Boolean(serverId && /^anivexa2?-anibd-/.test(serverId));
+}
+
 function watchDebug(event: string, details: Record<string, unknown> = {}): void {
   if (typeof window === "undefined") return;
   console.info(JSON.stringify({
@@ -640,9 +644,10 @@ function sameServerOptionList(left: ServerOption[], right: ServerOption[]): bool
 
 type SafeWatchImageProps = Omit<ImageProps, "src" | "alt" | "onError"> & {
   src?: string | null;
+  onImageLoad?: () => void;
 };
 
-function SafeWatchImage({ src, ...props }: SafeWatchImageProps) {
+function SafeWatchImage({ src, onImageLoad, ...props }: SafeWatchImageProps) {
   const [failedSources, setFailedSources] = useState<string[]>([]);
   const activeSrc = src && !failedSources.includes(src) ? src : null;
 
@@ -653,10 +658,62 @@ function SafeWatchImage({ src, ...props }: SafeWatchImageProps) {
       {...props}
       src={activeSrc}
       alt=""
+      onLoad={onImageLoad}
       onError={() => {
         setFailedSources((current) => current.includes(activeSrc) ? current : [...current, activeSrc]);
       }}
     />
+  );
+}
+
+/**
+ * Player poster with progressive loading.
+ * Shows the anime poster/banner as a blurred backdrop immediately (already in
+ * memory — zero extra requests), then fades the HD episode artwork in on top.
+ * Never shows a pure black rectangle.
+ */
+function PlayerPosterImage({
+  episodeArtwork,
+  fallbackImage,
+}: {
+  episodeArtwork: string | null;
+  fallbackImage: string;
+}) {
+  const [hdLoaded, setHdLoaded] = useState(false);
+  // Show blurred fallback until the HD episode artwork is decoded
+  const showBlur = !hdLoaded;
+
+  return (
+    <>
+      {/* Blurred anime poster/banner — renders instantly from browser cache */}
+      {showBlur && (
+        <div
+          className="absolute inset-0 z-[1] bg-cover bg-center"
+          style={{
+            backgroundImage: `url(${fallbackImage})`,
+            filter: "blur(18px) brightness(0.6)",
+            transform: "scale(1.1)",
+          }}
+          aria-hidden="true"
+        />
+      )}
+      {/* HD episode artwork — fades in once loaded */}
+      {episodeArtwork ? (
+        <SafeWatchImage
+          key={episodeArtwork}
+          src={episodeArtwork}
+          fill
+          preload
+          fetchPriority="high"
+          quality={50}
+          sizes="(min-width: 1280px) calc(100vw - 440px), 100vw"
+          className={`object-cover transition-opacity duration-500 ease-out z-[2] ${
+            hdLoaded ? "opacity-100" : "opacity-0"
+          }`}
+          onImageLoad={() => setHdLoaded(true)}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -1504,12 +1561,19 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
         ? entry.category === "dub"
         : entry.category === "sub" || !entry.category;
       const failedCandidateKey = `${session.anime.id}|${session.episode.number}|${language}|${entry.id}`;
-      const sameSubMode = language === "dub" || !activeServer?.subType || entry.subType === activeServer.subType;
+      // A generic embed is a valid escape hatch from either hard- or soft-sub
+      // internal playback. Requiring the same subType previously excluded the
+      // working embeds and allowed Nova's broken iframe to win instead.
+      const sameSubMode = isCustomEmbedServer(entry.id) || language === "dub" || !activeServer?.subType || entry.subType === activeServer.subType;
       return sameLanguage &&
         sameSubMode &&
         entry.id !== activeServerId &&
+        !isKnownBrokenServerOption(entry.id) &&
         !failedServerIdsRef.current.has(failedCandidateKey);
-    }).sort((left, right) => Number(isEmbedServerOption(left.id)) - Number(isEmbedServerOption(right.id)));
+    }).sort((left, right) => {
+      const priority = (entry: ServerOption) => isCustomEmbedServer(entry.id) ? 0 : isEmbedServerOption(entry.id) ? 2 : 1;
+      return priority(left) - priority(right);
+    });
 
     const currentIndex = playableCandidates.findIndex((entry) => entry.id === activeServerId);
     const orderedCandidates =
@@ -1711,7 +1775,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     if (session.stale || session.source || isSessionLoading) return;
     const category = session.dubbed ? "dub" : "sub";
     const fallback = session.serverOptions.find((option) =>
-      option.category === category && isEmbedServerOption(option.id),
+      option.category === category && isCustomEmbedServer(option.id) && !isKnownBrokenServerOption(option.id),
     );
     if (!fallback) return;
     const key = `${session.anime.id}|${session.episode.number}|${category}|${fallback.id}`;
@@ -1732,7 +1796,8 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   const effectiveProvider = optimisticProvider ?? pendingSession?.provider ?? session.provider;
   const activeIsEmbedServer = Boolean(effectiveActiveServerId && isEmbedServerOption(effectiveActiveServerId));
   const embedServersOpen = showEmbedServers || activeIsEmbedServer;
-  const { subServers, softSubServers, hardSubServers, dubServers, hindiServers } = summarizeServerGroups(session.serverOptions);
+  const usableServerOptions = session.serverOptions.filter((option) => !isKnownBrokenServerOption(option.id));
+  const { subServers, softSubServers, hardSubServers, dubServers, hindiServers } = summarizeServerGroups(usableServerOptions);
   const effectiveActiveServer = session.serverOptions.find((entry) => entry.id === effectiveActiveServerId);
   const activeHasSoftSubtitles = !session.dubbed && session.subtitles.some((track) => Boolean(track.url));
   const activeIsHardSub = !activeHasSoftSubtitles && (
@@ -1752,7 +1817,10 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     ? session.episodes.find((episode) => episode.number === optimisticEpisodeNumber) || session.episode
     : session.episode;
   const displayedEpisodeNumber = displayedEpisode.number;
-  const playerPosterImage = deliverEpisodeArtwork(getEpisodeArtworkUrl(displayedEpisode.image, session.anime));
+  // The rail thumbnail has normally loaded before an episode is clicked. Reuse
+  // that exact cached episode frame immediately when the separate HD field has
+  // not arrived yet; never fall back to the anime banner or a black player.
+  const playerPosterImage = deliverEpisodeArtwork(getEpisodeArtworkUrl(displayedEpisode.image || displayedEpisode.thumbnail, session.anime));
   const savedProgress = getEpisodeProgress(session.anime.id, session.episode.number);
   const liveProgress = playbackProgressRef.current;
   const resumeTime = liveProgress.animeId === session.anime.id && liveProgress.episodeNumber === session.episode.number && liveProgress.time > 0
@@ -2174,22 +2242,14 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
               className="group absolute inset-0 z-10 overflow-hidden text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset"
               style={{ "--tw-ring-color": accentColor } as React.CSSProperties}
             >
-              {playerPosterImage ? (
-                <SafeWatchImage
-                  key={playerPosterImage}
-                  src={playerPosterImage}
-                  fill
-                  preload
-                  fetchPriority="high"
-                  quality={70}
-                  sizes="(min-width: 1280px) calc(100vw - 440px), 100vw"
-                  className="object-cover"
-                />
-              ) : null}
-              <span className="absolute left-1/2 top-1/2 inline-flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-black/10 bg-white/95 text-black shadow-[0_10px_30px_rgba(0,0,0,0.38)] transition-all duration-200 group-hover:scale-105 group-hover:bg-white group-focus-visible:scale-105 sm:h-14 sm:w-14">
+              <PlayerPosterImage
+                episodeArtwork={playerPosterImage}
+                fallbackImage={heroImage}
+              />
+              <span className="absolute left-1/2 top-1/2 z-[3] inline-flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-black/10 bg-white/95 text-black shadow-[0_10px_30px_rgba(0,0,0,0.38)] transition-all duration-200 group-hover:scale-105 group-hover:bg-white group-focus-visible:scale-105 sm:h-14 sm:w-14">
                 <Play className="h-5 w-5 translate-x-px fill-current sm:h-6 sm:w-6" aria-hidden="true" />
               </span>
-              <span className="absolute inset-x-4 bottom-4 block truncate text-sm font-bold text-white drop-shadow-[0_2px_5px_rgba(0,0,0,0.95)] sm:inset-x-6 sm:bottom-6 sm:text-base">
+              <span className="absolute inset-x-4 bottom-4 z-[3] block truncate text-sm font-bold text-white drop-shadow-[0_2px_5px_rgba(0,0,0,0.95)] sm:inset-x-6 sm:bottom-6 sm:text-base">
                 Episode {displayedEpisode.number}{displayedEpisode.title !== `Episode ${displayedEpisode.number}` ? ` · ${displayedEpisode.title}` : ""}
               </span>
             </button>

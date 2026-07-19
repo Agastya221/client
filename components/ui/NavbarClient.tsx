@@ -6,6 +6,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import UserMenu from "@/components/ui/UserMenu";
 import { type AnilistMedia, anilistTitle, anilistFormat, anilistYear, encodeAnilistRouteId } from "@/lib/anilist/api";
+import { useNavigationPending } from "@/components/ui/NavigationPendingController";
 
 type NavbarUser = {
   name?: string | null;
@@ -43,6 +44,7 @@ const NAV_LINKS = [
 ];
 
 export default function NavbarClient({ user }: NavbarClientProps) {
+  const { beginNavigation } = useNavigationPending();
   const router = useRouter();
   const pathname = usePathname();
   const [resolvedUser, setResolvedUser] = useState<NavbarUser | null>(user);
@@ -152,7 +154,9 @@ export default function NavbarClient({ user }: NavbarClientProps) {
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
     if (searchValue.trim()) {
-      router.push(`/search?q=${encodeURIComponent(searchValue.trim())}`);
+      const href = `/search?q=${encodeURIComponent(searchValue.trim())}`;
+      if (!beginNavigation(href)) return;
+      router.push(href);
       setMobileMenuOpen(false);
       setMobileSearchActive(false);
       setDesktopFocused(false);

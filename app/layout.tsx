@@ -3,6 +3,10 @@ import { Suspense } from "react";
 import { Inter, Geist_Mono } from "next/font/google";
 import WatchHistorySyncClient from "@/components/anime/WatchHistorySyncClient";
 import ScrollToTop from "@/components/ui/ScrollToTop";
+import NavigationPendingController from "@/components/ui/NavigationPendingController";
+import WatchPageLoading from "@/components/anime/WatchPageLoading";
+import RootLoading from "@/app/loading";
+import AnimeDetailLoading from "@/app/anime/[id]/loading";
 import "./globals.css";
 
 const inter = Inter({
@@ -51,9 +55,17 @@ export default function RootLayout({
         className={`${inter.variable} ${geistMono.variable} antialiased bg-surface text-on-surface`}
         suppressHydrationWarning
       >
-        <Suspense><ScrollToTop /></Suspense>
         <WatchHistorySyncClient />
-        {children}
+        <NavigationPendingController
+          rootLoader={<RootLoading />}
+          detailLoader={<AnimeDetailLoading />}
+          watchLoader={<WatchPageLoading />}
+        >
+          <Suspense fallback={null}>
+            <ScrollToTop />
+          </Suspense>
+          {children}
+        </NavigationPendingController>
       </body>
     </html>
   );

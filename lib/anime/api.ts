@@ -71,13 +71,15 @@ const ANIVEXA_WORKER_PROVIDERS: AnivexaWorkerProvider[] = [
   "2dhive",
   "animenosub",
   "anizone",
-  "anibd",
   "senshi",
 ];
-const ANIVEXA_AUTO_SUB_PROVIDERS: AnivexaWorkerProvider[] = ["anikoto", "senshi", "anibd", "anineko", "animegg"];
-const ANIVEXA_AUTO_DUB_PROVIDERS: AnivexaWorkerProvider[] = ["senshi", "anibd", "anineko", "anikoto"];
+// anibd/Nova currently resolves to a Google access-denied iframe. Do not race,
+// advertise, or automatically fall back to a source that is known to be
+// unplayable for viewers.
+const ANIVEXA_AUTO_SUB_PROVIDERS: AnivexaWorkerProvider[] = ["anikoto", "senshi", "anineko", "animegg"];
+const ANIVEXA_AUTO_DUB_PROVIDERS: AnivexaWorkerProvider[] = ["senshi", "anineko", "anikoto"];
 const ANIVEXA_AVAILABILITY_PROVIDERS: AnivexaWorkerProvider[] = [
-  "anikoto", "anineko", "senshi", "anibd",
+  "anikoto", "anineko", "senshi",
 ];
 const ANIVEXA_WORKER_WATCH_ALIAS: Partial<Record<AnivexaWorkerProvider, AnivexaWorkerProvider>> = {
   anikoto: "anikoto",

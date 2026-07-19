@@ -6,6 +6,7 @@ import AnilistCard from "@/components/anilist/AnilistCard";
 import { Search, SlidersHorizontal, ChevronRight } from "lucide-react";
 import type { AnilistMedia, AnilistPageInfo } from "@/lib/anilist/api";
 import type { CatalogAvailabilityHint } from "@/lib/anime/api";
+import { useNavigationPending } from "@/components/ui/NavigationPendingController";
 
 interface SearchData {
   media: AnilistMedia[];
@@ -31,6 +32,7 @@ export default function SearchClient({ genres }: SearchClientProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [, startTransition] = useTransition();
+  const { beginNavigation } = useNavigationPending();
 
   const search = searchParams.get("q") || searchParams.get("search") || searchParams.get("keyword") || "";
   const genre = searchParams.get("genre") || "";
@@ -91,6 +93,7 @@ export default function SearchClient({ genres }: SearchClientProps) {
   };
 
   const navigate = (href: string) => {
+    if (!beginNavigation(href)) return;
     startTransition(() => router.push(href));
   };
 
