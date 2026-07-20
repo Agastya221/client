@@ -14,13 +14,13 @@ function AniList(options: OAuthUserConfig<{ id: number; name: { full: string }; 
     },
     authorization: {
       url: "https://anilist.co/api/v2/oauth/authorize",
-      params: { response_type: "code" },
+      params: { response_type: "code", scope: "" },
     },
     token: "https://anilist.co/api/v2/oauth/token",
     userinfo: {
-      // NextAuth v5 requires userinfo.url even when using a custom request function
       url: "https://graphql.anilist.co",
       async request({ tokens }: { tokens: { access_token?: string } }) {
+        console.log("[AniList Auth] Requesting user profile with access token:", tokens.access_token ? "PRESENT" : "MISSING");
         const res = await fetch("https://graphql.anilist.co", {
           method: "POST",
           headers: {
@@ -32,10 +32,12 @@ function AniList(options: OAuthUserConfig<{ id: number; name: { full: string }; 
           }),
         });
         const json = await res.json();
+        console.log("[AniList Auth] GraphQL Viewer data received:", JSON.stringify(json));
         return json.data?.Viewer ?? {};
       },
     },
     profile(profile) {
+      console.log("[AniList Auth] Mapping profile for AniList ID:", profile?.id, profile?.name?.full);
       return {
         id: String(profile.id),
         name: profile.name?.full || `AniList User`,
