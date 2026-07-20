@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Suspense } from "react";
 import { Plus_Jakarta_Sans, Outfit, Geist_Mono } from "next/font/google";
+import { Analytics } from "@vercel/analytics/react";
 import AuthSessionProvider from "@/components/ui/AuthSessionProvider";
 import WatchHistorySyncClient from "@/components/anime/WatchHistorySyncClient";
 import ScrollToTop from "@/components/ui/ScrollToTop";
@@ -77,7 +78,9 @@ export default function RootLayout({
             {children}
           </NavigationPendingController>
         </AuthSessionProvider>
+        <Analytics />
       </body>
     </html>
   );
 }
+
