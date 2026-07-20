@@ -11,6 +11,7 @@ import {
   subscribeToBookmarks,
   type BookmarkEntry,
 } from "@/lib/anime/bookmarks";
+import { getWatchedEpisodes } from "@/lib/anime/watch-history";
 
 interface AniListEntry {
   animeId: string;
@@ -130,9 +131,15 @@ export default function MyListClient({ user }: MyListClientProps) {
   // Add AniList entries first
   for (const entry of anilistEntries) {
     seenIds.add(entry.animeId);
-    const targetEp = entry.progress && entry.progress > 0 ? entry.progress : 1;
+
+    // Compute max progress between AniList server progress and local watch history
+    const watchedSet = getWatchedEpisodes(entry.animeId);
+    const maxLocalEp = watchedSet.size > 0 ? Math.max(...Array.from(watchedSet)) : 0;
+    const effectiveProgress = Math.max(entry.progress || 0, maxLocalEp);
+
+    const targetEp = effectiveProgress > 0 ? effectiveProgress : 1;
     const watchHref = entry.href.includes("/watch")
-      ? entry.href
+      ? entry.href.replace(/ep=\d+/, `ep=${targetEp}`)
       : `${entry.href.replace(/\/$/, "")}/watch?ep=${targetEp}`;
 
     combinedList.push({
@@ -141,7 +148,7 @@ export default function MyListClient({ user }: MyListClientProps) {
       poster: entry.poster,
       href: watchHref,
       status: entry.status,
-      progress: entry.progress,
+      progress: effectiveProgress,
       episodes: entry.episodes,
       score: entry.score,
       source: "ANILIST",
@@ -152,12 +159,17 @@ export default function MyListClient({ user }: MyListClientProps) {
   for (const local of localBookmarks) {
     if (!seenIds.has(local.animeId)) {
       seenIds.add(local.animeId);
+
+      const watchedSet = getWatchedEpisodes(local.animeId);
+      const maxLocalEp = watchedSet.size > 0 ? Math.max(...Array.from(watchedSet)) : 0;
+
       combinedList.push({
         animeId: local.animeId,
         title: local.title,
         poster: local.poster,
         href: local.href,
         status: local.status,
+        progress: maxLocalEp,
         source: "LOCAL",
       });
     }

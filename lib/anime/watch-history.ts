@@ -139,25 +139,24 @@ function queueEpisodeUpsert(animeId: string, episodeNumber: number, syncToAniLis
     timestamp: normalizeEpisodeProgress(episode).timestamp || entry.lastUpdated,
   });
 
-  // Only sync to AniList when explicitly requested (at watch-threshold), not on every page load.
+  // Sync episode progress to AniList when watch threshold is crossed
   if (syncToAniList && typeof window !== "undefined") {
     const anilistId = entry.anilistId;
-    // Use numeric anilistId if available; fallback to stripping prefix from animeId
-    const rawId = anilistId
-      ? anilistId
+    const rawId = anilistId && !isNaN(Number(anilistId))
+      ? Number(anilistId)
       : Number(String(animeId).replace(/^(anilist|animekai|hianime|desidub|reanime|allmanga|anikoto|animegg|anineko)~/, ""));
-    if (rawId && !isNaN(Number(rawId))) {
-      fetch("/api/anilist/save-entry", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          rawMediaId: rawId,
-          animeId,
-          progress: episodeNumber,
-          status: "CURRENT",
-        }),
-      }).catch(() => undefined);
-    }
+
+    fetch("/api/anilist/save-entry", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        rawMediaId: !isNaN(rawId) && rawId > 0 ? rawId : undefined,
+        animeId,
+        title: entry.title,
+        progress: episodeNumber,
+        status: "CURRENT",
+      }),
+    }).catch(() => undefined);
   }
 
   queueRemoteFlush();

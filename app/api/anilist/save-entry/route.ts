@@ -36,12 +36,51 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { animeId, rawMediaId, status, progress, score } = body;
+    const { animeId, rawMediaId, title, status, progress, score } = body;
 
     let mediaId = rawMediaId ? Number(rawMediaId) : null;
-    if (!mediaId && animeId) {
-      const cleaned = String(animeId).replace(/^(anilist|animekai|hianime)~/, "");
-      mediaId = Number(cleaned);
+    if (!mediaId || isNaN(mediaId)) {
+      if (animeId) {
+        const str = String(animeId);
+        const matchPrefix = str.match(/^(?:anilist|animekai|hianime|desidub|reanime|allmanga|anikoto|animegg|anineko)~(.+)$/);
+        const cleaned = matchPrefix ? matchPrefix[1] : str;
+
+        if (/^\d+$/.test(cleaned)) {
+          mediaId = Number(cleaned);
+        } else {
+          const matchSuffix = cleaned.match(/-(\d+)$/);
+          if (matchSuffix) mediaId = Number(matchSuffix[1]);
+        }
+      }
+    }
+
+    // Fallback: Search AniList GraphQL by title or slug if mediaId is still missing/NaN
+    if (!mediaId || isNaN(mediaId)) {
+      const searchTerm = (title || String(animeId || ""))
+        .replace(/^(anilist|animekai|hianime|desidub|reanime|allmanga|anikoto|animegg|anineko)~/, "")
+        .replace(/-/g, " ")
+        .trim();
+      if (searchTerm) {
+        try {
+          const searchRes = await fetch("https://graphql.anilist.co", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              query: `query ($search: String) { Media (search: $search, type: ANIME) { id } }`,
+              variables: { search: searchTerm },
+            }),
+          });
+          if (searchRes.ok) {
+            const searchData = await searchRes.json();
+            const foundId = searchData?.data?.Media?.id;
+            if (foundId && typeof foundId === "number") {
+              mediaId = foundId;
+            }
+          }
+        } catch {
+          // best effort
+        }
+      }
     }
 
     if (!mediaId || isNaN(mediaId)) {
