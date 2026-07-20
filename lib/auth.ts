@@ -4,7 +4,7 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/lib/db";
 
 // AniList OAuth2 provider
-function AniList(options: OAuthUserConfig<{ id: number; name: { full: string }; avatar: { large: string }; bannerImage: string | null }>): OAuthConfig<{ id: number; name: { full: string }; avatar: { large: string }; bannerImage: string | null }> {
+function AniList(options: OAuthUserConfig<{ id: number; name: string; avatar: { large: string }; bannerImage: string | null }>): OAuthConfig<{ id: number; name: string; avatar: { large: string }; bannerImage: string | null }> {
   return {
     id: "anilist",
     name: "AniList",
@@ -28,7 +28,7 @@ function AniList(options: OAuthUserConfig<{ id: number; name: { full: string }; 
             Authorization: `Bearer ${tokens.access_token}`,
           },
           body: JSON.stringify({
-            query: `query { Viewer { id name { full } avatar { large } bannerImage } }`,
+            query: `query { Viewer { id name avatar { large } bannerImage } }`,
           }),
         });
         const json = await res.json();
@@ -37,10 +37,10 @@ function AniList(options: OAuthUserConfig<{ id: number; name: { full: string }; 
       },
     },
     profile(profile) {
-      console.log("[AniList Auth] Mapping profile for AniList ID:", profile?.id, profile?.name?.full);
+      console.log("[AniList Auth] Mapping profile for AniList ID:", profile?.id, profile?.name);
       return {
         id: String(profile.id),
-        name: profile.name?.full || `AniList User`,
+        name: profile.name || `AniList User`,
         email: null,
         image: profile.avatar?.large || null,
       };
@@ -67,8 +67,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     }),
   ],
   callbacks: {
-    jwt({ token, user }) {
-      if (user) {
+    jwt({ token, user, profile }) {
+      if (profile) {
+        token.id = String(profile.id);
+      } else if (user) {
         token.id = user.id;
       }
       return token;
