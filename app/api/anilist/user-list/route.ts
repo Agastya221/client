@@ -142,13 +142,14 @@ export async function GET(request: Request) {
         }
 
         const title = m.title?.userPreferred || m.title?.english || m.title?.romaji || "Unknown Anime";
+        const targetEp = item.progress && item.progress > 0 ? item.progress : 1;
         entries.push({
           animeId: `anilist~${m.id}`,
           rawId: m.id,
           title,
           poster: m.coverImage?.extraLarge || m.coverImage?.large || null,
           banner: m.bannerImage || null,
-          href: `/anime/anilist~${m.id}`,
+          href: `/anime/anilist~${m.id}/watch?ep=${targetEp}`,
           status: statusKey,
           progress: item.progress || 0,
           episodes: m.episodes || null,

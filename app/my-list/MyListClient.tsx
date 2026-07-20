@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Bookmark, Trash2, ChevronRight, RefreshCw, CheckCircle2 } from "lucide-react";
+import { Bookmark, Trash2, ChevronRight, RefreshCw, CheckCircle2, Play } from "lucide-react";
 import {
   clearBookmarks,
   ensureBookmarksHydrated,
@@ -130,11 +130,16 @@ export default function MyListClient({ user }: MyListClientProps) {
   // Add AniList entries first
   for (const entry of anilistEntries) {
     seenIds.add(entry.animeId);
+    const targetEp = entry.progress && entry.progress > 0 ? entry.progress : 1;
+    const watchHref = entry.href.includes("/watch")
+      ? entry.href
+      : `${entry.href.replace(/\/$/, "")}/watch?ep=${targetEp}`;
+
     combinedList.push({
       animeId: entry.animeId,
       title: entry.title,
       poster: entry.poster,
-      href: entry.href,
+      href: watchHref,
       status: entry.status,
       progress: entry.progress,
       episodes: entry.episodes,
@@ -290,7 +295,12 @@ export default function MyListClient({ user }: MyListClientProps) {
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-white/20 text-xs">No Image</div>
                   )}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center p-3">
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#ff5500] text-white text-xs font-black shadow-lg scale-90 group-hover:scale-100 transition-transform">
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>{item.progress && item.progress > 0 ? `Ep ${item.progress}` : "Watch"}</span>
+                    </div>
+                  </div>
 
                   {/* Status badge */}
                   <div className="absolute top-2 left-2 flex items-center gap-1.5">
