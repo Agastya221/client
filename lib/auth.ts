@@ -55,12 +55,13 @@ function AniList(options: OAuthUserConfig<{ id: number; name: { full: string }; 
 }
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || "tatakai-animeplay-auth-secret-key-2026-default",
   adapter: PrismaAdapter(prisma),
   session: { strategy: "jwt" },
   providers: [
     AniList({
-      clientId: process.env.ANILIST_CLIENT_ID!,
-      clientSecret: process.env.ANILIST_CLIENT_SECRET!,
+      clientId: process.env.ANILIST_CLIENT_ID || "46437",
+      clientSecret: process.env.ANILIST_CLIENT_SECRET || "BMczD5IzdYPLn3o4WSQKXnhGNVjlbJ7LBedTylcy",
     }),
   ],
   callbacks: {
@@ -79,6 +80,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   },
   pages: {
     signIn: "/auth/signin",
+    error: "/auth/signin",
   },
   trustHost: true,
 });
