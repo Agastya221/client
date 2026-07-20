@@ -29,10 +29,10 @@ export async function POST(req: NextRequest) {
       if (typeof payload.time === "number") roomUpdate.currentTime = payload.time;
     } else if (type === "seek") {
       if (typeof payload.time === "number") roomUpdate.currentTime = payload.time;
-    } else if (type === "episode") {
+    } else if (type === "episode" || (type as string) === "server") {
       if (typeof payload.episodeNumber === "number") roomUpdate.episodeNumber = payload.episodeNumber;
-      roomUpdate.currentTime = 0;
-      roomUpdate.isPlaying = false;
+      if (typeof payload.time === "number") roomUpdate.currentTime = payload.time;
+      if (typeof payload.isPlaying === "boolean") roomUpdate.isPlaying = payload.isPlaying;
     }
 
     await prisma.watchPartyRoom.update({

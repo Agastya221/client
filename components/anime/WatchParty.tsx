@@ -7,6 +7,9 @@ import {
   ChevronUp,
   Crown,
   MessageCircle,
+  Play,
+  Pause,
+  Radio,
   RefreshCw,
   Send,
   Users,
@@ -34,7 +37,8 @@ export interface WatchPartyCallbacks {
   onPlay?: (time: number) => void;
   onPause?: (time: number) => void;
   onSeek?: (time: number) => void;
-  onEpisodeChange: (episodeNumber: number) => void;
+  onEpisodeChange: (episodeNumber: number, provider?: string, dubbed?: boolean, server?: string) => void;
+  onServerChange?: (provider: string, dubbed: boolean, server?: string) => void;
 }
 
 interface WatchPartyProps {
@@ -212,9 +216,22 @@ export default function WatchParty({
       const ev = JSON.parse((e as MessageEvent).data) as PartyEvent;
       if (ev.memberId === memberId) return;
       const epNum = ev.payload.episodeNumber as number;
+      const provider = ev.payload.provider as string | undefined;
+      const dubbed = ev.payload.dubbed as boolean | undefined;
+      const server = ev.payload.server as string | undefined;
       setPendingEpisode(epNum);
-      setEpisodeCountdown(3);
-      addSystemMessage(`${ev.memberName} changed to Episode ${epNum} — switching in 3s…`);
+      callbacksRef.current.onEpisodeChange(epNum, provider, dubbed, server);
+      addSystemMessage(`${ev.memberName} changed to Episode ${epNum}${provider ? ` (${provider})` : ""}`);
+    });
+
+    es.addEventListener("server", (e) => {
+      const ev = JSON.parse((e as MessageEvent).data) as PartyEvent;
+      if (ev.memberId === memberId) return;
+      const provider = (ev.payload.provider as string) || "";
+      const dubbed = Boolean(ev.payload.dubbed);
+      const server = ev.payload.server as string | undefined;
+      addSystemMessage(`${ev.memberName} changed server (${provider || "default"})`);
+      callbacksRef.current.onServerChange?.(provider, dubbed, server);
     });
 
     es.addEventListener("chat", (e) => {
@@ -392,6 +409,35 @@ export default function WatchParty({
 
       {panelOpen && (
         <>
+          {/* Host Controls */}
+          {isHost && (
+            <div className="flex items-center gap-1.5 px-3 py-2 bg-white/[0.03] border-b border-white/[0.06] text-xs font-bold">
+              <span className="text-[10px] text-amber-400 uppercase font-black tracking-widest mr-1">Host Controls:</span>
+              <button
+                type="button"
+                onClick={() => broadcastEvent("play", { time: currentTime })}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 text-[11px] transition-all"
+              >
+                <Play className="w-3 h-3 fill-current" /> Play Room
+              </button>
+              <button
+                type="button"
+                onClick={() => broadcastEvent("pause", { time: currentTime })}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500/30 text-[11px] transition-all"
+              >
+                <Pause className="w-3 h-3 fill-current" /> Pause Room
+              </button>
+              <button
+                type="button"
+                onClick={() => broadcastEvent("episode", { episodeNumber: currentEpisode, time: currentTime, isPlaying })}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-sky-500/20 text-sky-400 border border-sky-500/30 hover:bg-sky-500/30 text-[11px] transition-all ml-auto"
+                title="Broadcast current episode & time to all members"
+              >
+                <Radio className="w-3 h-3" /> Sync Viewers
+              </button>
+            </div>
+          )}
+
           {/* Desync nudge */}
           {!isSynced && !isHost && (
             <div className="flex items-center justify-between gap-2 border-b border-white/[0.06] bg-amber-500/[0.07] px-3 py-2">

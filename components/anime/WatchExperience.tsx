@@ -963,13 +963,66 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const broadcastHostPlayback = useCallback((type: "play" | "pause" | "seek", time: number) => {
+    if (!partyRoomCode || !partyIsHost) return;
+    fetch("/api/watch-party/event", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        code: partyRoomCode,
+        memberId: partyMemberId,
+        memberName: partyMemberName,
+        type,
+        payload: { time },
+      }),
+    }).catch(() => undefined);
+  }, [partyRoomCode, partyIsHost, partyMemberId, partyMemberName]);
+
   // Callbacks called by WatchPartyPanel when remote events arrive
   const partyCallbacks = useCallback(() => ({
-    onEpisodeChange: (epNum: number) => {
-      queueSession({ episodeNumber: epNum, provider: session.provider, dubbed: session.dubbed });
+    onEpisodeChange: (epNum: number, provider?: string, dubbed?: boolean, server?: string) => {
+      queueSession({
+        episodeNumber: epNum,
+        provider: (provider as ProviderId) ?? session.provider,
+        dubbed: dubbed ?? session.dubbed,
+        server: server ?? null,
+      });
+    },
+    onServerChange: (provider: string, dubbed: boolean, server?: string) => {
+      queueSession({
+        episodeNumber: session.episode.number,
+        provider: (provider as ProviderId) ?? session.provider,
+        dubbed: dubbed ?? session.dubbed,
+        server: server ?? null,
+      });
+    },
+    onPlay: (time: number) => {
+      setPartyCurrentTime(time);
+      setPartyIsPlaying(true);
+      const player = document.querySelector<HTMLVideoElement>("video");
+      if (player) {
+        if (Math.abs(player.currentTime - time) > 1.5) player.currentTime = time;
+        player.play().catch(() => undefined);
+      }
+    },
+    onPause: (time: number) => {
+      setPartyCurrentTime(time);
+      setPartyIsPlaying(false);
+      const player = document.querySelector<HTMLVideoElement>("video");
+      if (player) {
+        if (Math.abs(player.currentTime - time) > 1.5) player.currentTime = time;
+        player.pause();
+      }
+    },
+    onSeek: (time: number) => {
+      setPartyCurrentTime(time);
+      const player = document.querySelector<HTMLVideoElement>("video");
+      if (player) {
+        player.currentTime = time;
+      }
     },
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [session.provider, session.dubbed]);
+  }), [session.provider, session.dubbed, session.episode.number]);
 
   useEffect(() => {
     setAutoSkip(playerPrefs.getAutoSkip());
@@ -1487,6 +1540,27 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
       dubbed: request.dubbed ?? session.dubbed,
       server: request.server ?? null,
     };
+
+    // If host in Watch Party, broadcast event to room
+    if (partyRoomCode && partyIsHost) {
+      fetch("/api/watch-party/event", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: partyRoomCode,
+          memberId: partyMemberId,
+          memberName: partyMemberName,
+          type: "episode",
+          payload: {
+            episodeNumber: normalizedRequest.episodeNumber,
+            provider: normalizedRequest.provider,
+            dubbed: normalizedRequest.dubbed,
+            server: normalizedRequest.server,
+            time: 0,
+          },
+        }),
+      }).catch(() => undefined);
+    }
 
     watchDebug("queue_session", {
       animeId: session.anime.id,

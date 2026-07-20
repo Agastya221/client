@@ -7,6 +7,8 @@ export const metadata = {
   description: "Your personal anime watchlist on AnimePlay. Keep track of what you're watching, plan to watch, and more.",
 };
 
+export const dynamic = "force-dynamic";
+
 export default function MyListPage() {
   return (
     <main className="min-h-screen bg-[#0a0b0c] text-white">

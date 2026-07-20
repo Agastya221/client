@@ -51,7 +51,7 @@ const STATUS_TABS = [
 ] as const;
 
 export default function MyListPage() {
-  const { data: session } = useSession();
+  const session = useSession()?.data;
   const [localBookmarks, setLocalBookmarks] = useState<BookmarkEntry[]>([]);
   const [anilistEntries, setAnilistEntries] = useState<AniListEntry[]>([]);
   const [loading, setLoading] = useState(true);

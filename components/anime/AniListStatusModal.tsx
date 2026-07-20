@@ -25,7 +25,7 @@ export default function AniListStatusModal({
   poster,
   totalEpisodes,
 }: AniListStatusModalProps) {
-  const { data: session } = useSession();
+  const session = useSession()?.data;
   const [isOpen, setIsOpen] = useState(false);
   const [currentStatus, setCurrentStatus] = useState<string>("PLAN_TO_WATCH");
   const [progress, setProgress] = useState<number>(0);

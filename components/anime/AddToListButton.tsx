@@ -20,7 +20,7 @@ interface AddToListButtonProps {
 }
 
 export default function AddToListButton({ animeId, title, poster, href, variant = "default" }: AddToListButtonProps) {
-  const { data: session } = useSession();
+  const session = useSession()?.data;
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [loading, setLoading] = useState(false);
   const [checked, setChecked] = useState(false);
