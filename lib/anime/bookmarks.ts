@@ -187,7 +187,43 @@ export async function ensureBookmarksHydrated(): Promise<void> {
 
       authState = "authenticated";
       const remoteRows = await response.json().catch(() => []);
-      const merged = mergeBookmarks(rowsToStore(remoteRows), readBookmarks());
+      let merged = mergeBookmarks(rowsToStore(remoteRows), readBookmarks());
+
+      // Also pull AniList list and merge entries in for 2-way sync
+      try {
+        const anilistRes = await fetch("/api/anilist/user-list", {
+          cache: "no-store",
+          credentials: "same-origin",
+        });
+        if (anilistRes.ok) {
+          const anilistData = await anilistRes.json().catch(() => null);
+          const anilistEntries: Array<{
+            animeId: string;
+            title: string;
+            poster: string | null;
+            href: string;
+            status: string;
+            updatedAt: number;
+          }> = anilistData?.entries ?? [];
+
+          const anilistStore: BookmarkStore = {};
+          for (const entry of anilistEntries) {
+            anilistStore[entry.animeId] = {
+              animeId: entry.animeId,
+              title: entry.title,
+              poster: entry.poster,
+              href: entry.href,
+              status: entry.status,
+              lastUpdated: entry.updatedAt,
+            };
+          }
+          // AniList is source of truth for status; local store wins on newer timestamp
+          merged = mergeBookmarks(anilistStore, merged);
+        }
+      } catch {
+        // AniList sync is best-effort; local state is still valid
+      }
+
       writeBookmarks(merged);
       hasHydratedFromAccount = true;
 

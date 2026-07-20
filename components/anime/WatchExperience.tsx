@@ -1313,8 +1313,9 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
       poster: session.anime.poster ?? null,
       href: session.anime.href,
       provider: session.provider,
+      anilistId: session.anime.anilistId ?? null,
     });
-  }, [session.anime.id, session.anime.title, session.anime.poster, session.anime.href, session.provider, session.episode.number]);
+  }, [session.anime.id, session.anime.title, session.anime.poster, session.anime.href, session.provider, session.episode.number, session.anime.anilistId]);
 
   useEffect(() => {
     const flushProgress = () => {

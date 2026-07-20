@@ -9,6 +9,7 @@ export type WatchHistoryEntry = {
   poster: string | null;
   href: string;
   provider: string;
+  anilistId?: number | null;
   lastEpisode: number;
   lastUpdated: number;
   episodes: Record<string, EpisodeProgress>;

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { kvDelete } from "@/lib/cache/kv";
 
 export async function POST(request: Request) {
   try {
@@ -120,6 +121,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: data.errors[0]?.message || "AniList GraphQL error" }, { status: 400 });
     }
 
+    // Invalidate the KV user-list cache so next fetch gets fresh data
+    const sessionName = (session as any)?.user?.name;
+    if (sessionName) {
+      void kvDelete(`anilist:user-list:name:${sessionName}`);
+    }
+
     return NextResponse.json({
       success: true,
       entry: data?.data?.SaveMediaListEntry || null,
@@ -205,6 +212,12 @@ export async function DELETE(request: Request) {
     });
 
     const deleteData = await deleteRes.json();
+
+    // Invalidate the KV user-list cache
+    const sessionName = (session as any)?.user?.name;
+    if (sessionName) {
+      void kvDelete(`anilist:user-list:name:${sessionName}`);
+    }
 
     return NextResponse.json({
       success: true,

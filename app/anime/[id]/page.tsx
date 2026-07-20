@@ -253,6 +253,7 @@ async function AnilistDetailContent({
                   title={title}
                   poster={media.coverImage.extraLarge || media.coverImage.large}
                   totalEpisodes={media.episodes}
+                  rawMediaId={anilistId}
                 />
               </div>
 

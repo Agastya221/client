@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Bookmark, History, LogIn, LogOut, User } from "lucide-react";
+import { signOut } from "next-auth/react";
+import { clearBookmarks } from "@/lib/anime/bookmarks";
+import { clearHistory } from "@/lib/anime/watch-history";
 
 interface UserMenuProps {
   user: {
@@ -81,15 +84,19 @@ export default function UserMenu({ user }: UserMenuProps) {
 
           {/* Sign out */}
           <div className="p-1.5 border-t border-white/5">
-            <form action="/api/auth/signout" method="POST">
-              <button
-                type="submit"
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-red-400 hover:bg-red-500/10 transition-colors text-left cursor-pointer"
-              >
-                <LogOut className="w-4 h-4" aria-hidden="true" />
-                <span className="text-xs font-bold">Sign Out</span>
-              </button>
-            </form>
+            <button
+              type="button"
+              onClick={async () => {
+                setOpen(false);
+                clearBookmarks();
+                clearHistory();
+                await signOut({ callbackUrl: "/" });
+              }}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-red-400 hover:bg-red-500/10 transition-colors text-left cursor-pointer"
+            >
+              <LogOut className="w-4 h-4" aria-hidden="true" />
+              <span className="text-xs font-bold">Sign Out</span>
+            </button>
           </div>
         </div>
       )}

@@ -3,12 +3,15 @@
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { Check, Loader2, Plus, Minus, Star, Heart, Bookmark } from "lucide-react";
+import { saveBookmark } from "@/lib/anime/bookmarks";
 
 interface AniListStatusModalProps {
   animeId: string;
   title: string;
   poster?: string | null;
   totalEpisodes?: number | null;
+  /** Numeric AniList media ID — pass for reliable save-entry calls */
+  rawMediaId?: number | null;
 }
 
 const ANILIST_STATUSES = [
@@ -24,6 +27,7 @@ export default function AniListStatusModal({
   title,
   poster,
   totalEpisodes,
+  rawMediaId,
 }: AniListStatusModalProps) {
   const session = useSession()?.data;
   const [isOpen, setIsOpen] = useState(false);
@@ -52,6 +56,7 @@ export default function AniListStatusModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           animeId,
+          rawMediaId: rawMediaId ?? undefined,
           status: targetStatus,
           progress: targetProgress,
           score: targetScore,
@@ -64,6 +69,15 @@ export default function AniListStatusModal({
         if (newScore !== undefined) setScore(newScore);
         setSynced(true);
         setTimeout(() => setSynced(false), 2500);
+
+        // Mirror status change to local bookmarks so AddToListButton reflects the change
+        saveBookmark({
+          animeId,
+          title,
+          poster: poster ?? null,
+          href: `/anime/${animeId}`,
+          status: targetStatus,
+        });
       }
     } catch (err) {
       console.error("[AniListStatusModal] Save error:", err);

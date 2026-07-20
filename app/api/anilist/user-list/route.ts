@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { kvCached, kvDelete } from "@/lib/cache/kv";
 
 export async function GET(request: Request) {
   try {
@@ -78,27 +79,38 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Unauthorized / Missing User Identifier" }, { status: 401 });
     }
 
-    let res = await fetch("https://graphql.anilist.co", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query, variables: queryVariables }),
-      next: { revalidate: 30 },
-    });
+    // Build cache key from the resolved identity
+    const cacheKey = queryVariables.userName
+      ? `anilist:user-list:name:${queryVariables.userName}`
+      : `anilist:user-list:id:${queryVariables.userId}`;
 
-    let data = await res.json();
+    const lists = await kvCached(
+      cacheKey,
+      async () => {
+        let res = await fetch("https://graphql.anilist.co", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query, variables: queryVariables }),
+          next: { revalidate: 30 },
+        });
 
-    // Fallback: If query by userId failed, try session.user.name
-    if ((!res.ok || data.errors || !data?.data?.MediaListCollection) && session?.user?.name && queryVariables.userName !== session.user.name) {
-      res = await fetch("https://graphql.anilist.co", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, variables: { userName: session.user.name } }),
-        next: { revalidate: 30 },
-      });
-      data = await res.json();
-    }
+        let data = await res.json();
 
-    const lists = data?.data?.MediaListCollection?.lists || [];
+        // Fallback: If query by userId failed, try session.user.name
+        if ((!res.ok || data.errors || !data?.data?.MediaListCollection) && session?.user?.name && queryVariables.userName !== session.user.name) {
+          res = await fetch("https://graphql.anilist.co", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query, variables: { userName: session.user.name } }),
+            next: { revalidate: 30 },
+          });
+          data = await res.json();
+        }
+
+        return data?.data?.MediaListCollection?.lists ?? [];
+      },
+      300, // 5-minute KV cache
+    );
 
     const entries: Array<{
       animeId: string;

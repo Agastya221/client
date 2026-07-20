@@ -13,6 +13,7 @@
  */
 
 import { recordCounter } from "@/lib/observability";
+import { kvGet, kvSet } from "@/lib/cache/kv";
 
 type CacheEntry<T> = {
   data: T;
@@ -95,6 +96,8 @@ async function fetchAndMaybeStore<T>(
 
     const storedAt = Date.now();
     store.set(key, createEntry(data, storedAt, options.freshMs, options.expireMs));
+    // Also write to KV (fire-and-forget) with the full expire TTL in seconds
+    void kvSet(key, data, Math.floor(options.expireMs / 1000));
     recordCounter("cache.store", 1, { namespace, source: options.source });
     return data;
   })().finally(() => {
@@ -170,8 +173,18 @@ export async function cacheFetch<T>(
     }
   }
 
-  // No cache — fetch fresh
+  // No in-memory cache — try KV (distributed L2) before hitting origin
   recordCounter("cache.miss", 1, { namespace });
+
+  const kvHit = await kvGet<T>(key);
+  if (kvHit !== null && canStore(kvHit, shouldCache)) {
+    // Warm memory cache from KV hit
+    const storedAt = Date.now();
+    store.set(key, createEntry(kvHit, storedAt, freshMs, expireMs));
+    recordCounter("cache.hit", 1, { namespace, state: "kv" });
+    return kvHit;
+  }
+
   return fetchAndMaybeStore(key, namespace, fetcher, {
     freshMs,
     expireMs,
