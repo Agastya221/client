@@ -45,7 +45,7 @@ function AniList(options: OAuthUserConfig<{ id: number; name: { full: string }; 
     },
     clientId: options.clientId,
     clientSecret: options.clientSecret,
-    checks: ["state"],
+    checks: ["none"],
     style: {
       logo: "https://anilist.co/img/icons/android-chrome-512x512.png",
       bg: "#02A9FF",
@@ -56,6 +56,7 @@ function AniList(options: OAuthUserConfig<{ id: number; name: { full: string }; 
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: PrismaAdapter(prisma),
+  session: { strategy: "jwt" },
   providers: [
     AniList({
       clientId: process.env.ANILIST_CLIENT_ID!,
@@ -63,9 +64,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     }),
   ],
   callbacks: {
-    session({ session, user }) {
-      if (session.user) {
-        session.user.id = user.id;
+    jwt({ token, user }) {
+      if (user) {
+        token.id = user.id;
+      }
+      return token;
+    },
+    session({ session, token }) {
+      if (session.user && token) {
+        session.user.id = (token.id as string) || (token.sub as string);
       }
       return session;
     },

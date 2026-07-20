@@ -46,16 +46,12 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
 
   useEffect(() => {
     if (deck.length === 0) return;
-    const ids = [
-      deck[activeIndex]?.id,
-      deck[(activeIndex + 1) % deck.length]?.id,
-    ].filter((id): id is number => Boolean(id));
-
-    for (const id of ids) {
-      if (requestedLogoIdsRef.current.has(id)) continue;
+    for (const item of deck) {
+      const id = item.id;
+      if (!id || requestedLogoIdsRef.current.has(id)) continue;
       requestedLogoIdsRef.current.add(id);
       void fetch(`/api/anilist/title-logo?id=${id}`)
-        .then((response) => response.ok ? response.json() as Promise<{ logo?: string | null }> : null)
+        .then((response) => (response.ok ? (response.json() as Promise<{ logo?: string | null }>) : null))
         .then((payload) => {
           setTitleLogos((current) => ({ ...current, [id]: payload?.logo || null }));
         })
@@ -63,8 +59,7 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
           setTitleLogos((current) => ({ ...current, [id]: null }));
         });
     }
-
-  }, [activeIndex, deck]);
+  }, [deck]);
 
   // Touch swipe support for mobile
   const touchStartX = useRef<number | null>(null);
@@ -102,7 +97,7 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
   const studios = slide.studios.nodes.map((s) => s.name).join(", ");
   const accentColor = slide.coverImage.color || "#ff5500";
   const isAiring = slide.status === "RELEASING";
-  const titleLogo = titleLogos[slide.id] || null;
+  const titleLogoState = titleLogos[slide.id];
   const desktopBackdrop = getImageProps({
     src: slide.bannerImage || slide.coverImage.extraLarge,
     alt: title,
@@ -210,17 +205,28 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
               )}
             </div>
 
-            <div className="mb-4 flex h-32 max-w-[34rem] items-end">
-              {titleLogo ? (
+            <div className="mb-4 flex min-h-[3.5rem] max-h-36 max-w-[34rem] items-end justify-start">
+              {titleLogoState === undefined ? (
+                <div className="h-24 w-56 animate-pulse rounded-lg bg-white/5" />
+              ) : titleLogoState ? (
                 <img
-                  src={titleLogo}
+                  src={titleLogoState}
                   alt={title}
-                  className="max-h-32 max-w-full object-contain object-left-bottom drop-shadow-[0_8px_24px_rgba(0,0,0,0.85)]"
+                  className="max-h-32 max-w-full object-contain object-left-bottom drop-shadow-[0_8px_24px_rgba(0,0,0,0.85)] transition-opacity duration-300"
                   decoding="async"
                   onError={() => setTitleLogos((current) => ({ ...current, [slide.id]: null }))}
                 />
               ) : (
-                <h1 className="text-5xl xl:text-6xl font-black text-white leading-tight" style={{ textShadow: "0 2px 20px rgba(0,0,0,0.8)" }}>
+                <h1
+                  className={`${
+                    title.length > 50
+                      ? "text-2xl xl:text-3xl font-extrabold line-clamp-2"
+                      : title.length > 30
+                        ? "text-3xl xl:text-4xl font-black line-clamp-2"
+                        : "text-4xl xl:text-5xl font-black line-clamp-2"
+                  } text-white leading-tight tracking-tight`}
+                  style={{ textShadow: "0 4px 20px rgba(0,0,0,0.9)" }}
+                >
                   {title}
                 </h1>
               )}
@@ -356,12 +362,14 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
               )}
             </div>
 
-            <div className="mb-2 flex h-16 max-w-[55%] items-end">
-              {titleLogo ? (
+            <div className="mb-2 flex h-16 max-w-[60%] items-end justify-start">
+              {titleLogoState === undefined ? (
+                <div className="h-12 w-36 animate-pulse rounded-lg bg-white/5" />
+              ) : titleLogoState ? (
                 <img
-                  src={titleLogo}
+                  src={titleLogoState}
                   alt={title}
-                  className="max-h-16 max-w-full object-contain object-left-bottom drop-shadow-[0_5px_14px_rgba(0,0,0,0.85)]"
+                  className="max-h-16 max-w-full object-contain object-left-bottom drop-shadow-[0_5px_14px_rgba(0,0,0,0.85)] transition-opacity duration-300"
                   decoding="async"
                   onError={() => setTitleLogos((current) => ({ ...current, [slide.id]: null }))}
                 />
