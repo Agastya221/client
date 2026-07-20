@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Suspense } from "react";
 import { Plus_Jakarta_Sans, Outfit, Geist_Mono } from "next/font/google";
+import AuthSessionProvider from "@/components/ui/AuthSessionProvider";
 import WatchHistorySyncClient from "@/components/anime/WatchHistorySyncClient";
 import ScrollToTop from "@/components/ui/ScrollToTop";
 import NavigationPendingController from "@/components/ui/NavigationPendingController";
@@ -63,17 +64,19 @@ export default function RootLayout({
         className={`${plusJakartaSans.variable} ${outfit.variable} ${geistMono.variable} antialiased bg-surface text-on-surface`}
         suppressHydrationWarning
       >
-        <WatchHistorySyncClient />
-        <NavigationPendingController
-          rootLoader={<RootLoading />}
-          detailLoader={<AnimeDetailLoading />}
-          watchLoader={<WatchPageLoading />}
-        >
-          <Suspense fallback={null}>
-            <ScrollToTop />
-          </Suspense>
-          {children}
-        </NavigationPendingController>
+        <AuthSessionProvider>
+          <WatchHistorySyncClient />
+          <NavigationPendingController
+            rootLoader={<RootLoading />}
+            detailLoader={<AnimeDetailLoading />}
+            watchLoader={<WatchPageLoading />}
+          >
+            <Suspense fallback={null}>
+              <ScrollToTop />
+            </Suspense>
+            {children}
+          </NavigationPendingController>
+        </AuthSessionProvider>
       </body>
     </html>
   );

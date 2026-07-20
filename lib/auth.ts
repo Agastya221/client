@@ -20,7 +20,6 @@ function AniList(options: OAuthUserConfig<{ id: number; name: string; avatar: { 
     userinfo: {
       url: "https://graphql.anilist.co",
       async request({ tokens }: { tokens: { access_token?: string } }) {
-        console.log("[AniList Auth] Requesting user profile with access token:", tokens.access_token ? "PRESENT" : "MISSING");
         const res = await fetch("https://graphql.anilist.co", {
           method: "POST",
           headers: {
@@ -32,12 +31,10 @@ function AniList(options: OAuthUserConfig<{ id: number; name: string; avatar: { 
           }),
         });
         const json = await res.json();
-        console.log("[AniList Auth] GraphQL Viewer data received:", JSON.stringify(json));
         return json.data?.Viewer ?? {};
       },
     },
     profile(profile) {
-      console.log("[AniList Auth] Mapping profile for AniList ID:", profile?.id, profile?.name);
       return {
         id: String(profile.id),
         name: profile.name || `AniList User`,
@@ -62,8 +59,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   session: { strategy: "jwt" },
   providers: [
     AniList({
-      clientId: process.env.ANILIST_CLIENT_ID || "46437",
-      clientSecret: process.env.ANILIST_CLIENT_SECRET || "BMczD5IzdYPLn3o4WSQKXnhGNVjlbJ7LBedTylcy",
+      clientId: process.env.ANILIST_CLIENT_ID,
+      clientSecret: process.env.ANILIST_CLIENT_SECRET,
     }),
   ],
   callbacks: {

@@ -164,6 +164,7 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
           <img
             {...desktopBackdrop}
             alt={title}
+            fetchPriority="high"
             className="object-cover object-top lg:object-center"
           />
         </picture>

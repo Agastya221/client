@@ -1,5 +1,7 @@
+import { auth } from "@/lib/auth";
 import NavbarClient from "@/components/ui/NavbarClient";
 
-export default function Navbar() {
-  return <NavbarClient user={null} />;
+export default async function Navbar() {
+  const session = await auth();
+  return <NavbarClient user={session?.user ?? null} />;
 }

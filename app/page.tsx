@@ -19,6 +19,10 @@ import Link from "next/link";
 import Image from "next/image";
 import { CalendarDays, ChevronDown, ChevronRight, Flame, Megaphone, Radio, Star, TrendingUp, Zap } from "lucide-react";
 
+// Cache home page for 5 minutes — serves from ISR on repeat visits instead of 4 fresh AniList API calls
+export const revalidate = 300;
+
+
 // Section header component
 function SectionHeader({
   title,

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Bookmark, Trash2, ChevronRight, RefreshCw, CheckCircle2, Play } from "lucide-react";
+import { Bookmark, Trash2, ChevronRight, RefreshCw, CheckCircle2, Play, LogIn, Zap } from "lucide-react";
 import {
   clearBookmarks,
   ensureBookmarksHydrated,
@@ -208,6 +208,32 @@ export default function MyListClient({ user }: MyListClientProps) {
           </div>
         )}
       </div>
+
+      {/* Premium sign-in CTA for guests — shows above filter bar */}
+      {!sessionUser && (
+        <div className="relative mb-8 overflow-hidden rounded-2xl border border-[#02A9FF]/20 bg-gradient-to-br from-[#02A9FF]/8 via-[#111215] to-[#0a0b0c] p-6">
+          {/* Glow */}
+          <div className="pointer-events-none absolute -top-10 left-1/2 -translate-x-1/2 h-32 w-64 rounded-full bg-[#02A9FF]/10 blur-3xl" />
+          <div className="relative flex flex-col sm:flex-row items-start sm:items-center gap-5">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#02A9FF]/15 border border-[#02A9FF]/20">
+              <Zap className="h-6 w-6 text-[#02A9FF]" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-base font-black text-white mb-1">Sync with AniList for the full experience</p>
+              <p className="text-sm text-white/50 leading-relaxed">
+                Sign in to sync your complete AniList watchlist — all your WATCHING, COMPLETED, and PLAN_TO_WATCH entries appear here automatically.
+              </p>
+            </div>
+            <Link
+              href="/auth/signin?callbackUrl=/my-list"
+              className="shrink-0 flex items-center gap-2 rounded-full bg-[#02A9FF] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#02A9FF]/90 transition-all active:scale-95"
+            >
+              <LogIn className="h-4 w-4" />
+              Sign In with AniList
+            </Link>
+          </div>
+        </div>
+      )}
 
       {/* Filter Bar: Status Tabs & Source Filter */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">

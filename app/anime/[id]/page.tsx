@@ -14,6 +14,7 @@ import {
 
 import { Play, Star, Calendar, Tv, Users, BookOpen, ChevronRight } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import AddToListButton from "@/components/anime/AddToListButton";
@@ -73,6 +74,7 @@ function CharacterCard({ char }: { char: { name: { full: string }; image: { medi
       <img
         src={char.image.medium}
         alt={char.name.full}
+        loading="lazy"
         className="w-10 h-10 rounded-full object-cover shrink-0"
       />
       <span className="text-sm font-semibold text-white/80 line-clamp-1">{char.name.full}</span>
@@ -129,7 +131,15 @@ async function AnilistDetailContent({
         {/* Banner bg */}
         {media.bannerImage && (
           <div className="absolute inset-0 z-0">
-            <img src={media.bannerImage} alt={title} className="w-full h-full object-cover opacity-30" />
+            <Image
+              src={media.bannerImage}
+              alt={title}
+              fill
+              priority
+              quality={75}
+              className="object-cover opacity-30"
+              sizes="100vw"
+            />
             <div className="absolute inset-0 bg-gradient-to-b from-[#0a0b0c]/60 via-[#0a0b0c]/80 to-[#0a0b0c]" />
             <div className="absolute inset-0 bg-gradient-to-r from-[#0a0b0c] via-transparent to-transparent" />
           </div>
@@ -150,11 +160,14 @@ async function AnilistDetailContent({
                   className="absolute -inset-3 rounded-2xl blur-2xl opacity-30"
                   style={{ backgroundColor: accentColor }}
                 />
-                <img
+                <Image
                   src={media.coverImage.extraLarge}
                   alt={title}
-                  className="relative w-full rounded-2xl shadow-2xl border border-white/10"
-                  style={{ aspectRatio: "2/3", objectFit: "cover" }}
+                  width={280}
+                  height={420}
+                  priority
+                  quality={80}
+                  className="relative w-full rounded-2xl shadow-2xl border border-white/10 object-cover"
                 />
               </div>
             </div>

@@ -34,6 +34,8 @@ yarn-error.log*
 .env*
 
 # vercel
+
+# vercel
 .vercel
 .agents
 # typescript
@@ -41,3 +43,19 @@ yarn-error.log*
 next-env.d.ts
 
 /lib/generated/prisma
+
+# local dev database
+dev.db
+dev.db-journal
+*.db
+
+# scratch / debug scripts in root
+scratch_*.ts
+scratch_*.js
+
+# large data exports & temp HTML in root
+EpisodeStream.json
+*.html
+
+# node version manager
+.nvmrc

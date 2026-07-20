@@ -1,6 +1,11 @@
 import Link from "next/link";
+import { auth } from "@/lib/auth";
+import FooterSignInLink from "@/components/ui/FooterSignInLink";
 
-export default function SiteFooter() {
+export default async function SiteFooter() {
+  const session = await auth();
+  const isSignedIn = !!session?.user;
+
   return (
     <footer className="border-t border-white/5 bg-[#080809] px-4 lg:px-12 xl:px-16 py-12">
       <div className="mx-auto max-w-7xl">
@@ -44,7 +49,11 @@ export default function SiteFooter() {
               <div className="flex flex-col gap-2">
                 <Link href="/my-list" className="text-sm text-white/50 hover:text-white transition-colors">My List</Link>
                 <Link href="/history" className="text-sm text-white/50 hover:text-white transition-colors">Watch History</Link>
-                <Link href="/auth/signin" className="text-sm text-white/50 hover:text-white transition-colors">Sign In</Link>
+                {isSignedIn ? (
+                  <Link href="/auth/signout" className="text-sm text-white/50 hover:text-white transition-colors">Sign Out</Link>
+                ) : (
+                  <FooterSignInLink />
+                )}
               </div>
             </div>
           </div>
@@ -67,3 +76,4 @@ export default function SiteFooter() {
     </footer>
   );
 }
+
