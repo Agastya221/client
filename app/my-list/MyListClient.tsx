@@ -73,13 +73,19 @@ export default function MyListPage() {
 
   // Fetch AniList MediaList Collection when user is signed in
   useEffect(() => {
-    const userId = session?.user?.id;
-    if (!userId) return;
+    if (!session?.user) return;
+
+    const userName = session.user.name || "";
+    const userId = session.user.id || "";
 
     let isMounted = true;
     setIsFetchingAnilist(true);
 
-    fetch(`/api/anilist/user-list?userId=${userId}`)
+    const queryParams = new URLSearchParams();
+    if (userName) queryParams.set("userName", userName);
+    if (userId) queryParams.set("userId", userId);
+
+    fetch(`/api/anilist/user-list?${queryParams.toString()}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (isMounted && data?.entries) {
@@ -94,7 +100,7 @@ export default function MyListPage() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id]);
+  }, [session?.user?.id, session?.user?.name]);
 
   const removeBookmark = (animeId: string) => {
     removeStoredBookmark(animeId);

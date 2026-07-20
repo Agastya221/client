@@ -17,6 +17,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import AddToListButton from "@/components/anime/AddToListButton";
+import AniListStatusModal from "@/components/anime/AniListStatusModal";
 import StreamPrefetch from "@/components/anime/StreamPrefetch";
 import WatchIntentLink from "@/components/anime/WatchIntentLink";
 import ExpandableSynopsis from "@/components/anime/ExpandableSynopsis";
@@ -233,6 +234,12 @@ async function AnilistDetailContent({
                   title={title}
                   poster={media.coverImage.extraLarge || media.coverImage.large}
                   href={selfHref}
+                />
+                <AniListStatusModal
+                  animeId={`anilist~${anilistId}`}
+                  title={title}
+                  poster={media.coverImage.extraLarge || media.coverImage.large}
+                  totalEpisodes={media.episodes}
                 />
               </div>
 

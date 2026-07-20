@@ -4,20 +4,24 @@ import { auth } from "@/lib/auth";
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    let userId = searchParams.get("userId");
+    let userIdParam = searchParams.get("userId") || searchParams.get("id");
+    let userNameParam = searchParams.get("userName") || searchParams.get("username") || searchParams.get("name");
 
-    if (!userId) {
-      const session = await auth();
-      userId = session?.user?.id || null;
+    const session = await auth();
+
+    // If no params, use NextAuth session
+    if (!userIdParam && !userNameParam) {
+      if (session?.user) {
+        userNameParam = session.user.name || null;
+        userIdParam = session.user.id || null;
+      }
     }
 
-    if (!userId) {
-      return NextResponse.json({ error: "Unauthorized / Missing User ID" }, { status: 401 });
-    }
-
-    const query = `
-      query ($userId: Int) {
-        MediaListCollection(userId: $userId, type: ANIME) {
+    // Determine query variables
+    let queryVariables: Record<string, any> | null = null;
+    let query = `
+      query ($userId: Int, $userName: String) {
+        MediaListCollection(userId: $userId, userName: $userName, type: ANIME) {
           lists {
             name
             status
@@ -53,19 +57,47 @@ export async function GET(request: Request) {
       }
     `;
 
-    const res = await fetch("https://graphql.anilist.co", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query, variables: { userId: Number(userId) } }),
-      next: { revalidate: 60 },
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      return NextResponse.json({ error: "Failed to fetch AniList collection", details: errText }, { status: res.status });
+    // Try userName first if available (e.g., "agastya221")
+    if (userNameParam && typeof userNameParam === "string" && userNameParam.trim().length > 0) {
+      queryVariables = { userName: userNameParam.trim() };
+    } else if (userIdParam) {
+      const cleanId = String(userIdParam).trim();
+      if (/^\d+$/.test(cleanId)) {
+        queryVariables = { userId: Number(cleanId) };
+      } else {
+        // If userId is non-numeric string (e.g. username passed as ID), treatment as userName
+        queryVariables = { userName: cleanId };
+      }
     }
 
-    const data = await res.json();
+    if (!queryVariables && session?.user?.name) {
+      queryVariables = { userName: session.user.name };
+    }
+
+    if (!queryVariables) {
+      return NextResponse.json({ error: "Unauthorized / Missing User Identifier" }, { status: 401 });
+    }
+
+    let res = await fetch("https://graphql.anilist.co", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, variables: queryVariables }),
+      next: { revalidate: 30 },
+    });
+
+    let data = await res.json();
+
+    // Fallback: If query by userId failed, try session.user.name
+    if ((!res.ok || data.errors || !data?.data?.MediaListCollection) && session?.user?.name && queryVariables.userName !== session.user.name) {
+      res = await fetch("https://graphql.anilist.co", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, variables: { userName: session.user.name } }),
+        next: { revalidate: 30 },
+      });
+      data = await res.json();
+    }
+
     const lists = data?.data?.MediaListCollection?.lists || [];
 
     const entries: Array<{
@@ -128,7 +160,7 @@ export async function GET(request: Request) {
       }
     }
 
-    return NextResponse.json({ entries, total: entries.length });
+    return NextResponse.json({ entries, total: entries.length, queriedWith: queryVariables });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || "Internal Server Error" }, { status: 500 });
   }

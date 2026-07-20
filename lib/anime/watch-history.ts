@@ -136,6 +136,20 @@ function queueEpisodeUpsert(animeId: string, episodeNumber: number): void {
     provider: entry.provider,
     timestamp: normalizeEpisodeProgress(episode).timestamp || entry.lastUpdated,
   });
+
+  // Sync episode progress to AniList if signed in
+  if (typeof window !== "undefined") {
+    fetch("/api/anilist/save-entry", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        animeId,
+        progress: episodeNumber,
+        status: "CURRENT",
+      }),
+    }).catch(() => undefined);
+  }
+
   queueRemoteFlush();
 }
 

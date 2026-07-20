@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSession } from "next-auth/react";
 import { Bookmark, BookmarkCheck, Loader2 } from "lucide-react";
 import {
   ensureBookmarksHydrated,
@@ -19,6 +20,7 @@ interface AddToListButtonProps {
 }
 
 export default function AddToListButton({ animeId, title, poster, href, variant = "default" }: AddToListButtonProps) {
+  const { data: session } = useSession();
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [loading, setLoading] = useState(false);
   const [checked, setChecked] = useState(false);
@@ -43,6 +45,13 @@ export default function AddToListButton({ animeId, title, poster, href, variant 
       if (isBookmarked) {
         removeBookmark(animeId);
         setIsBookmarked(false);
+
+        // Sync deletion with AniList if signed in
+        if (session?.user) {
+          fetch(`/api/anilist/save-entry?animeId=${encodeURIComponent(animeId)}`, {
+            method: "DELETE",
+          }).catch((err) => console.error("[AddToListButton] AniList delete error:", err));
+        }
       } else {
         saveBookmark({
           animeId,
@@ -52,6 +61,18 @@ export default function AddToListButton({ animeId, title, poster, href, variant 
           status: "PLAN_TO_WATCH",
         });
         setIsBookmarked(true);
+
+        // Sync addition with AniList if signed in
+        if (session?.user) {
+          fetch("/api/anilist/save-entry", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              animeId,
+              status: "PLAN_TO_WATCH",
+            }),
+          }).catch((err) => console.error("[AddToListButton] AniList save error:", err));
+        }
       }
     } finally {
       setLoading(false);
