@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Bookmark, Trash2, ChevronRight } from "lucide-react";
+import { useSession } from "next-auth/react";
+import { Bookmark, Trash2, ChevronRight, RefreshCw, CheckCircle2 } from "lucide-react";
 import {
   clearBookmarks,
   ensureBookmarksHydrated,
@@ -12,7 +13,33 @@ import {
   type BookmarkEntry,
 } from "@/lib/anime/bookmarks";
 
-type BookmarkItem = BookmarkEntry;
+interface AniListEntry {
+  animeId: string;
+  rawId: number;
+  title: string;
+  poster: string | null;
+  banner: string | null;
+  href: string;
+  status: string;
+  progress: number;
+  episodes: number | null;
+  score: number;
+  format: string | null;
+  genres: string[];
+  updatedAt: number;
+}
+
+type UnifiedListItem = {
+  animeId: string;
+  title: string;
+  poster: string | null;
+  href: string;
+  status: string;
+  progress?: number;
+  episodes?: number | null;
+  score?: number;
+  source: "ANILIST" | "LOCAL";
+};
 
 const STATUS_TABS = [
   { key: "ALL", label: "All" },
@@ -24,13 +51,17 @@ const STATUS_TABS = [
 ] as const;
 
 export default function MyListPage() {
-  const [bookmarks, setBookmarks] = useState<BookmarkItem[]>([]);
+  const { data: session } = useSession();
+  const [localBookmarks, setLocalBookmarks] = useState<BookmarkEntry[]>([]);
+  const [anilistEntries, setAnilistEntries] = useState<AniListEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isFetchingAnilist, setIsFetchingAnilist] = useState(false);
   const [activeTab, setActiveTab] = useState("ALL");
+  const [sourceFilter, setSourceFilter] = useState<"ALL" | "ANILIST" | "LOCAL">("ALL");
 
   useEffect(() => {
     const syncBookmarks = () => {
-      setBookmarks(getBookmarks());
+      setLocalBookmarks(getBookmarks());
       setLoading(false);
     };
 
@@ -40,19 +71,85 @@ export default function MyListPage() {
     return subscribeToBookmarks(syncBookmarks);
   }, []);
 
+  // Fetch AniList MediaList Collection when user is signed in
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) return;
+
+    let isMounted = true;
+    setIsFetchingAnilist(true);
+
+    fetch(`/api/anilist/user-list?userId=${userId}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (isMounted && data?.entries) {
+          setAnilistEntries(data.entries);
+        }
+      })
+      .catch((err) => console.error("[MyList] Failed to fetch AniList collection:", err))
+      .finally(() => {
+        if (isMounted) setIsFetchingAnilist(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [session?.user?.id]);
+
   const removeBookmark = (animeId: string) => {
     removeStoredBookmark(animeId);
-    setBookmarks((prev) => prev.filter((b) => b.animeId !== animeId));
+    setLocalBookmarks((prev) => prev.filter((b) => b.animeId !== animeId));
   };
 
+  // Combine AniList & Local Bookmarks cleanly (avoiding duplicates)
+  const combinedList: UnifiedListItem[] = [];
+  const seenIds = new Set<string>();
+
+  // Add AniList entries first
+  for (const entry of anilistEntries) {
+    seenIds.add(entry.animeId);
+    combinedList.push({
+      animeId: entry.animeId,
+      title: entry.title,
+      poster: entry.poster,
+      href: entry.href,
+      status: entry.status,
+      progress: entry.progress,
+      episodes: entry.episodes,
+      score: entry.score,
+      source: "ANILIST",
+    });
+  }
+
+  // Add Local Bookmarks if not already in AniList
+  for (const local of localBookmarks) {
+    if (!seenIds.has(local.animeId)) {
+      seenIds.add(local.animeId);
+      combinedList.push({
+        animeId: local.animeId,
+        title: local.title,
+        poster: local.poster,
+        href: local.href,
+        status: local.status,
+        source: "LOCAL",
+      });
+    }
+  }
+
+  // Apply Source filter
+  const sourceFiltered = sourceFilter === "ALL"
+    ? combinedList
+    : combinedList.filter((item) => item.source === sourceFilter);
+
+  // Apply Status filter
   const filtered = activeTab === "ALL"
-    ? bookmarks
-    : bookmarks.filter((b) => b.status === activeTab);
+    ? sourceFiltered
+    : sourceFiltered.filter((item) => item.status === activeTab);
 
   return (
-    <>
-      <section className="pt-24 pb-16 px-4 lg:px-12 xl:px-16">
-        <div className="mb-10">
+    <section className="pt-24 pb-16 px-4 lg:px-12 xl:px-16 min-h-[85vh]">
+      <div className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-6">
+        <div>
           <div className="flex items-center gap-3 mb-3">
             <div className="w-9 h-9 rounded-xl bg-amber-500/15 flex items-center justify-center">
               <Bookmark className="w-4.5 h-4.5 text-amber-400" aria-hidden="true" />
@@ -60,13 +157,47 @@ export default function MyListPage() {
             <p className="text-[10px] font-black uppercase tracking-widest text-amber-400">My Collection</p>
           </div>
           <h1 className="text-4xl font-black text-white mb-2">My List</h1>
-          <p className="text-white/40 text-sm">Your personal anime watchlist. Stored locally and synced when you sign in.</p>
+          <p className="text-white/50 text-sm max-w-xl">
+            {session?.user
+              ? `Synced with your AniList account (${session.user.name || "User"}).`
+              : "Your personal anime watchlist. Sign in with AniList to sync your watch history & progress automatically."}
+          </p>
         </div>
 
-        {/* Status tabs */}
-        <div className="flex gap-2 mb-8 overflow-x-auto pb-2 scrollbar-none">
+        {/* AniList Sync Status Badge */}
+        {session?.user ? (
+          <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl px-4 py-2.5 backdrop-blur-md">
+            <img src="https://anilist.co/img/icons/android-chrome-512x512.png" alt="AniList" className="w-6 h-6 rounded-lg" />
+            <div>
+              <div className="flex items-center gap-1.5 text-xs font-bold text-white">
+                <span>{session.user.name || "AniList User"}</span>
+                <CheckCircle2 className="w-3.5 h-3.5 text-sky-400 fill-sky-400/20" />
+              </div>
+              <p className="text-[10px] text-sky-400/80 font-medium">
+                {isFetchingAnilist ? "Syncing collection..." : `${anilistEntries.length} items synced`}
+              </p>
+            </div>
+            {isFetchingAnilist && <RefreshCw className="w-4 h-4 text-sky-400 animate-spin ml-2" />}
+          </div>
+        ) : (
+          <Link
+            href="/auth/signin"
+            className="inline-flex items-center gap-2 bg-[#02A9FF]/15 border border-[#02A9FF]/30 text-[#02A9FF] hover:bg-[#02A9FF]/25 font-bold text-xs px-4 py-2.5 rounded-2xl transition-all"
+          >
+            <img src="https://anilist.co/img/icons/android-chrome-512x512.png" alt="" className="w-4 h-4" />
+            Sign in with AniList to Sync
+          </Link>
+        )}
+      </div>
+
+      {/* Filter Bar: Status Tabs & Source Filter */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        {/* Status Tabs */}
+        <div className="flex gap-2 overflow-x-auto pb-2 sm:pb-0 scrollbar-none">
           {STATUS_TABS.map((tab) => {
-            const count = tab.key === "ALL" ? bookmarks.length : bookmarks.filter((b) => b.status === tab.key).length;
+            const count = tab.key === "ALL"
+              ? sourceFiltered.length
+              : sourceFiltered.filter((item) => item.status === tab.key).length;
             return (
               <button
                 key={tab.key}
@@ -85,77 +216,126 @@ export default function MyListPage() {
           })}
         </div>
 
-        {loading ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-4 gap-y-8">
-            {Array.from({ length: 12 }).map((_, i) => (
-              <div key={i} className="animate-pulse">
-                <div className="aspect-[2/3] rounded-xl bg-white/5" />
-                <div className="mt-2 h-4 rounded bg-white/5" />
-              </div>
-            ))}
+        {/* Source Toggle if AniList & Local both present */}
+        {anilistEntries.length > 0 && localBookmarks.length > 0 && (
+          <div className="flex items-center gap-1 bg-white/5 border border-white/10 p-1 rounded-full text-xs font-bold shrink-0 self-start sm:self-auto">
+            <button
+              onClick={() => setSourceFilter("ALL")}
+              className={`px-3 py-1 rounded-full transition-all ${sourceFilter === "ALL" ? "bg-white/15 text-white" : "text-white/40 hover:text-white/70"}`}
+            >
+              All ({combinedList.length})
+            </button>
+            <button
+              onClick={() => setSourceFilter("ANILIST")}
+              className={`px-3 py-1 rounded-full transition-all flex items-center gap-1.5 ${sourceFilter === "ANILIST" ? "bg-[#02A9FF]/20 text-[#02A9FF]" : "text-white/40 hover:text-white/70"}`}
+            >
+              AniList ({anilistEntries.length})
+            </button>
+            <button
+              onClick={() => setSourceFilter("LOCAL")}
+              className={`px-3 py-1 rounded-full transition-all ${sourceFilter === "LOCAL" ? "bg-amber-500/20 text-amber-400" : "text-white/40 hover:text-white/70"}`}
+            >
+              Local ({localBookmarks.length})
+            </button>
           </div>
-        ) : filtered.length === 0 ? (
-          <div className="text-center py-24">
-            <p className="text-6xl mb-4" aria-hidden="true">📚</p>
-            <p className="text-white/50 text-lg font-semibold">
-              {activeTab === "ALL" ? "Your list is empty" : `No anime with status "${STATUS_TABS.find((t) => t.key === activeTab)?.label}"`}
-            </p>
-            <p className="text-white/25 text-sm mt-2">Bookmark anime from their detail pages to add them here.</p>
-            <Link href="/search" className="mt-6 inline-flex items-center gap-2 text-[#ff5500] text-sm font-bold hover:underline">
-              Browse anime <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" />
-            </Link>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-4 gap-y-8">
-            {filtered.map((bm) => (
-              <div key={bm.animeId} className="group relative">
-                <Link href={bm.href}>
-                  <div className="relative aspect-[2/3] rounded-xl overflow-hidden bg-white/5 border border-white/5 group-hover:border-white/15 transition-all">
-                    {bm.poster ? (
-                      <img src={bm.poster} alt="" aria-hidden="true" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-white/20 text-xs">No Image</div>
-                    )}
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                    {/* Status badge */}
-                    <div className="absolute top-2 left-2">
-                      <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-black/60 text-white/80 backdrop-blur-sm">
-                        {bm.status.replace(/_/g, " ")}
+        )}
+      </div>
+
+      {loading || isFetchingAnilist ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-4 gap-y-8">
+          {Array.from({ length: 12 }).map((_, i) => (
+            <div key={i} className="animate-pulse">
+              <div className="aspect-[2/3] rounded-xl bg-white/5" />
+              <div className="mt-2 h-4 rounded bg-white/5" />
+            </div>
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-24">
+          <p className="text-6xl mb-4" aria-hidden="true">📚</p>
+          <p className="text-white/50 text-lg font-semibold">
+            {activeTab === "ALL" ? "Your list is empty" : `No anime with status "${STATUS_TABS.find((t) => t.key === activeTab)?.label}"`}
+          </p>
+          <p className="text-white/25 text-sm mt-2">
+            {session?.user
+              ? "Add anime to your AniList watchlist or bookmark them on AnimePlay."
+              : "Bookmark anime from detail pages or sign in with AniList to sync your account."}
+          </p>
+          <Link href="/search" className="mt-6 inline-flex items-center gap-2 text-[#ff5500] text-sm font-bold hover:underline">
+            Browse anime <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" />
+          </Link>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-4 gap-y-8">
+          {filtered.map((item) => (
+            <div key={item.animeId} className="group relative">
+              <Link href={item.href}>
+                <div className="relative aspect-[2/3] rounded-xl overflow-hidden bg-white/5 border border-white/5 group-hover:border-white/15 transition-all">
+                  {item.poster ? (
+                    <img src={item.poster} alt={item.title} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-white/20 text-xs">No Image</div>
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+
+                  {/* Status badge */}
+                  <div className="absolute top-2 left-2 flex items-center gap-1.5">
+                    <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-black/70 text-white/90 backdrop-blur-md border border-white/10">
+                      {item.status.replace(/_/g, " ")}
+                    </span>
+                  </div>
+
+                  {/* AniList sync indicator */}
+                  {item.source === "ANILIST" && (
+                    <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-[#02A9FF]/80 backdrop-blur-md flex items-center justify-center shadow-lg">
+                      <img src="https://anilist.co/img/icons/android-chrome-512x512.png" alt="" className="w-3.5 h-3.5" />
+                    </div>
+                  )}
+
+                  {/* Progress overlay badge */}
+                  {item.progress !== undefined && item.progress > 0 && (
+                    <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between text-[10px] font-extrabold text-white px-2.5 py-1 rounded-lg bg-black/75 backdrop-blur-md border border-white/10">
+                      <span className="text-amber-400">Progress</span>
+                      <span>
+                        {item.progress} {item.episodes ? `/ ${item.episodes}` : "eps"}
                       </span>
                     </div>
-                  </div>
-                  <p className="mt-2 text-sm font-semibold text-white/80 group-hover:text-white line-clamp-2 transition-colors">{bm.title}</p>
-                </Link>
-                {/* Delete button */}
+                  )}
+                </div>
+                <p className="mt-2 text-sm font-semibold text-white/80 group-hover:text-white line-clamp-2 transition-colors">{item.title}</p>
+              </Link>
+
+              {/* Remove button for Local bookmarks */}
+              {item.source === "LOCAL" && (
                 <button
                   type="button"
-                  onClick={() => removeBookmark(bm.animeId)}
-                  aria-label={`Remove ${bm.title} from list`}
+                  onClick={() => removeBookmark(item.animeId)}
+                  aria-label={`Remove ${item.title} from list`}
                   className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-red-500/80 transition-all"
                 >
                   <Trash2 className="w-3 h-3 text-white" aria-hidden="true" />
                 </button>
-              </div>
-            ))}
-          </div>
-        )}
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
-        {bookmarks.length > 0 && (
-          <div className="mt-10 flex justify-end">
-            <button
-              type="button"
-              onClick={() => {
-                clearBookmarks();
-                setBookmarks([]);
-              }}
-              className="inline-flex items-center gap-2 rounded-full border border-red-500/20 bg-red-500/10 px-4 py-2 text-xs font-bold text-red-400 hover:bg-red-500/20 transition-colors"
-            >
-              <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-              Clear List
-            </button>
-          </div>
-        )}
-      </section>
-    </>
+      {localBookmarks.length > 0 && (
+        <div className="mt-12 flex justify-end">
+          <button
+            type="button"
+            onClick={() => {
+              clearBookmarks();
+              setLocalBookmarks([]);
+            }}
+            className="inline-flex items-center gap-2 rounded-full border border-red-500/20 bg-red-500/10 px-4 py-2 text-xs font-bold text-red-400 hover:bg-red-500/20 transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+            Clear Local Bookmarks
+          </button>
+        </div>
+      )}
+    </section>
   );
 }
