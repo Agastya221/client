@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useSession } from "next-auth/react";
 import { Bookmark, Trash2, ChevronRight, RefreshCw, CheckCircle2 } from "lucide-react";
 import {
   clearBookmarks,
@@ -50,14 +49,31 @@ const STATUS_TABS = [
   { key: "DROPPED", label: "Dropped" },
 ] as const;
 
-export default function MyListPage() {
-  const session = useSession()?.data;
+type SessionUser = { name?: string | null; email?: string | null; image?: string | null; id?: string };
+
+interface MyListClientProps {
+  user: SessionUser | null;
+}
+
+export default function MyListClient({ user }: MyListClientProps) {
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(user);
   const [localBookmarks, setLocalBookmarks] = useState<BookmarkEntry[]>([]);
   const [anilistEntries, setAnilistEntries] = useState<AniListEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [isFetchingAnilist, setIsFetchingAnilist] = useState(false);
   const [activeTab, setActiveTab] = useState("ALL");
   const [sourceFilter, setSourceFilter] = useState<"ALL" | "ANILIST" | "LOCAL">("ALL");
+
+  useEffect(() => {
+    if (user) {
+      setSessionUser(user);
+    } else {
+      fetch("/api/auth/session", { credentials: "same-origin" })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => setSessionUser(data?.user ?? null))
+        .catch(() => setSessionUser(null));
+    }
+  }, [user]);
 
   useEffect(() => {
     const syncBookmarks = () => {
@@ -73,17 +89,17 @@ export default function MyListPage() {
 
   // Fetch AniList MediaList Collection when user is signed in
   useEffect(() => {
-    if (!session?.user) return;
+    if (!sessionUser) return;
 
-    const userName = session.user.name || "";
-    const userId = session.user.id || "";
+    const userName = sessionUser.name || "";
+    const userId = (sessionUser as any).id || "";
 
     let isMounted = true;
     setIsFetchingAnilist(true);
 
     const queryParams = new URLSearchParams();
     if (userName) queryParams.set("userName", userName);
-    if (userId) queryParams.set("userId", userId);
+    if (userId) queryParams.set("userId", String(userId));
 
     fetch(`/api/anilist/user-list?${queryParams.toString()}`)
       .then((res) => (res.ok ? res.json() : null))
@@ -100,7 +116,7 @@ export default function MyListPage() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id, session?.user?.name]);
+  }, [sessionUser?.id, sessionUser?.name]);
 
   const removeBookmark = (animeId: string) => {
     removeStoredBookmark(animeId);
@@ -164,19 +180,19 @@ export default function MyListPage() {
           </div>
           <h1 className="text-4xl font-black text-white mb-2">My List</h1>
           <p className="text-white/50 text-sm max-w-xl">
-            {session?.user
-              ? `Synced with your AniList account (${session.user.name || "User"}).`
-              : "Your personal anime watchlist. Sign in with AniList to sync your watch history & progress automatically."}
+            {sessionUser
+              ? `Synced with your AniList account (${sessionUser.name || "User"}).`
+              : "Your personal anime watchlist."}
           </p>
         </div>
 
         {/* AniList Sync Status Badge */}
-        {session?.user ? (
+        {sessionUser && (
           <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl px-4 py-2.5 backdrop-blur-md">
             <img src="https://anilist.co/img/icons/android-chrome-512x512.png" alt="AniList" className="w-6 h-6 rounded-lg" />
             <div>
               <div className="flex items-center gap-1.5 text-xs font-bold text-white">
-                <span>{session.user.name || "AniList User"}</span>
+                <span>{sessionUser.name || "AniList User"}</span>
                 <CheckCircle2 className="w-3.5 h-3.5 text-sky-400 fill-sky-400/20" />
               </div>
               <p className="text-[10px] text-sky-400/80 font-medium">
@@ -185,14 +201,6 @@ export default function MyListPage() {
             </div>
             {isFetchingAnilist && <RefreshCw className="w-4 h-4 text-sky-400 animate-spin ml-2" />}
           </div>
-        ) : (
-          <Link
-            href="/auth/signin"
-            className="inline-flex items-center gap-2 bg-[#02A9FF]/15 border border-[#02A9FF]/30 text-[#02A9FF] hover:bg-[#02A9FF]/25 font-bold text-xs px-4 py-2.5 rounded-2xl transition-all"
-          >
-            <img src="https://anilist.co/img/icons/android-chrome-512x512.png" alt="" className="w-4 h-4" />
-            Sign in with AniList to Sync
-          </Link>
         )}
       </div>
 
@@ -263,9 +271,9 @@ export default function MyListPage() {
             {activeTab === "ALL" ? "Your list is empty" : `No anime with status "${STATUS_TABS.find((t) => t.key === activeTab)?.label}"`}
           </p>
           <p className="text-white/25 text-sm mt-2">
-            {session?.user
+            {sessionUser
               ? "Add anime to your AniList watchlist or bookmark them on AnimePlay."
-              : "Bookmark anime from detail pages or sign in with AniList to sync your account."}
+              : "Bookmark anime from detail pages to build your collection."}
           </p>
           <Link href="/search" className="mt-6 inline-flex items-center gap-2 text-[#ff5500] text-sm font-bold hover:underline">
             Browse anime <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" />
