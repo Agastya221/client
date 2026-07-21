@@ -247,11 +247,6 @@ async function AnilistDetailContent({
                   title={title}
                   poster={media.coverImage.extraLarge || media.coverImage.large}
                   href={selfHref}
-                />
-                <AniListStatusModal
-                  animeId={`anilist~${anilistId}`}
-                  title={title}
-                  poster={media.coverImage.extraLarge || media.coverImage.large}
                   totalEpisodes={media.episodes}
                   rawMediaId={anilistId}
                 />

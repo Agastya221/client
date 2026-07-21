@@ -2026,14 +2026,93 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     }
 
     const activeIndex = filteredEpisodes.findIndex((episode) => episode.number === displayedEpisodeNumber);
-    const nextRangeStart = Math.floor(Math.max(0, activeIndex) / EPISODE_PAGE_SIZE) * EPISODE_PAGE_SIZE;
-    setEpisodeRangeStart(nextRangeStart);
-  // Metadata hydration replaces the episode array after a range is selected.
-  // Do not follow that array identity here: doing so snapped the rail back to
-  // the currently-playing episode as soon as titles/artwork arrived. The range
-  // should only follow an actual episode change or a search-mode change.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [displayedEpisodeNumber, episodeQuery]);
+    if (activeIndex >= 0) {
+      const nextRangeStart = Math.floor(activeIndex / EPISODE_PAGE_SIZE) * EPISODE_PAGE_SIZE;
+      setEpisodeRangeStart(nextRangeStart);
+    }
+  }, [displayedEpisodeNumber, episodeQuery, filteredEpisodes.length]);
+
+  // Auto-scroll active episode into view (centered) within the active scroll container (desktop & mobile)
+  useEffect(() => {
+    const getVisibleActiveElement = (): HTMLElement | null => {
+      const elements = Array.from(document.querySelectorAll<HTMLElement>('[data-active-episode="true"]'));
+      for (const el of elements) {
+        const rect = el.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0 && el.offsetParent !== null) {
+          return el;
+        }
+      }
+      return elements[0] || null;
+    };
+
+    const findScrollContainer = (el: HTMLElement | null): HTMLElement | null => {
+      let parent = el?.parentElement;
+      while (parent && parent !== document.body) {
+        const style = window.getComputedStyle(parent);
+        const overflowY = style.overflowY;
+        const isScrollable =
+          (overflowY === "auto" || overflowY === "scroll" || parent.classList.contains("watch-sidebar-rail")) &&
+          parent.scrollHeight > parent.clientHeight;
+        if (isScrollable) return parent;
+        parent = parent.parentElement;
+      }
+      return null;
+    };
+
+    const scrollToActive = (instant = false) => {
+      const activeEl = getVisibleActiveElement();
+      if (!activeEl) return;
+
+      const container =
+        findScrollContainer(activeEl) ||
+        activeEl.closest<HTMLElement>(".watch-sidebar-rail") ||
+        activeEl.closest<HTMLElement>(".watch-episode-scroll");
+
+      if (container && container.scrollHeight > container.clientHeight) {
+        const containerRect = container.getBoundingClientRect();
+        const activeRect = activeEl.getBoundingClientRect();
+        const relativeTop = activeRect.top - containerRect.top + container.scrollTop;
+
+        // Center active episode card in scroll container
+        const targetScrollTop = Math.max(0, relativeTop - container.clientHeight / 2 + activeEl.clientHeight / 2);
+
+        if (instant) {
+          container.scrollTop = targetScrollTop;
+        } else {
+          container.scrollTo({ top: targetScrollTop, behavior: "smooth" });
+        }
+      } else {
+        activeEl.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    };
+
+    // 1. Fire immediately (instant scroll on first paint)
+    scrollToActive(true);
+
+    // 2. Multi-stage smooth scroll passes as images and metadata finish rendering
+    const timer1 = setTimeout(() => scrollToActive(false), 120);
+    const timer2 = setTimeout(() => scrollToActive(false), 350);
+    const timer3 = setTimeout(() => scrollToActive(false), 700);
+
+    // 3. Attach ResizeObserver to handle layout expansion (e.g. image loads)
+    let observer: ResizeObserver | null = null;
+    const activeEl = getVisibleActiveElement();
+    const container = activeEl ? (findScrollContainer(activeEl) || activeEl.closest<HTMLElement>(".watch-sidebar-rail")) : null;
+
+    if (container && typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(() => {
+        scrollToActive(false);
+      });
+      observer.observe(container);
+    }
+
+    return () => {
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+      clearTimeout(timer3);
+      if (observer) observer.disconnect();
+    };
+  }, [displayedEpisodeNumber, episodeRangeStart, episodeView, session.episodes.length]);
 
   const episodeRangeCount = Math.ceil(filteredEpisodes.length / EPISODE_PAGE_SIZE);
   const visibleEpisodes = episodeQuery.trim()

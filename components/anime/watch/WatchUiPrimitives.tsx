@@ -266,6 +266,7 @@ export function EpisodeNumberGrid({
               onMouseEnter={() => onHover?.(ep.number)}
               onFocus={() => onHover?.(ep.number)}
               aria-label={`${ep.title}${isWatched ? ", watched" : ""}`}
+              data-active-episode={isActive ? "true" : undefined}
               className={`
                 relative h-10 min-w-0 rounded-md text-xs font-bold transition-colors md:h-9
                 ${isActive
