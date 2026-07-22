@@ -1,12 +1,11 @@
 "use client";
 
-import { useSearchParams, useRouter } from "next/navigation";
-import { useState, useEffect, useCallback, useTransition } from "react";
+import { useSearchParams } from "next/navigation";
+import { useState, useEffect, useCallback } from "react";
 import AnilistCard from "@/components/anilist/AnilistCard";
 import { Search, SlidersHorizontal, ChevronRight } from "lucide-react";
 import type { AnilistMedia, AnilistPageInfo } from "@/lib/anilist/api";
 import type { CatalogAvailabilityHint } from "@/lib/anime/api";
-import { useNavigationPending } from "@/components/ui/NavigationPendingController";
 
 interface SearchData {
   media: AnilistMedia[];
@@ -30,18 +29,33 @@ function CardSkeleton() {
 
 export default function SearchClient({ genres }: SearchClientProps) {
   const searchParams = useSearchParams();
-  const router = useRouter();
-  const [, startTransition] = useTransition();
-  const { beginNavigation } = useNavigationPending();
 
-  const search = searchParams.get("q") || searchParams.get("search") || searchParams.get("keyword") || "";
-  const genre = searchParams.get("genre") || "";
-  const page = Number(searchParams.get("page")) || 1;
-  const sortParam = searchParams.get("sort") || "";
+  const initialSearch = searchParams.get("q") || searchParams.get("search") || searchParams.get("keyword") || "";
+  const initialGenre = searchParams.get("genre") || "";
+  const initialPage = Number(searchParams.get("page")) || 1;
+  const initialSort = searchParams.get("sort") || "";
+
+  const [search, setSearch] = useState(initialSearch);
+  const [genre, setGenre] = useState(initialGenre);
+  const [page, setPage] = useState(initialPage);
+  const [sortParam, setSortParam] = useState(initialSort);
 
   const [data, setData] = useState<SearchData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Sync state if browser Back / Forward buttons are used
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      setSearch(params.get("q") || params.get("search") || params.get("keyword") || "");
+      setGenre(params.get("genre") || "");
+      setPage(Number(params.get("page")) || 1);
+      setSortParam(params.get("sort") || "");
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
   const fetchResults = useCallback(async () => {
     setLoading(true);
@@ -69,6 +83,28 @@ export default function SearchClient({ genres }: SearchClientProps) {
     fetchResults();
   }, [fetchResults]);
 
+  const updateFilter = (overrides: { q?: string; genre?: string; sort?: string; page?: string }) => {
+    const newSearch = overrides.q !== undefined ? overrides.q : search;
+    const newGenre = overrides.genre !== undefined ? overrides.genre : genre;
+    const newSort = overrides.sort !== undefined ? overrides.sort : sortParam;
+    const newPage = overrides.page !== undefined ? (Number(overrides.page) || 1) : 1;
+
+    setSearch(newSearch);
+    setGenre(newGenre);
+    setSortParam(newSort);
+    setPage(newPage);
+
+    const base: Record<string, string> = {
+      ...(newSearch && { q: newSearch }),
+      ...(newGenre && { genre: newGenre }),
+      ...(newSort && { sort: newSort }),
+      ...(newPage > 1 && { page: String(newPage) }),
+    };
+    const qs = new URLSearchParams(base).toString();
+    const href = `/search${qs ? `?${qs}` : ""}`;
+    window.history.pushState(null, "", href);
+  };
+
   const heading = genre
     ? `${genre} Anime`
     : search
@@ -79,29 +115,11 @@ export default function SearchClient({ genres }: SearchClientProps) {
     ? "This Season"
     : "Browse Anime";
 
-  const buildHref = (overrides: Record<string, string>) => {
-    const base: Record<string, string> = {
-      ...(search && { q: search }),
-      ...(genre && { genre }),
-      ...(sortParam && { sort: sortParam }),
-    };
-    const merged: Record<string, string> = { ...base, ...overrides };
-    // Remove empty values
-    Object.keys(merged).forEach((k) => { if (!merged[k]) delete merged[k]; });
-    const qs = new URLSearchParams(merged).toString();
-    return `/search${qs ? `?${qs}` : ""}`;
-  };
-
-  const navigate = (href: string) => {
-    if (!beginNavigation(href)) return;
-    startTransition(() => router.push(href));
-  };
-
   const handleSearchSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = e.currentTarget;
     const value = (form.elements.namedItem("q") as HTMLInputElement)?.value || "";
-    navigate(buildHref({ q: value, page: "" }));
+    updateFilter({ q: value, page: "1" });
   };
 
   const pageInfo = data?.pageInfo ?? {
@@ -115,10 +133,13 @@ export default function SearchClient({ genres }: SearchClientProps) {
         <div className="mb-10">
           <p className="text-[10px] font-black uppercase tracking-widest text-[#ff5500] mb-2">Browse</p>
           <h1 className="text-4xl font-black text-white mb-2">{heading}</h1>
-          {!loading && data && data.pageInfo.total > 0 && (
-            <p className="text-white/40 text-sm">{data.pageInfo.total.toLocaleString()} results from AniList</p>
-          )}
-          {loading && <div className="h-4 w-40 rounded animate-pulse bg-white/5" />}
+          <div className="h-5 flex items-center">
+            {loading ? (
+              <div className="h-4 w-40 rounded animate-pulse bg-white/5" />
+            ) : data && data.pageInfo.total > 0 ? (
+              <p className="text-white/40 text-sm">{data.pageInfo.total.toLocaleString()} results from AniList</p>
+            ) : null}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-[260px_1fr] gap-8">
@@ -157,7 +178,7 @@ export default function SearchClient({ genres }: SearchClientProps) {
                   <label className="text-[10px] font-black uppercase tracking-widest text-white/40 block mb-3">Genre</label>
                   <div className="flex flex-col gap-1 max-h-[320px] overflow-y-auto hide-scrollbar">
                     <button
-                      onClick={() => navigate(buildHref({ genre: "", page: "" }))}
+                      onClick={() => updateFilter({ genre: "", page: "1" })}
                       className={`px-3 py-2 rounded-lg text-sm font-semibold transition-colors text-left ${
                         !genre ? "bg-[#ff5500]/20 text-[#ff5500] border border-[#ff5500]/30" : "text-white/50 hover:text-white hover:bg-white/5"
                       }`}
@@ -167,7 +188,7 @@ export default function SearchClient({ genres }: SearchClientProps) {
                     {genres.map((g) => (
                       <button
                         key={g}
-                        onClick={() => navigate(buildHref({ genre: g, page: "" }))}
+                        onClick={() => updateFilter({ genre: g, page: "1" })}
                         className={`px-3 py-2 rounded-lg text-sm font-semibold transition-colors text-left ${
                           genre === g
                             ? "bg-[#ff5500]/20 text-[#ff5500] border border-[#ff5500]/30"
@@ -191,7 +212,7 @@ export default function SearchClient({ genres }: SearchClientProps) {
                     ].map(({ label, value }) => (
                       <button
                         key={value}
-                        onClick={() => navigate(buildHref({ sort: value, page: "" }))}
+                        onClick={() => updateFilter({ sort: value, page: "1" })}
                         className={`px-3 py-2 rounded-lg text-sm font-semibold transition-colors text-left ${
                           sortParam === value
                             ? "bg-white/10 text-white border border-white/20"
@@ -240,7 +261,7 @@ export default function SearchClient({ genres }: SearchClientProps) {
                 <p className="text-white/40 text-lg font-semibold">No results found</p>
                 <p className="text-white/20 text-sm mt-2">Try a different search term or genre</p>
                 <button
-                  onClick={() => navigate("/search")}
+                  onClick={() => updateFilter({ q: "", genre: "", sort: "", page: "1" })}
                   className="mt-6 inline-flex items-center gap-2 text-[#ff5500] text-sm font-bold hover:underline"
                 >
                   Clear search <ChevronRight className="w-3.5 h-3.5" />
@@ -267,7 +288,7 @@ export default function SearchClient({ genres }: SearchClientProps) {
                   <div className="flex items-center justify-center gap-3 mt-12">
                     {page > 1 && (
                       <button
-                        onClick={() => navigate(buildHref({ page: String(page - 1) }))}
+                        onClick={() => updateFilter({ page: String(page - 1) })}
                         className="px-6 py-3 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-sm font-bold text-white/70 hover:text-white transition-all"
                       >
                         ← Previous
@@ -278,7 +299,7 @@ export default function SearchClient({ genres }: SearchClientProps) {
                     </span>
                     {pageInfo.hasNextPage && (
                       <button
-                        onClick={() => navigate(buildHref({ page: String(page + 1) }))}
+                        onClick={() => updateFilter({ page: String(page + 1) })}
                         className="px-6 py-3 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-sm font-bold text-white/70 hover:text-white transition-all"
                       >
                         Next →

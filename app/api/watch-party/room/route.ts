@@ -87,14 +87,25 @@ export async function GET(req: NextRequest) {
 
 // DELETE /api/watch-party/room?code=ANIM4X&hostId=xxx — destroy room (host only)
 export async function DELETE(req: NextRequest) {
-  const code = req.nextUrl.searchParams.get("code");
+  const code = req.nextUrl.searchParams.get("code")?.toUpperCase();
   const hostId = req.nextUrl.searchParams.get("hostId");
   if (!code || !hostId) return NextResponse.json({ error: "Missing params" }, { status: 400 });
 
   try {
     const room = await prisma.watchPartyRoom.findUnique({ where: { code } });
-    if (!room) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if (!room) return NextResponse.json({ success: true });
     if (room.hostId !== hostId) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+
+    await prisma.watchPartyEvent.create({
+      data: {
+        roomCode: code,
+        memberId: hostId,
+        memberName: "Host",
+        type: "room_closed",
+        payload: { message: "Host closed the room" },
+      },
+    });
+
     await prisma.watchPartyRoom.delete({ where: { code } });
     return NextResponse.json({ success: true });
   } catch {

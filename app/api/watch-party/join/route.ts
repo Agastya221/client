@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
 
 // DELETE /api/watch-party/join?code=XXX&memberId=YYY — leave a room
 export async function DELETE(req: NextRequest) {
-  const code = req.nextUrl.searchParams.get("code");
+  const code = req.nextUrl.searchParams.get("code")?.toUpperCase();
   const memberId = req.nextUrl.searchParams.get("memberId");
   const memberName = req.nextUrl.searchParams.get("memberName") ?? "Someone";
 
@@ -65,11 +65,29 @@ export async function DELETE(req: NextRequest) {
     const room = await prisma.watchPartyRoom.findUnique({ where: { code } });
     if (!room) return NextResponse.json({ success: true }); // already gone
 
-    const members = (room.members as Array<{ id: string }>).filter((m) => m.id !== memberId);
+    const isHostLeaving = room.hostId === memberId;
+    const remainingMembers = (room.members as Array<{ id: string; name: string }>).filter((m) => m.id !== memberId);
 
+    // If host leaves or room becomes empty, close and delete the room completely
+    if (isHostLeaving || remainingMembers.length === 0) {
+      await prisma.watchPartyEvent.create({
+        data: {
+          roomCode: code,
+          memberId,
+          memberName,
+          type: "room_closed",
+          payload: { memberName, message: "Host closed the room" },
+        },
+      });
+
+      await prisma.watchPartyRoom.delete({ where: { code } }).catch(() => undefined);
+      return NextResponse.json({ success: true, roomClosed: true });
+    }
+
+    // Regular guest leaving
     await prisma.watchPartyRoom.update({
       where: { code },
-      data: { members, lastActivityAt: new Date() },
+      data: { members: remainingMembers, lastActivityAt: new Date() },
     });
 
     await prisma.watchPartyEvent.create({

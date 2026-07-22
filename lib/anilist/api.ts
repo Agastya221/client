@@ -465,10 +465,10 @@ const POPULAR_QUERY = `
 
 const SEARCH_QUERY = `
   ${MEDIA_FRAGMENT}
-  query Search($search: String, $genre: String, $page: Int, $perPage: Int, $sort: [MediaSort], $status: MediaStatus, $format: MediaFormat) {
+  query Search($search: String, $genre: String, $page: Int, $perPage: Int, $sort: [MediaSort], $status: MediaStatus, $format: MediaFormat, $season: MediaSeason, $seasonYear: Int) {
     Page(page: $page, perPage: $perPage) {
       pageInfo { total currentPage lastPage hasNextPage }
-      media(search: $search, genre: $genre, type: ANIME, sort: $sort, isAdult: false, status: $status, format: $format) {
+      media(search: $search, genre: $genre, type: ANIME, sort: $sort, isAdult: false, status: $status, format: $format, season: $season, seasonYear: $seasonYear) {
         ...MediaFields
       }
     }
@@ -1163,6 +1163,8 @@ export async function searchAnilist(options: {
   sort?: string[];
   status?: string;
   format?: string;
+  season?: string;
+  seasonYear?: number;
 }): Promise<{ media: AnilistMedia[]; pageInfo: AnilistPageInfo }> {
   const page = options.page || 1;
   const perPage = options.perPage || 24;
@@ -1176,6 +1178,8 @@ export async function searchAnilist(options: {
     sort.join(","),
     options.status || "",
     options.format || "",
+    options.season || "",
+    options.seasonYear || "",
   ].join(":");
 
   const result = await withCatalogFallback(
@@ -1193,6 +1197,8 @@ export async function searchAnilist(options: {
           sort,
           status: options.status || undefined,
           format: options.format || undefined,
+          season: options.season || undefined,
+          seasonYear: options.seasonYear || undefined,
         });
         return {
           media: normalizeAnilistMediaCollection(data?.Page?.media),

@@ -4,6 +4,18 @@ import { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
 
+function getCurrentSeasonAndYear(): { season: "WINTER" | "SPRING" | "SUMMER" | "FALL"; seasonYear: number } {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth(); // 0-indexed (0=Jan, 11=Dec)
+  let season: "WINTER" | "SPRING" | "SUMMER" | "FALL";
+  if (month >= 0 && month <= 2) season = "WINTER";
+  else if (month >= 3 && month <= 5) season = "SPRING";
+  else if (month >= 6 && month <= 8) season = "SUMMER";
+  else season = "FALL";
+  return { season, seasonYear: year };
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const search = searchParams.get("q") || undefined;
@@ -16,8 +28,18 @@ export async function GET(req: NextRequest) {
     sortParam === "season" ? ["POPULARITY_DESC"] :
     search ? ["SEARCH_MATCH"] : ["POPULARITY_DESC"];
 
+  const current = sortParam === "season" ? getCurrentSeasonAndYear() : undefined;
+
   try {
-    const result = await searchAnilist({ search, genre, page, perPage: 24, sort });
+    const result = await searchAnilist({
+      search,
+      genre,
+      page,
+      perPage: 24,
+      sort,
+      season: current?.season,
+      seasonYear: current?.seasonYear,
+    });
 
     let availabilityHints: Record<number, unknown> = {};
     try {

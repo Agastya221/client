@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Search, Shuffle, X, Menu, TrendingUp, Calendar, Radio, Sparkles, Film, Home, Bell, Tag, Library, Bookmark, History, LoaderCircle, Star, Users } from "lucide-react";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import UserMenu from "@/components/ui/UserMenu";
 import { type AnilistMedia, anilistTitle, anilistFormat, anilistYear, encodeAnilistRouteId } from "@/lib/anilist/api";
@@ -47,6 +47,8 @@ export default function NavbarClient({ user }: NavbarClientProps) {
   const { beginNavigation } = useNavigationPending();
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const sortParam = searchParams.get("sort");
   const [resolvedUser, setResolvedUser] = useState<NavbarUser | null>(user);
   const [searchValue, setSearchValue] = useState("");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -419,14 +421,18 @@ export default function NavbarClient({ user }: NavbarClientProps) {
           {/* Nav links (desktop) */}
           <div className="hidden lg:flex items-center gap-5 text-xs font-bold uppercase tracking-wider text-white/50">
             {NAV_LINKS.map((link) => {
-              const isActive = pathname === link.href || (link.href !== "/" && pathname.startsWith(link.href));
+              const isActive = link.href.includes("?")
+                ? (link.href === `/search?sort=${sortParam}`)
+                : link.href === "/search"
+                ? (pathname === "/search" && !sortParam)
+                : (pathname === link.href || (link.href !== "/" && pathname.startsWith(link.href)));
               return (
                 <Link
                   key={link.href}
                   href={link.href}
                   className={`nav-link transition-colors relative py-1 ${
                     isActive
-                      ? "text-[#52ff7f] font-extrabold"
+                      ? "active text-[#52ff7f] font-extrabold"
                       : link.href === "/new"
                       ? "text-emerald-400 hover:text-white"
                       : "hover:text-white"

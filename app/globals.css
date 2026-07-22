@@ -265,9 +265,12 @@ h1, h2, h3 {
   transform-origin: right;
   transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.nav-link:hover::after {
+.nav-link:not(.active):hover::after {
   transform: scaleX(1);
   transform-origin: left;
+}
+.nav-link.active::after {
+  display: none;
 }
 
 /* Premium episode card hover effects */

@@ -13,6 +13,7 @@ export async function GET() {
       take: 50,
       select: {
         code: true,
+        hostId: true,
         animeId: true,
         animeTitle: true,
         animePoster: true,
@@ -24,8 +25,13 @@ export async function GET() {
       },
     });
 
-    // Parse members to get count
-    const result = rooms.map((room) => {
+    // Filter rooms to only include those with active members and host
+    const activeRooms = rooms.filter((room) => {
+      const members = Array.isArray(room.members) ? (room.members as Array<{ id: string; isHost?: boolean }>) : [];
+      return members.length > 0 && members.some((m) => m.id === room.hostId || m.isHost);
+    });
+
+    const result = activeRooms.map((room) => {
       const members = Array.isArray(room.members) ? room.members : [];
       return {
         code: room.code,

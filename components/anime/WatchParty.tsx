@@ -161,8 +161,17 @@ export default function WatchParty({
 
     es.addEventListener("connected", (e) => {
       const data = JSON.parse((e as MessageEvent).data) as {
-        room: { members: PartyMember[]; isPlaying: boolean; currentTime: number; episodeNumber: number };
+        error?: string;
+        room?: { members: PartyMember[]; isPlaying: boolean; currentTime: number; episodeNumber: number };
       };
+
+      if (data.error || !data.room) {
+        es.close();
+        addSystemMessage("This Watch Party room has been closed.");
+        onLeave();
+        return;
+      }
+
       setConnState("connected");
       setMembers(data.room.members);
       addSystemMessage(`Connected to room ${roomCode}`);
@@ -274,6 +283,13 @@ export default function WatchParty({
       const ev = JSON.parse((e as MessageEvent).data) as PartyEvent;
       addSystemMessage(`${ev.payload.memberName as string} left the room`);
       setMembers((prev) => prev.filter((m) => m.id !== ev.memberId));
+    });
+
+    es.addEventListener("room_closed", (e) => {
+      const ev = JSON.parse((e as MessageEvent).data) as PartyEvent;
+      es.close();
+      addSystemMessage(`Room closed: ${ev.memberName || "Host"} has left`);
+      onLeave();
     });
 
     es.addEventListener("error", () => {
