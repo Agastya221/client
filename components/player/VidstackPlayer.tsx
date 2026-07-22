@@ -36,6 +36,9 @@ interface VidstackPlayerProps {
   onTimeUpdate?: (time: number, duration: number) => void;
   onReady?: () => void;
   onError?: () => void;
+  onPlay?: (time: number) => void;
+  onPause?: (time: number) => void;
+  onSeek?: (time: number) => void;
 }
 
 export default function VidstackPlayer({
@@ -53,6 +56,9 @@ export default function VidstackPlayer({
   onTimeUpdate,
   onReady,
   onError,
+  onPlay,
+  onPause,
+  onSeek,
 }: VidstackPlayerProps) {
   const playerRef = useRef<MediaPlayerInstance | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -278,8 +284,15 @@ export default function VidstackPlayer({
             startupTimerRef.current = null;
           }
           setPlaying(true);
+          onPlay?.(playerRef.current?.currentTime || 0);
         }}
-        onPause={() => setPlaying(false)}
+        onPause={() => {
+          setPlaying(false);
+          onPause?.(playerRef.current?.currentTime || 0);
+        }}
+        onSeeking={() => {
+          onSeek?.(playerRef.current?.currentTime || 0);
+        }}
         onCanPlay={() => {
           console.info(JSON.stringify({ at: new Date().toISOString(), scope: "vidstack-player", event: "can_play", streamUrl }));
           playbackStartedRef.current = true;

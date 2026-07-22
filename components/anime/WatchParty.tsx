@@ -7,9 +7,6 @@ import {
   ChevronUp,
   Crown,
   MessageCircle,
-  Play,
-  Pause,
-  Radio,
   RefreshCw,
   Send,
   Users,
@@ -68,10 +65,10 @@ type ConnState = "connecting" | "connected" | "disconnected" | "error";
 function initMemberId(): string {
   if (typeof window === "undefined") return "";
   const key = "watch-party-member-id";
-  let id = localStorage.getItem(key);
+  let id = sessionStorage.getItem(key);
   if (!id) {
     id = crypto.randomUUID();
-    localStorage.setItem(key, id);
+    sessionStorage.setItem(key, id);
   }
   return id;
 }
@@ -175,13 +172,36 @@ export default function WatchParty({
           broadcastEventRef.current(isPlayingRef.current ? "play" : "pause", { time: currentTimeRef.current });
         }, 500);
       } else {
-        // Non-host: accept host's state
+        // Non-host: accept host's state with retry to ensure player is mounted
         setRemoteTime(data.room.currentTime);
-        if (data.room.isPlaying) callbacksRef.current.onPlay?.(data.room.currentTime);
-        else callbacksRef.current.onPause?.(data.room.currentTime);
         if (data.room.episodeNumber !== currentEpisodeRef.current) {
           callbacksRef.current.onEpisodeChange(data.room.episodeNumber);
         }
+
+        // The player may not be mounted yet (setPlayerActivated triggers a render).
+        // Retry sync up to 5 times with increasing delay until a <video> element appears.
+        const syncTime = data.room.currentTime;
+        const syncPlaying = data.room.isPlaying;
+        let retryCount = 0;
+        const maxRetries = 5;
+
+        const attemptSync = () => {
+          if (syncPlaying) {
+            callbacksRef.current.onPlay?.(syncTime);
+          } else {
+            callbacksRef.current.onPause?.(syncTime);
+          }
+
+          // Check if the player actually mounted
+          const video = document.querySelector("video");
+          if (!video && retryCount < maxRetries) {
+            retryCount++;
+            setTimeout(attemptSync, 800 * retryCount);
+          }
+        };
+
+        // First attempt after a short delay to let React mount the player
+        setTimeout(attemptSync, 1200);
       }
     });
 
@@ -409,35 +429,6 @@ export default function WatchParty({
 
       {panelOpen && (
         <>
-          {/* Host Controls */}
-          {isHost && (
-            <div className="flex items-center gap-1.5 px-3 py-2 bg-white/[0.03] border-b border-white/[0.06] text-xs font-bold">
-              <span className="text-[10px] text-amber-400 uppercase font-black tracking-widest mr-1">Host Controls:</span>
-              <button
-                type="button"
-                onClick={() => broadcastEvent("play", { time: currentTime })}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 text-[11px] transition-all"
-              >
-                <Play className="w-3 h-3 fill-current" /> Play Room
-              </button>
-              <button
-                type="button"
-                onClick={() => broadcastEvent("pause", { time: currentTime })}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500/30 text-[11px] transition-all"
-              >
-                <Pause className="w-3 h-3 fill-current" /> Pause Room
-              </button>
-              <button
-                type="button"
-                onClick={() => broadcastEvent("episode", { episodeNumber: currentEpisode, time: currentTime, isPlaying })}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-sky-500/20 text-sky-400 border border-sky-500/30 hover:bg-sky-500/30 text-[11px] transition-all ml-auto"
-                title="Broadcast current episode & time to all members"
-              >
-                <Radio className="w-3 h-3" /> Sync Viewers
-              </button>
-            </div>
-          )}
-
           {/* Desync nudge */}
           {!isSynced && !isHost && (
             <div className="flex items-center justify-between gap-2 border-b border-white/[0.06] bg-amber-500/[0.07] px-3 py-2">

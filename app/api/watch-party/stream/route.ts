@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
 
       req.signal.addEventListener("abort", cleanup);
 
-      // Send initial room state
+      // Send initial room state with live timestamp calculation
       try {
         const room = await prisma.watchPartyRoom.findUnique({ where: { code } });
         if (!room || room.expiresAt < new Date()) {
@@ -49,15 +49,21 @@ export async function GET(req: NextRequest) {
           controller.close();
           return;
         }
+
+        // Compute dynamic timestamp if room is actively playing
+        const elapsed = room.isPlaying ? Math.max(0, (Date.now() - new Date(room.lastActivityAt).getTime()) / 1000) : 0;
+        const liveCurrentTime = room.currentTime + elapsed;
+
         send("connected", {
           room: {
             code: room.code,
             animeId: room.animeId,
             animeTitle: room.animeTitle,
             episodeNumber: room.episodeNumber,
-            currentTime: room.currentTime,
+            currentTime: liveCurrentTime,
             isPlaying: room.isPlaying,
             members: room.members,
+            hostId: room.hostId,
           },
         });
       } catch {
@@ -95,8 +101,8 @@ export async function GET(req: NextRequest) {
           });
 
           for (const ev of events) {
-            // Don't echo back to the sender for play/pause/seek
-            if (["play", "pause", "seek"].includes(ev.type) && ev.memberId === memberId) {
+            // Don't echo back playback or navigation events to the sender
+            if (["play", "pause", "seek", "episode", "server"].includes(ev.type) && ev.memberId === memberId) {
               lastEventId = ev.id;
               continue;
             }

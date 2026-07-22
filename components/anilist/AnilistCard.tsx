@@ -48,7 +48,7 @@ export default function AnilistCard({
             src={image}
             alt={title}
             fill
-            className="object-cover transition-transform duration-500 group-hover:scale-105"
+            className="object-cover transition-transform duration-500 transform-gpu will-change-transform group-hover:scale-105"
             loading="lazy"
             quality={75}
             sizes="(max-width: 639px) 46vw, (max-width: 1023px) 30vw, (max-width: 1535px) 20vw, 18vw"

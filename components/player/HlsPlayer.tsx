@@ -24,6 +24,9 @@ interface HlsPlayerProps {
   onTimeUpdate?: (time: number) => void;
   onReady?: () => void;
   onError?: () => void;
+  onPlay?: (time: number) => void;
+  onPause?: (time: number) => void;
+  onSeek?: (time: number) => void;
 }
 
 interface QualityLevel {
@@ -51,6 +54,9 @@ export default function HlsPlayer({
   onTimeUpdate,
   onReady,
   onError,
+  onPlay,
+  onPause,
+  onSeek,
 }: HlsPlayerProps) {
   // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -710,6 +716,9 @@ export default function HlsPlayer({
           playsInline
           crossOrigin="anonymous"
           onClick={handleContainerClick}
+          onPlay={() => videoRef.current && onPlay?.(videoRef.current.currentTime)}
+          onPause={() => videoRef.current && onPause?.(videoRef.current.currentTime)}
+          onSeeked={() => videoRef.current && onSeek?.(videoRef.current.currentTime)}
         />
 
         {/* Loading spinner */}

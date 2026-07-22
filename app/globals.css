@@ -76,6 +76,11 @@ h1, h2, h3 {
     text-shadow: 0 2px 4px rgba(0,0,0,0.8), 0 4px 12px rgba(0,0,0,0.5);
   }
 
+  .scroll-fade-right {
+    mask-image: linear-gradient(to right, black 85%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to right, black 85%, transparent 100%);
+  }
+
   /* Force filter details open on desktop */
   @media (min-width: 1280px) {
     details.xl\:open {

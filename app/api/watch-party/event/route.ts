@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
       code: string;
       memberId: string;
       memberName: string;
-      type: "play" | "pause" | "seek" | "episode" | "chat";
+      type: "play" | "pause" | "seek" | "episode" | "server" | "chat";
       payload: Record<string, unknown>;
     };
 
@@ -18,6 +18,16 @@ export async function POST(req: NextRequest) {
     }
 
     const roomCode = code.toUpperCase();
+
+    const room = await prisma.watchPartyRoom.findUnique({ where: { code: roomCode } });
+    if (!room) {
+      return NextResponse.json({ error: "Room not found" }, { status: 404 });
+    }
+
+    // Authorization check: Only the host can broadcast playback control events
+    if (type !== "chat" && room.hostId !== memberId) {
+      return NextResponse.json({ error: "Only the room host can control playback" }, { status: 403 });
+    }
 
     // Update room state for stateful events
     const roomUpdate: Record<string, unknown> = { lastActivityAt: new Date() };

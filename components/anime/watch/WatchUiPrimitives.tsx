@@ -49,6 +49,8 @@ export function ServerButton({
   subType,
   tag,
   accentColor = "#8b5cf6",
+  disabled = false,
+  isHostLocked = false,
 }: {
   label: string;
   active: boolean;
@@ -57,12 +59,18 @@ export function ServerButton({
   subType?: "soft" | "hard";
   tag?: string;
   accentColor?: string;
+  disabled?: boolean;
+  isHostLocked?: boolean;
 }) {
   return (
     <button
       type="button"
+      disabled={disabled || isHostLocked}
       onClick={onClick}
+      title={isHostLocked ? "Playback is controlled by the room host" : undefined}
       className={`inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-[10px] font-bold transition-all duration-200 focus-visible:outline-none focus-visible:ring-1 sm:text-[11px] ${
+        disabled || isHostLocked ? "opacity-40 cursor-not-allowed" : ""
+      } ${
         active
           ? "text-white shadow-[0_0_0_1px_rgba(255,255,255,0.08)]"
           : "bg-white/[0.04] text-white/62 border-white/10 hover:-translate-y-px hover:bg-white/[0.09] hover:text-white hover:border-white/25 hover:shadow-[0_8px_20px_rgba(0,0,0,0.24)] active:translate-y-0 active:scale-[0.98]"
@@ -193,6 +201,7 @@ export function EpisodeNumberGrid({
   onHover,
   watchedSet = new Set(),
   accentColor = "#ff5500",
+  isHostLocked = false,
 }: {
   episodes: Pick<EpisodeModel, "number" | "title" | "isSubbed" | "isDubbed">[];
   activeNumber: number;
@@ -200,6 +209,7 @@ export function EpisodeNumberGrid({
   onHover?: (num: number) => void;
   watchedSet?: Set<number>;
   accentColor?: string;
+  isHostLocked?: boolean;
 }) {
   const [rangeStart, setRangeStart] = useState(0);
   const CHUNK_SIZE = 100;
@@ -254,7 +264,7 @@ export function EpisodeNumberGrid({
         </div>
       )}
 
-      <div className="grid grid-cols-5 gap-1.5">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(3.25rem,1fr))] gap-1.5">
         {visibleEpisodes.map((ep) => {
           const isActive = ep.number === activeNumber;
           const isWatched = watchedSet.has(ep.number);
@@ -262,6 +272,8 @@ export function EpisodeNumberGrid({
             <button
               key={ep.number}
               type="button"
+              disabled={isHostLocked}
+              title={isHostLocked ? "Episode navigation is controlled by the room host" : undefined}
               onClick={() => onSelect(ep.number)}
               onMouseEnter={() => onHover?.(ep.number)}
               onFocus={() => onHover?.(ep.number)}
@@ -269,6 +281,7 @@ export function EpisodeNumberGrid({
               data-active-episode={isActive ? "true" : undefined}
               className={`
                 relative h-10 min-w-0 rounded-md text-xs font-bold transition-colors md:h-9
+                ${isHostLocked ? "opacity-40 cursor-not-allowed" : ""}
                 ${isActive
                   ? "text-white"
                   : isWatched

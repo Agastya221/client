@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Search, Shuffle, X, Menu, TrendingUp, Calendar, Radio, Sparkles, Film, Home, Bell, Tag, Library, Bookmark, History, LoaderCircle, Star } from "lucide-react";
+import { Search, Shuffle, X, Menu, TrendingUp, Calendar, Radio, Sparkles, Film, Home, Bell, Tag, Library, Bookmark, History, LoaderCircle, Star, Users } from "lucide-react";
 import { useRouter, usePathname } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import UserMenu from "@/components/ui/UserMenu";
@@ -215,7 +215,7 @@ export default function NavbarClient({ user }: NavbarClientProps) {
               )}
 
               {isMobileFocused && searchValue.trim() && (
-                <div className="absolute top-full left-0 right-0 z-50 mt-1 rounded-2xl border border-white/10 bg-[#0f1012]/98 p-2 shadow-2xl flex flex-col gap-1">
+                <div className="absolute top-full left-0 right-0 z-50 mt-1 max-h-[calc(100vh-5rem)] overflow-y-auto rounded-2xl border border-white/10 bg-[#0f1012]/98 p-2 shadow-2xl flex flex-col gap-1">
                   {isSearching ? (
                     <div className="flex items-center justify-center py-6 gap-2 text-white/50 text-sm">
                       <LoaderCircle className="w-5 h-5 animate-spin text-[#52ff7f]" aria-hidden="true" />
@@ -418,13 +418,27 @@ export default function NavbarClient({ user }: NavbarClientProps) {
 
           {/* Nav links (desktop) */}
           <div className="hidden lg:flex items-center gap-5 text-xs font-bold uppercase tracking-wider text-white/50">
-            <Link href="/search?sort=trending" className="nav-link hover:text-white transition-colors">Trending</Link>
-            <Link href="/new" className="nav-link hover:text-white transition-colors text-emerald-400">New</Link>
-            <Link href="/search?sort=season" className="nav-link hover:text-white transition-colors">This Season</Link>
-            <Link href="/search" className="nav-link hover:text-white transition-colors">Browse</Link>
-            <Link href="/genres" className="nav-link hover:text-white transition-colors">Genres</Link>
-            <Link href="/types" className="nav-link hover:text-white transition-colors">Types</Link>
-            <Link href="/updates" className="nav-link hover:text-white transition-colors">Schedule</Link>
+            {NAV_LINKS.map((link) => {
+              const isActive = pathname === link.href || (link.href !== "/" && pathname.startsWith(link.href));
+              return (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className={`nav-link transition-colors relative py-1 ${
+                    isActive
+                      ? "text-[#52ff7f] font-extrabold"
+                      : link.href === "/new"
+                      ? "text-emerald-400 hover:text-white"
+                      : "hover:text-white"
+                  }`}
+                >
+                  {link.label}
+                  {isActive && (
+                    <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#52ff7f] rounded-full shadow-[0_0_8px_#52ff7f]" />
+                  )}
+                </Link>
+              );
+            })}
 
             <div className="flex items-center gap-3 ml-2 border-l border-white/10 pl-5">
               <Link href="/random" className="hover:text-white transition-colors" aria-label="Random anime">
@@ -520,6 +534,13 @@ export default function NavbarClient({ user }: NavbarClientProps) {
                 >
                   <History className="w-4 h-4 text-white/40 shrink-0" aria-hidden="true" />
                   Watch History
+                </Link>
+                <Link
+                  href="/watch-party"
+                  className="flex items-center gap-3 px-5 py-3.5 text-sm font-semibold text-white/70 hover:text-white hover:bg-white/5 transition-colors"
+                >
+                  <Users className="w-4 h-4 text-[#ff5500] shrink-0" aria-hidden="true" />
+                  Watch Together
                 </Link>
               </div>
             </div>

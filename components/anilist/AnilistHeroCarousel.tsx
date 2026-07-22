@@ -328,12 +328,12 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
             {/* Cover image anchored to the right */}
             <div className="absolute right-0 top-0 bottom-0 w-2/3">
               {/* Fade to the left */}
-              <div className="absolute inset-0 bg-gradient-to-r from-[#0a0b0c] via-[#0a0b0c]/60 to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-r from-[#0a0b0c] via-[#0a0b0c]/85 to-transparent/30" />
             </div>
             {/* Strong bottom-to-top fade for nav bar area */}
-            <div className="absolute inset-0 bg-gradient-to-t from-[#0a0b0c] via-transparent to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#0a0b0c] via-[#0a0b0c]/50 to-transparent" />
             {/* Left coverage */}
-            <div className="absolute inset-0 bg-gradient-to-r from-[#0a0b0c] to-transparent w-1/2" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[#0a0b0c] via-[#0a0b0c]/90 to-transparent w-3/4" />
           </div>
 
           {/* Content — positioned from top with navbar offset */}

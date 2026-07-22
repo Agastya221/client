@@ -422,7 +422,7 @@ function CommentItem({
   return (
     <div className={isReply ? "" : isLast ? "" : ""}>
       <div className={`group/card px-4 py-4 transition-colors duration-150 hover:bg-white/[0.02] rounded-xl ${
-        isReply ? "ml-10 mt-1.5 bg-white/[0.015] border border-white/[0.05] rounded-xl" : ""
+        isReply ? "ml-3 sm:ml-8 lg:ml-10 mt-1.5 bg-white/[0.015] border-l-2 border-white/10 pl-3 sm:pl-4 rounded-xl" : ""
       }`}>
         <div className="flex gap-3">
           {/* Avatar */}
@@ -458,12 +458,21 @@ function CommentItem({
                 </button>
               )}
 
-              {comment.isSpoiler && !revealed && (
+              {comment.isSpoiler && !revealed ? (
                 <span className="flex items-center gap-1 rounded-md bg-amber-500/10 border border-amber-500/15 px-1.5 py-0.5 text-[9px] font-bold text-amber-400/80 uppercase tracking-wide">
                   <EyeOff className="h-2.5 w-2.5" />
                   Spoiler
                 </span>
-              )}
+              ) : comment.isSpoiler && revealed ? (
+                <button
+                  type="button"
+                  onClick={() => setRevealed(false)}
+                  className="flex items-center gap-1 rounded-md bg-white/5 border border-white/10 px-1.5 py-0.5 text-[9px] font-bold text-white/40 hover:text-white/70 transition-colors uppercase tracking-wide ml-auto"
+                >
+                  <EyeOff className="h-2.5 w-2.5" />
+                  Hide spoiler
+                </button>
+              ) : null}
 
               {comment.likes.length >= 5 && (
                 <span className="flex items-center gap-0.5 rounded-md bg-orange-500/10 px-1.5 py-0.5 text-[9px] font-bold text-orange-400/80">

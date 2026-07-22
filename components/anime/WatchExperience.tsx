@@ -893,8 +893,8 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   });
   const [partyMemberId] = useState<string>(() => {
     if (typeof window === "undefined") return "";
-    let id = localStorage.getItem("watch-party-member-id");
-    if (!id) { id = crypto.randomUUID(); localStorage.setItem("watch-party-member-id", id); }
+    let id = sessionStorage.getItem("watch-party-member-id");
+    if (!id) { id = crypto.randomUUID(); sessionStorage.setItem("watch-party-member-id", id); }
     return id;
   });
   const [partyMemberName] = useState<string>(() => {
@@ -963,8 +963,35 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Suppress broadcast flag — set to true when applying a remote command programmatically.
+  // This prevents the player's native play/pause/seek events from re-broadcasting back to the room.
+  const suppressBroadcastRef = useRef(false);
+  const broadcastDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const broadcastHostPlayback = useCallback((type: "play" | "pause" | "seek", time: number) => {
     if (!partyRoomCode || !partyIsHost) return;
+    // If this event was triggered by a remote command, don't re-broadcast
+    if (suppressBroadcastRef.current) return;
+
+    // Debounce seek events to avoid spamming the server during scrubbing
+    if (type === "seek") {
+      if (broadcastDebounceRef.current) clearTimeout(broadcastDebounceRef.current);
+      broadcastDebounceRef.current = setTimeout(() => {
+        fetch("/api/watch-party/event", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            code: partyRoomCode,
+            memberId: partyMemberId,
+            memberName: partyMemberName,
+            type,
+            payload: { time },
+          }),
+        }).catch(() => undefined);
+      }, 300);
+      return;
+    }
+
     fetch("/api/watch-party/event", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -999,26 +1026,89 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     onPlay: (time: number) => {
       setPartyCurrentTime(time);
       setPartyIsPlaying(true);
+      userActivatedPlayerRef.current = true;
+      setPlayerActivated(true);
+
+      // Suppress broadcast so the player's native 'play' event doesn't re-broadcast
+      suppressBroadcastRef.current = true;
+
       const player = document.querySelector<HTMLVideoElement>("video");
       if (player) {
-        if (Math.abs(player.currentTime - time) > 1.5) player.currentTime = time;
-        player.play().catch(() => undefined);
+        if (Math.abs(player.currentTime - time) > 1.0) player.currentTime = time;
+        const playPromise = player.play();
+        if (playPromise !== undefined) {
+          playPromise
+            .then(() => { suppressBroadcastRef.current = false; })
+            .catch(() => {
+              // Autoplay policy blocked unmuted play: fallback to muted play to maintain room sync
+              player.muted = true;
+              player.play()
+                .then(() => { suppressBroadcastRef.current = false; })
+                .catch(() => { suppressBroadcastRef.current = false; });
+            });
+        } else {
+          // Legacy browsers that don't return a promise
+          setTimeout(() => { suppressBroadcastRef.current = false; }, 100);
+        }
+      } else {
+        // No video element yet — clear suppression after a short delay for mount
+        setTimeout(() => { suppressBroadcastRef.current = false; }, 500);
+      }
+
+      // Handle iframe embeds
+      const iframe = document.querySelector<HTMLIFrameElement>("iframe");
+      if (iframe?.contentWindow) {
+        try {
+          iframe.contentWindow.postMessage({ type: "play", time }, "*");
+          iframe.contentWindow.postMessage({ event: "command", func: "playVideo", args: "" }, "*");
+          iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', "*");
+        } catch {
+          // Ignored
+        }
       }
     },
     onPause: (time: number) => {
       setPartyCurrentTime(time);
       setPartyIsPlaying(false);
+
+      suppressBroadcastRef.current = true;
       const player = document.querySelector<HTMLVideoElement>("video");
       if (player) {
-        if (Math.abs(player.currentTime - time) > 1.5) player.currentTime = time;
+        if (Math.abs(player.currentTime - time) > 1.0) player.currentTime = time;
         player.pause();
+      }
+      // Release after next microtask so the native 'pause' event is absorbed
+      setTimeout(() => { suppressBroadcastRef.current = false; }, 100);
+
+      const iframe = document.querySelector<HTMLIFrameElement>("iframe");
+      if (iframe?.contentWindow) {
+        try {
+          iframe.contentWindow.postMessage({ type: "pause", time }, "*");
+          iframe.contentWindow.postMessage({ event: "command", func: "pauseVideo", args: "" }, "*");
+          iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', "*");
+        } catch {
+          // Ignored
+        }
       }
     },
     onSeek: (time: number) => {
       setPartyCurrentTime(time);
+
+      suppressBroadcastRef.current = true;
       const player = document.querySelector<HTMLVideoElement>("video");
       if (player) {
         player.currentTime = time;
+      }
+      setTimeout(() => { suppressBroadcastRef.current = false; }, 100);
+
+      const iframe = document.querySelector<HTMLIFrameElement>("iframe");
+      if (iframe?.contentWindow) {
+        try {
+          iframe.contentWindow.postMessage({ type: "seek", time }, "*");
+          iframe.contentWindow.postMessage({ event: "command", func: "seekTo", args: [time, true] }, "*");
+        } catch {
+          // Ignored
+        }
       }
     },
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2081,9 +2171,8 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
         } else {
           container.scrollTo({ top: targetScrollTop, behavior: "smooth" });
         }
-      } else {
-        activeEl.scrollIntoView({ behavior: "smooth", block: "center" });
       }
+      // No fallback — don't scroll the entire page on medium devices
     };
 
     // 1. Fire immediately (instant scroll on first paint)
@@ -2119,7 +2208,10 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     ? filteredEpisodes
     : filteredEpisodes.slice(episodeRangeStart, episodeRangeStart + EPISODE_PAGE_SIZE);
 
+  const isPartyHostLocked = Boolean(partyRoomCode && !partyIsHost);
+
   const goToEpisode = (num: number) => {
+    if (isPartyHostLocked) return;
     queueSession({
       episodeNumber: num,
       provider: session.provider,
@@ -2159,6 +2251,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                 subType={isEmbedEntry ? undefined : entry.subType}
                 tag={transportTag}
                 accentColor={options.accent || accentColor}
+                isHostLocked={isPartyHostLocked}
                 active={Boolean(
                   effectiveActiveServerId === entry.id &&
                   (options.provider === "desidub"
@@ -2178,6 +2271,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
               label={options.emptyLabel || "Try another source"}
               active={false}
               accentColor={options.accent || accentColor}
+              isHostLocked={isPartyHostLocked}
               onClick={() => queueSession({
                 episodeNumber: session.episode.number,
                 provider: options.provider || mainFallback,
@@ -2459,6 +2553,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
               onHover={prefetchEpisode}
               watchedSet={watchedEpisodes}
               accentColor={accentColor}
+              isHostLocked={isPartyHostLocked}
             />
           </div>
         )}
@@ -2539,6 +2634,11 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                     );
                     current.lastPersistedAt = now;
                   }
+                  // Keep party time in sync with the host's actual playback position
+                  if (partyRoomCode) {
+                    setPartyCurrentTime(time);
+                    setPartyIsPlaying(true);
+                  }
                 }}
                 onReady={() => setLoadedSurfaceKey(activePlayerSurfaceKey)}
                 onEpisodeEnd={() => {
@@ -2552,6 +2652,9 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                   }
                 }}
                 onPlaybackError={handlePlaybackError}
+                onPlay={(time) => broadcastHostPlayback("play", time)}
+                onPause={(time) => broadcastHostPlayback("pause", time)}
+                onSeek={(time) => broadcastHostPlayback("seek", time)}
               />
             </div>
           )}

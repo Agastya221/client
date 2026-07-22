@@ -79,6 +79,9 @@ interface AnimePlayerProps {
   onTimeUpdate?: (time: number, duration: number) => void;
   onReady?: () => void;
   onPlaybackError?: () => void;
+  onPlay?: (time: number) => void;
+  onPause?: (time: number) => void;
+  onSeek?: (time: number) => void;
 }
 
 /**
@@ -104,6 +107,9 @@ export default function AnimePlayer({
   onTimeUpdate,
   onReady,
   onPlaybackError,
+  onPlay,
+  onPause,
+  onSeek,
 }: AnimePlayerProps) {
   const [fallbackUrl, setFallbackUrl] = useState<string | null>(null);
   const [failedHosts, setFailedHosts] = useState<Set<string>>(new Set());
@@ -288,6 +294,9 @@ export default function AnimePlayer({
         onTimeUpdate={onTimeUpdate}
         onReady={onReady}
         onError={handlePlayerError}
+        onPlay={onPlay}
+        onPause={onPause}
+        onSeek={onSeek}
       />
     );
   }
@@ -340,6 +349,9 @@ export default function AnimePlayer({
         onTimeUpdate={onTimeUpdate}
         onReady={onReady}
         onError={handlePlayerError}
+        onPlay={onPlay}
+        onPause={onPause}
+        onSeek={onSeek}
       />
     );
   }
