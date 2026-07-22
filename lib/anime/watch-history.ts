@@ -12,7 +12,6 @@
  * - local updates are mirrored back to the account in the background
  */
 
-import { hasAuthSessionCookie } from "@/lib/auth-client";
 import {
   mergeWatchHistories,
   normalizeEpisodeProgress,
@@ -25,6 +24,7 @@ import {
 const STORAGE_KEY = "animekai:watch-history";
 const MAX_ENTRIES = 100;
 const REMOTE_SYNC_DEBOUNCE_MS = 900;
+const ANILIST_SYNC_THRESHOLD = 0.8;
 export const WATCH_HISTORY_UPDATED_EVENT = "animekai:watch-history-updated";
 
 type RemoteEpisodePayload = {
@@ -40,13 +40,29 @@ type RemoteEpisodePayload = {
   timestamp: number;
 };
 
+type AniListProgressPayload = {
+  key: string;
+  animeId: string;
+  rawMediaId?: number;
+  title: string;
+  progress: number;
+  status: "CURRENT" | "COMPLETED";
+};
+
 let authState: "unknown" | "guest" | "authenticated" = "unknown";
 let hasHydratedFromAccount = false;
 let hydrationPromise: Promise<void> | null = null;
 let flushTimer: number | null = null;
+let aniListFlushTimer: number | null = null;
+let aniListFlushPromise: Promise<void> | null = null;
+let aniListRetryDelayMs = 1_500;
 let pendingClear = false;
 const pendingAnimeRemovals = new Set<string>();
 const pendingEpisodeUpserts = new Map<string, RemoteEpisodePayload>();
+const pendingAniListProgress = new Map<string, AniListProgressPayload>();
+const acknowledgedAniListProgress = new Map<string, number>();
+
+const ANILIST_SYNC_RETRY_MAX_MS = 30_000;
 
 function scoreHistoryTitleQuality(title: string | null | undefined): number {
   const normalized = title?.trim();
@@ -118,6 +134,146 @@ function queueRemoteFlush(): void {
   }, REMOTE_SYNC_DEBOUNCE_MS);
 }
 
+function isFinishedAnimeStatus(status: string | null | undefined): boolean {
+  const normalized = String(status || "").trim().toUpperCase().replace(/[\s-]+/g, "_");
+  return normalized === "FINISHED" || normalized === "COMPLETED";
+}
+
+function resolveAniListMediaId(animeId: string, entry: WatchHistoryEntry): number | undefined {
+  const explicitId = Number(entry.anilistId);
+  if (Number.isInteger(explicitId) && explicitId > 0) return explicitId;
+
+  const directMatch = animeId.match(/^anilist~(\d+)$/i);
+  if (!directMatch) return undefined;
+  const directId = Number(directMatch[1]);
+  return Number.isInteger(directId) && directId > 0 ? directId : undefined;
+}
+
+function scheduleAniListFlush(delayMs = 0): void {
+  if (typeof window === "undefined" || aniListFlushTimer !== null) return;
+  aniListFlushTimer = window.setTimeout(() => {
+    aniListFlushTimer = null;
+    void flushAniListProgress();
+  }, delayMs);
+}
+
+function queueAniListProgress(
+  animeId: string,
+  entry: WatchHistoryEntry,
+  episodeNumber: number,
+): void {
+  if (typeof window === "undefined" || episodeNumber <= 0) return;
+
+  const rawMediaId = resolveAniListMediaId(animeId, entry);
+  const key = rawMediaId ? `anilist:${rawMediaId}` : `anime:${animeId}`;
+  if ((acknowledgedAniListProgress.get(key) || 0) >= episodeNumber) return;
+
+  const episodeCount = Number(entry.episodeCount);
+  const completed =
+    Number.isInteger(episodeCount) &&
+    episodeCount > 0 &&
+    episodeNumber >= episodeCount &&
+    isFinishedAnimeStatus(entry.animeStatus);
+  const existing = pendingAniListProgress.get(key);
+  if (existing && existing.progress > episodeNumber) return;
+
+  pendingAniListProgress.set(key, {
+    key,
+    animeId,
+    rawMediaId,
+    title: entry.title,
+    progress: Math.max(existing?.progress || 0, episodeNumber),
+    status: completed || existing?.status === "COMPLETED" ? "COMPLETED" : "CURRENT",
+  });
+  scheduleAniListFlush();
+}
+
+function queueLatestWatchedProgress(animeId: string, entry: WatchHistoryEntry): void {
+  let latestWatchedEpisode = 0;
+  for (const [episodeNumber, progress] of Object.entries(entry.episodes)) {
+    if (normalizeEpisodeProgress(progress).progress >= ANILIST_SYNC_THRESHOLD) {
+      latestWatchedEpisode = Math.max(latestWatchedEpisode, Number(episodeNumber) || 0);
+    }
+  }
+  if (latestWatchedEpisode > 0) {
+    queueAniListProgress(animeId, entry, latestWatchedEpisode);
+  }
+}
+
+async function flushAniListProgress(): Promise<void> {
+  if (typeof window === "undefined" || pendingAniListProgress.size === 0) return;
+  if (aniListFlushPromise) return aniListFlushPromise;
+  if (authState === "guest") return;
+
+  aniListFlushPromise = (async () => {
+    let shouldRetry = false;
+
+    for (const pending of Array.from(pendingAniListProgress.values())) {
+      try {
+        const response = await fetch("/api/anilist/save-entry", {
+          method: "POST",
+          credentials: "same-origin",
+          keepalive: true,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            rawMediaId: pending.rawMediaId,
+            animeId: pending.animeId,
+            title: pending.title,
+            progress: pending.progress,
+            status: pending.status,
+            monotonicProgress: true,
+          }),
+        });
+
+        if (response.status === 401) {
+          authState = "guest";
+          return;
+        }
+
+        const payload = await response.json().catch(() => null) as {
+          success?: boolean;
+          entry?: { progress?: number };
+          error?: string;
+        } | null;
+
+        if (!response.ok || !payload?.success) {
+          shouldRetry = response.status >= 500 || response.status === 429;
+          console.warn("[anilist-sync] Progress update failed", {
+            status: response.status,
+            animeId: pending.animeId,
+            progress: pending.progress,
+            error: payload?.error,
+          });
+          continue;
+        }
+
+        const acknowledgedProgress = Math.max(
+          pending.progress,
+          Number(payload.entry?.progress || 0),
+        );
+        acknowledgedAniListProgress.set(pending.key, acknowledgedProgress);
+        if (pendingAniListProgress.get(pending.key) === pending) {
+          pendingAniListProgress.delete(pending.key);
+        }
+        aniListRetryDelayMs = 1_500;
+        authState = "authenticated";
+      } catch (error) {
+        shouldRetry = true;
+        console.warn("[anilist-sync] Progress request failed", error);
+      }
+    }
+
+    if (shouldRetry && pendingAniListProgress.size > 0) {
+      scheduleAniListFlush(aniListRetryDelayMs);
+      aniListRetryDelayMs = Math.min(ANILIST_SYNC_RETRY_MAX_MS, aniListRetryDelayMs * 2);
+    }
+  })().finally(() => {
+    aniListFlushPromise = null;
+  });
+
+  return aniListFlushPromise;
+}
+
 function queueEpisodeUpsert(animeId: string, episodeNumber: number, syncToAniList = false): void {
   const history = readHistory();
   const entry = history[animeId];
@@ -139,24 +295,8 @@ function queueEpisodeUpsert(animeId: string, episodeNumber: number, syncToAniLis
     timestamp: normalizeEpisodeProgress(episode).timestamp || entry.lastUpdated,
   });
 
-  // Sync episode progress to AniList when watch threshold is crossed
-  if (syncToAniList && typeof window !== "undefined") {
-    const anilistId = entry.anilistId;
-    const rawId = anilistId && !isNaN(Number(anilistId))
-      ? Number(anilistId)
-      : Number(String(animeId).replace(/^(anilist|animekai|hianime|desidub|reanime|allmanga|anikoto|animegg|anineko)~/, ""));
-
-    fetch("/api/anilist/save-entry", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        rawMediaId: !isNaN(rawId) && rawId > 0 ? rawId : undefined,
-        animeId,
-        title: entry.title,
-        progress: episodeNumber,
-        status: "CURRENT",
-      }),
-    }).catch(() => undefined);
+  if (syncToAniList) {
+    queueAniListProgress(animeId, entry, episodeNumber);
   }
 
   queueRemoteFlush();
@@ -174,10 +314,6 @@ function queueAnimeRemoval(animeId: string): void {
 
 async function flushRemoteSync(): Promise<void> {
   if (typeof window === "undefined") return;
-  if (authState === "unknown" && !hasAuthSessionCookie()) {
-    authState = "guest";
-    return;
-  }
   if (authState === "guest") return;
 
   try {
@@ -232,10 +368,6 @@ export async function ensureWatchHistoryHydrated(): Promise<void> {
   if (typeof window === "undefined") return;
   if (hasHydratedFromAccount || authState === "guest") return;
   if (hydrationPromise) return hydrationPromise;
-  if (!hasAuthSessionCookie()) {
-    authState = "guest";
-    return;
-  }
 
   hydrationPromise = (async () => {
     try {
@@ -307,6 +439,8 @@ export function trackEpisodeWatch(
     href: string;
     provider: string;
     anilistId?: number | null;
+    episodeCount?: number | null;
+    animeStatus?: string | null;
   },
 ): void {
   const history = readHistory();
@@ -316,6 +450,8 @@ export function trackEpisodeWatch(
     href: meta.href,
     provider: meta.provider,
     anilistId: meta.anilistId ?? null,
+    episodeCount: meta.episodeCount ?? null,
+    animeStatus: meta.animeStatus ?? null,
     lastEpisode: episodeNumber,
     lastUpdated: Date.now(),
     episodes: {},
@@ -336,6 +472,12 @@ export function trackEpisodeWatch(
   if (meta.anilistId && !existing.anilistId) {
     existing.anilistId = meta.anilistId;
   }
+  if (meta.episodeCount && meta.episodeCount > 0) {
+    existing.episodeCount = meta.episodeCount;
+  }
+  if (meta.animeStatus) {
+    existing.animeStatus = meta.animeStatus;
+  }
   existing.provider = meta.provider || existing.provider;
   existing.lastEpisode = episodeNumber;
   existing.lastUpdated = Date.now();
@@ -352,10 +494,11 @@ export function trackEpisodeWatch(
   writeHistory(history);
   // Don't trigger AniList sync on page load — only when user actually watches (at threshold)
   queueEpisodeUpsert(animeId, episodeNumber, false);
+  // Repair any completed local progress that a previous one-shot sync failed to
+  // deliver. The server enforces monotonic progress, so this never moves a
+  // user's AniList entry backwards.
+  queueLatestWatchedProgress(animeId, existing);
 }
-
-// Threshold at which we report progress to AniList (episode considered "watched")
-const ANILIST_SYNC_THRESHOLD = 0.8;
 
 export function updateEpisodeProgress(
   animeId: string,
@@ -367,7 +510,6 @@ export function updateEpisodeProgress(
   const entry = history[animeId];
   if (!entry) return;
 
-  const prevProgress = normalizeEpisodeProgress(entry.episodes[String(episodeNumber)] ?? { progress: 0 }).progress;
   const newProgress = Math.min(1, Math.max(0, progress));
 
   entry.episodes[String(episodeNumber)] = {
@@ -380,9 +522,10 @@ export function updateEpisodeProgress(
 
   writeHistory(history);
 
-  // Sync to AniList only when crossing the watch threshold for the first time
-  const crossedThreshold = prevProgress < ANILIST_SYNC_THRESHOLD && newProgress >= ANILIST_SYNC_THRESHOLD;
-  queueEpisodeUpsert(animeId, episodeNumber, crossedThreshold);
+  // Keep queueing while the episode is considered watched until AniList
+  // acknowledges it. The queue deduplicates successful and in-flight updates.
+  const shouldSyncToAniList = newProgress >= ANILIST_SYNC_THRESHOLD;
+  queueEpisodeUpsert(animeId, episodeNumber, shouldSyncToAniList);
 }
 
 export function getEpisodeProgress(animeId: string, episodeNumber: number): EpisodeProgress | null {

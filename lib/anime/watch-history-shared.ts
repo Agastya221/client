@@ -10,6 +10,8 @@ export type WatchHistoryEntry = {
   href: string;
   provider: string;
   anilistId?: number | null;
+  episodeCount?: number | null;
+  animeStatus?: string | null;
   lastEpisode: number;
   lastUpdated: number;
   episodes: Record<string, EpisodeProgress>;
@@ -60,6 +62,9 @@ export function mergeWatchHistoryEntries(
     poster: incoming?.poster || current?.poster || null,
     href: incoming?.href || current?.href || "",
     provider: incoming?.provider || current?.provider || "animekai",
+    anilistId: incoming?.anilistId ?? current?.anilistId ?? null,
+    episodeCount: incoming?.episodeCount ?? current?.episodeCount ?? null,
+    animeStatus: incoming?.animeStatus ?? current?.animeStatus ?? null,
     lastEpisode: incoming?.lastEpisode || current?.lastEpisode || 1,
     lastUpdated: Math.max(current?.lastUpdated || 0, incoming?.lastUpdated || 0),
     episodes: {},
@@ -89,6 +94,9 @@ export function mergeWatchHistoryEntries(
     poster: incoming?.poster ?? current?.poster ?? fallback.poster,
     href: incoming?.href || current?.href || fallback.href,
     provider: incoming?.provider || current?.provider || fallback.provider,
+    anilistId: incoming?.anilistId ?? current?.anilistId ?? fallback.anilistId ?? null,
+    episodeCount: incoming?.episodeCount ?? current?.episodeCount ?? fallback.episodeCount ?? null,
+    animeStatus: incoming?.animeStatus ?? current?.animeStatus ?? fallback.animeStatus ?? null,
     lastEpisode: Number(lastEpisode || incoming?.lastEpisode || current?.lastEpisode || fallback.lastEpisode),
     lastUpdated: Math.max(
       fallback.lastUpdated,

@@ -13,6 +13,9 @@ test("mergeWatchHistories keeps the newer episode progress and richer metadata",
       poster: "https://img.example/frieren.jpg",
       href: "/anime/anilist~52991",
       provider: "animekai",
+      anilistId: 52991,
+      episodeCount: 28,
+      animeStatus: "FINISHED",
       lastEpisode: 2,
       lastUpdated: 200,
       episodes: {
@@ -41,6 +44,9 @@ test("mergeWatchHistories keeps the newer episode progress and richer metadata",
   assert.equal(merged["anime-1"]?.title, "Frieren");
   assert.equal(merged["anime-1"]?.poster, "https://img.example/frieren.jpg");
   assert.equal(merged["anime-1"]?.lastEpisode, 2);
+  assert.equal(merged["anime-1"]?.anilistId, 52991);
+  assert.equal(merged["anime-1"]?.episodeCount, 28);
+  assert.equal(merged["anime-1"]?.animeStatus, "FINISHED");
   assert.equal(merged["anime-1"]?.episodes["1"]?.progress, 1);
   assert.equal(merged["anime-1"]?.episodes["2"]?.progress, 0.82);
   assert.equal(merged["anime-1"]?.lastUpdated, 350);

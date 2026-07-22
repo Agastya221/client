@@ -3,6 +3,18 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { kvDelete } from "@/lib/cache/kv";
 
+type AniListSession = {
+  accessToken?: string;
+  user?: {
+    id?: string | null;
+    name?: string | null;
+  };
+};
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Internal Server Error";
+}
+
 export async function POST(request: Request) {
   try {
     const session = await auth();
@@ -10,7 +22,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unauthorized: Please sign in with AniList" }, { status: 401 });
     }
 
-    let accessToken = (session as any).accessToken;
+    let accessToken = (session as AniListSession).accessToken;
 
     // Fallback: Check PostgreSQL database Account table if token is missing in JWT
     if (!accessToken) {
@@ -36,7 +48,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { animeId, rawMediaId, title, status, progress, score } = body;
+    const { animeId, rawMediaId, title, status, progress, score, monotonicProgress } = body;
 
     let mediaId = rawMediaId ? Number(rawMediaId) : null;
     if (!mediaId || isNaN(mediaId)) {
@@ -135,9 +147,62 @@ export async function POST(request: Request) {
       }
     `;
 
-    const variables: Record<string, any> = { mediaId };
+    let resolvedProgress =
+      progress !== undefined && progress !== null
+        ? Math.max(0, Math.trunc(Number(progress)))
+        : undefined;
+
+    if (monotonicProgress === true && resolvedProgress !== undefined) {
+      const currentEntryQuery = `
+        query CurrentProgress($mediaId: Int) {
+          Media(id: $mediaId, type: ANIME) {
+            episodes
+            status
+            mediaListEntry {
+              progress
+              status
+            }
+          }
+        }
+      `;
+      const currentEntryResponse = await fetch("https://graphql.anilist.co", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          query: currentEntryQuery,
+          variables: { mediaId },
+        }),
+        cache: "no-store",
+      });
+      const currentEntryData = await currentEntryResponse.json().catch(() => null);
+      if (!currentEntryResponse.ok || currentEntryData?.errors?.length) {
+        return NextResponse.json({
+          error: currentEntryData?.errors?.[0]?.message || "Unable to verify current AniList progress",
+        }, { status: currentEntryResponse.ok ? 502 : currentEntryResponse.status });
+      }
+
+      const media = currentEntryData?.data?.Media;
+      const currentProgress = Number(media?.mediaListEntry?.progress || 0);
+      resolvedProgress = Math.max(resolvedProgress, currentProgress);
+
+      if (media?.mediaListEntry?.status === "COMPLETED") {
+        anilistStatus = "COMPLETED";
+      } else if (
+        Number.isInteger(media?.episodes) &&
+        media.episodes > 0 &&
+        resolvedProgress >= media.episodes &&
+        media.status === "FINISHED"
+      ) {
+        anilistStatus = "COMPLETED";
+      }
+    }
+
+    const variables: Record<string, unknown> = { mediaId };
     if (anilistStatus) variables.status = anilistStatus;
-    if (progress !== undefined && progress !== null) variables.progress = Number(progress);
+    if (resolvedProgress !== undefined) variables.progress = resolvedProgress;
     if (score !== undefined && score !== null) variables.score = Number(score);
 
     const res = await fetch("https://graphql.anilist.co", {
@@ -161,7 +226,7 @@ export async function POST(request: Request) {
     }
 
     // Invalidate the KV user-list cache so next fetch gets fresh data
-    const sessionName = (session as any)?.user?.name;
+    const sessionName = session.user?.name;
     if (sessionName) {
       void kvDelete(`anilist:user-list:name:${sessionName}`);
     }
@@ -170,8 +235,8 @@ export async function POST(request: Request) {
       success: true,
       entry: data?.data?.SaveMediaListEntry || null,
     });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || "Internal Server Error" }, { status: 500 });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: errorMessage(error) }, { status: 500 });
   }
 }
 
@@ -182,7 +247,7 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    let accessToken = (session as any).accessToken;
+    let accessToken = (session as AniListSession).accessToken;
     if (!accessToken) {
       const account = await prisma.account.findFirst({
         where: { userId: session.user.id, provider: "anilist" },
@@ -253,7 +318,7 @@ export async function DELETE(request: Request) {
     const deleteData = await deleteRes.json();
 
     // Invalidate the KV user-list cache
-    const sessionName = (session as any)?.user?.name;
+    const sessionName = session.user?.name;
     if (sessionName) {
       void kvDelete(`anilist:user-list:name:${sessionName}`);
     }
@@ -262,7 +327,7 @@ export async function DELETE(request: Request) {
       success: true,
       deleted: deleteData?.data?.DeleteMediaListEntry?.deleted || false,
     });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || "Internal Server Error" }, { status: 500 });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: errorMessage(error) }, { status: 500 });
   }
 }

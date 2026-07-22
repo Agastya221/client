@@ -1404,8 +1404,20 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
       href: session.anime.href,
       provider: session.provider,
       anilistId: session.anime.anilistId ?? null,
+      episodeCount: session.anime.episodeCount ?? null,
+      animeStatus: session.anime.status ?? null,
     });
-  }, [session.anime.id, session.anime.title, session.anime.poster, session.anime.href, session.provider, session.episode.number, session.anime.anilistId]);
+  }, [
+    session.anime.anilistId,
+    session.anime.episodeCount,
+    session.anime.href,
+    session.anime.id,
+    session.anime.poster,
+    session.anime.status,
+    session.anime.title,
+    session.episode.number,
+    session.provider,
+  ]);
 
   useEffect(() => {
     const flushProgress = () => {
@@ -1685,6 +1697,20 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
         currentProgress.duration,
       );
       currentProgress.lastPersistedAt = Date.now();
+    } else if (
+      userActivatedPlayerRef.current &&
+      session.source?.kind === "iframe" &&
+      normalizedRequest.episodeNumber === session.episode.number + 1
+    ) {
+      // Cross-origin embeds often expose no time events. Advancing to the next
+      // sequential episode after activating the player is the strongest
+      // completion signal available for those sources.
+      updateEpisodeProgress(
+        session.anime.id,
+        session.episode.number,
+        1,
+        1,
+      );
     }
 
     if (normalizedRequest.episodeNumber !== session.episode.number) {
@@ -2642,6 +2668,19 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                 }}
                 onReady={() => setLoadedSurfaceKey(activePlayerSurfaceKey)}
                 onEpisodeEnd={() => {
+                  const current = playbackProgressRef.current;
+                  const duration =
+                    current.animeId === session.anime.id &&
+                    current.episodeNumber === session.episode.number
+                      ? Math.max(1, current.duration)
+                      : 1;
+                  updateEpisodeProgress(
+                    session.anime.id,
+                    session.episode.number,
+                    1,
+                    duration,
+                  );
+                  current.lastPersistedAt = Date.now();
                   if (autoAdvance && nextEpisode) {
                     queueSession({
                       episodeNumber: nextEpisode.number,
