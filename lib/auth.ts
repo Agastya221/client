@@ -69,18 +69,30 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.accessToken = account.access_token;
       }
       if (profile) {
-        token.id = String(profile.id);
-      } else if (user) {
-        token.id = user.id;
+        token.anilistId = String(profile.id);
+      }
+      if (user?.id && !token.sub) {
+        token.sub = user.id;
       }
       return token;
     },
     async session({ session, token }) {
+      const appSession = session as typeof session & {
+        accessToken?: string;
+        anilistId?: string;
+      };
+
       if (session.user && token) {
-        session.user.id = (token.id as string) || (token.sub as string);
+        // token.sub is the Prisma adapter User.id. The AniList profile ID is a
+        // provider account identifier and cannot be used for database
+        // relations such as Account, WatchHistory, Bookmark, or Comment.
+        session.user.id = token.sub as string;
       }
       if (token.accessToken) {
-        (session as any).accessToken = token.accessToken;
+        appSession.accessToken = token.accessToken as string;
+      }
+      if (token.anilistId) {
+        appSession.anilistId = token.anilistId as string;
       }
       return session;
     },

@@ -1,14 +1,26 @@
 "use client";
 
 import { useEffect } from "react";
+import { useSession } from "next-auth/react";
 import { ensureBookmarksHydrated } from "@/lib/anime/bookmarks";
-import { ensureWatchHistoryHydrated } from "@/lib/anime/watch-history";
+import {
+  ensureWatchHistoryHydrated,
+  setWatchHistoryAuthentication,
+} from "@/lib/anime/watch-history";
 
 export default function WatchHistorySyncClient() {
+  const { status } = useSession();
+
   useEffect(() => {
+    if (status === "loading") return;
+
+    const authenticated = status === "authenticated";
+    setWatchHistoryAuthentication(authenticated);
+    if (!authenticated) return;
+
     void ensureWatchHistoryHydrated();
     void ensureBookmarksHydrated();
-  }, []);
+  }, [status]);
 
   return null;
 }

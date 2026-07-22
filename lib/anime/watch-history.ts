@@ -64,6 +64,27 @@ const acknowledgedAniListProgress = new Map<string, number>();
 
 const ANILIST_SYNC_RETRY_MAX_MS = 30_000;
 
+/**
+ * Keep the background queues aligned with Auth.js instead of trying to infer
+ * authentication from cookies (the session cookie is HttpOnly).
+ *
+ * A user can be classified as a guest while Auth.js is still loading. When the
+ * real session becomes authenticated, immediately resume every pending write,
+ * including AniList progress that was queued before the session resolved.
+ */
+export function setWatchHistoryAuthentication(authenticated: boolean): void {
+  authState = authenticated ? "authenticated" : "guest";
+
+  if (!authenticated || typeof window === "undefined") return;
+
+  if (pendingClear || pendingAnimeRemovals.size > 0 || pendingEpisodeUpserts.size > 0) {
+    queueRemoteFlush();
+  }
+  if (pendingAniListProgress.size > 0) {
+    scheduleAniListFlush();
+  }
+}
+
 function scoreHistoryTitleQuality(title: string | null | undefined): number {
   const normalized = title?.trim();
   if (!normalized) return 0;
