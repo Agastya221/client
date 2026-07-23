@@ -50,7 +50,7 @@ export default async function SearchPage() {
   return (
     <main className="min-h-screen bg-[#0a0b0c] text-white">
       <Navbar />
-      {/* Suspense required because SearchClient uses useSearchParams() */}
+      {/* The same Browse experience is also available as a direct, shareable route. */}
       <Suspense fallback={<Loading />}>
         <SearchClient genres={genres} />
       </Suspense>

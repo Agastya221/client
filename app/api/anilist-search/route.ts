@@ -22,13 +22,21 @@ export async function GET(req: NextRequest) {
   const genre = searchParams.get("genre") || undefined;
   const page = Number(searchParams.get("page")) || 1;
   const sortParam = searchParams.get("sort") || "";
+  const format = searchParams.get("format") || undefined;
+  const status = searchParams.get("status") || undefined;
+  const season = searchParams.get("season") || undefined;
+  const seasonYear = Number(searchParams.get("year")) || undefined;
+  const countryOfOrigin = searchParams.get("language") || undefined;
 
   const sort =
     sortParam === "trending" ? ["TRENDING_DESC"] :
     sortParam === "season" ? ["POPULARITY_DESC"] :
+    sortParam === "score" ? ["SCORE_DESC"] :
+    sortParam === "newest" ? ["START_DATE_DESC"] :
+    sortParam === "title" ? ["TITLE_ROMAJI"] :
     search ? ["SEARCH_MATCH"] : ["POPULARITY_DESC"];
 
-  const current = sortParam === "season" ? getCurrentSeasonAndYear() : undefined;
+  const current = sortParam === "season" && !season && !seasonYear ? getCurrentSeasonAndYear() : undefined;
 
   try {
     const result = await searchAnilist({
@@ -37,8 +45,11 @@ export async function GET(req: NextRequest) {
       page,
       perPage: 24,
       sort,
-      season: current?.season,
-      seasonYear: current?.seasonYear,
+      status,
+      format,
+      season: season || current?.season,
+      seasonYear: seasonYear || current?.seasonYear,
+      countryOfOrigin,
     });
 
     let availabilityHints: Record<number, unknown> = {};

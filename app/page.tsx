@@ -3,6 +3,8 @@ import AnilistCard from "@/components/anilist/AnilistCard";
 import AiringSchedulePanel, { type AiringScheduleDay } from "@/components/anilist/AiringSchedulePanel";
 import ContinueWatchingRail from "@/components/anime/ContinueWatchingRail";
 import FollowedReleaseUpdatesRail from "@/components/anime/FollowedReleaseUpdatesRail";
+import HomeBrowseShell from "@/components/home/HomeBrowseShell";
+import type { HomeViewMode } from "@/lib/home-view";
 import Navbar from "@/components/ui/Navbar";
 import SiteFooter from "@/components/ui/SiteFooter";
 import { getCatalogAvailabilityForMedia, getWatchHrefsFromAvailability } from "@/lib/anilist/availability";
@@ -10,6 +12,7 @@ import { getAnilistHeroAssets } from "@/lib/anilist/hero-assets";
 import {
   getAnilistTrending,
   getAnilistSeasonal,
+  getAnilistGenres,
   searchAnilist,
   anilistTitle,
   anilistRating,
@@ -126,7 +129,7 @@ function SidebarMediaPanel({
   fromAiring?: boolean;
 }) {
   return (
-    <section className="overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0f1012]">
+    <section className="ap-glass-panel overflow-hidden">
       <div className="flex items-center gap-2 border-b border-white/[0.08] p-4">
         <Icon className="h-4 w-4" style={{ color: accentColor }} aria-hidden="true" />
         <h2 className="text-sm font-black uppercase text-white">{title}</h2>
@@ -191,13 +194,22 @@ function SidebarMediaPanel({
   );
 }
 
-export default async function Home() {
-  const [trending, seasonal, airingResult, upcomingResult] = await Promise.all([
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const [query, trending, seasonal, airingResult, upcomingResult, genres] = await Promise.all([
+    searchParams,
     getAnilistTrending(12),
     getAnilistSeasonal(30),
     searchAnilist({ sort: ["POPULARITY_DESC"], status: "RELEASING", perPage: 50 }),
     searchAnilist({ sort: ["POPULARITY_DESC"], status: "NOT_YET_RELEASED", perPage: 5 }),
+    getAnilistGenres().catch(() => [] as string[]),
   ]);
+  const initialMode: HomeViewMode = (
+    Array.isArray(query.view) ? query.view[0] : query.view
+  ) === "browse" ? "browse" : "home";
 
   const airingMedia = airingResult.media.filter((media) => media.nextAiringEpisode);
   const popular = airingMedia.slice(0, 8);
@@ -239,13 +251,18 @@ export default async function Home() {
     <main className="min-h-screen bg-[#0a0b0c] text-[#eaeaea]">
       <Navbar />
 
-      {/* Hero Carousel */}
-      <AnilistHeroCarousel
-        slides={heroSlidesForCarousel}
-        watchHrefs={watchHrefs}
-        availabilityHints={availabilityHints}
-        initialHeroAssets={initialHeroAssets}
-      />
+      <HomeBrowseShell
+        initialMode={initialMode}
+        genres={genres}
+        hero={(
+          <AnilistHeroCarousel
+            slides={heroSlidesForCarousel}
+            watchHrefs={watchHrefs}
+            availabilityHints={availabilityHints}
+            initialHeroAssets={initialHeroAssets}
+          />
+        )}
+      >
 
       {/* Main Content */}
       <div className="w-full px-3 py-8 sm:px-4 sm:py-10 lg:px-12 xl:px-16">
@@ -265,7 +282,7 @@ export default async function Home() {
           <div className="flex min-w-0 flex-col gap-6">
 
             {/* New Airing */}
-            <section className="rounded-2xl border border-white/[0.08] bg-[#0f1012]/85 p-3 sm:p-5">
+            <section className="ap-glass-panel p-3 sm:p-5">
               <SectionHeader
                 title="New Airing"
                 icon={Radio}
@@ -280,7 +297,7 @@ export default async function Home() {
             </section>
 
             {/* Current Season */}
-            <section className="rounded-2xl border border-white/[0.08] bg-[#0f1012]/85 p-3 sm:p-5">
+            <section className="ap-glass-panel p-3 sm:p-5">
               <SectionHeader
                 title="This Season"
                 icon={Zap}
@@ -295,7 +312,7 @@ export default async function Home() {
             </section>
 
             {/* Trending Now */}
-            <section className="rounded-2xl border border-white/[0.08] bg-[#0f1012]/85 p-3 sm:p-5">
+            <section className="ap-glass-panel p-3 sm:p-5">
               <SectionHeader
                 title="Trending Now"
                 icon={Flame}
@@ -310,7 +327,7 @@ export default async function Home() {
             </section>
 
             {/* Browse Genres */}
-            <section className="rounded-2xl border border-white/[0.08] bg-[#0f1012]/85 p-3 sm:p-5">
+            <section className="ap-glass-panel p-3 sm:p-5">
               <SectionHeader title="Browse by Genre" icon={TrendingUp} accentColor="#a855f7" />
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {[
@@ -367,6 +384,7 @@ export default async function Home() {
           </aside>
         </div>
       </div>
+      </HomeBrowseShell>
 
       <SiteFooter />
     </main>

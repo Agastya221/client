@@ -84,7 +84,8 @@ export default function NavigationPendingController({
   useEffect(() => {
     if (committedPathRef.current === pathname) return;
     committedPathRef.current = pathname;
-    finishNavigation();
+    const timer = window.setTimeout(finishNavigation, 0);
+    return () => window.clearTimeout(timer);
   }, [finishNavigation, pathname]);
 
   useEffect(() => {
@@ -97,6 +98,7 @@ export default function NavigationPendingController({
 
       const destination = new URL(anchor.href, window.location.href);
       if (destination.origin !== window.location.origin) return;
+      if (anchor.dataset.homeView && destination.pathname === window.location.pathname) return;
       if (destination.pathname === window.location.pathname && destination.search === window.location.search) return;
 
       if (pendingRef.current) {

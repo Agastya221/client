@@ -25,6 +25,7 @@ const nextConfig: NextConfig = {
   },
   experimental: {
     webpackMemoryOptimizations: true,
+    viewTransition: true,
   },
   // Suppress hydration warnings from browser extensions that inject attributes
   // like bis_skin_checked="1" (Honey, CouponFollow, etc.) into the DOM.

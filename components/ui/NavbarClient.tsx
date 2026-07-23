@@ -5,6 +5,7 @@ import { Search, Shuffle, X, Menu, TrendingUp, Calendar, Radio, Sparkles, Film, 
 import { useRouter, usePathname } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import UserMenu from "@/components/ui/UserMenu";
+import { HOME_VIEW_EVENT, type HomeViewMode } from "@/lib/home-view";
 import { type AnilistMedia, anilistTitle, anilistFormat, anilistYear, encodeAnilistRouteId } from "@/lib/anilist/api";
 import { useNavigationPending } from "@/components/ui/NavigationPendingController";
 
@@ -38,7 +39,7 @@ const NAV_LINKS = [
   { href: "/ongoing", label: "Ongoing", icon: Radio },
   { href: "/new", label: "New", icon: Bell },
   { href: "/updates", label: "Schedule", icon: Calendar },
-  { href: "/search", label: "Browse", icon: Search },
+  { href: "/?view=browse", label: "Browse", icon: Search },
   { href: "/genres", label: "Genres", icon: Tag },
   { href: "/types", label: "Types", icon: Library },
 ];
@@ -55,6 +56,7 @@ export default function NavbarClient({ user }: NavbarClientProps) {
   const [isSearching, setIsSearching] = useState(false);
   const [isDesktopFocused, setDesktopFocused] = useState(false);
   const [isMobileFocused, setMobileFocused] = useState(false);
+  const [homeView, setHomeView] = useState<HomeViewMode>("home");
 
   const desktopSearchRef = useRef<HTMLDivElement>(null);
   const mobileHeaderSearchRef = useRef<HTMLDivElement>(null);
@@ -88,6 +90,26 @@ export default function NavbarClient({ user }: NavbarClientProps) {
   useEffect(() => {
     setMobileMenuOpen(false);
     setMobileSearchActive(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    const syncHomeView = () => {
+      if (window.location.pathname !== "/") {
+        setHomeView("home");
+        return;
+      }
+      setHomeView(new URLSearchParams(window.location.search).get("view") === "browse" ? "browse" : "home");
+    };
+    const handleHomeView = (event: Event) => {
+      setHomeView((event as CustomEvent<{ mode?: HomeViewMode }>).detail?.mode === "browse" ? "browse" : "home");
+    };
+    syncHomeView();
+    window.addEventListener("popstate", syncHomeView);
+    window.addEventListener(HOME_VIEW_EVENT, handleHomeView);
+    return () => {
+      window.removeEventListener("popstate", syncHomeView);
+      window.removeEventListener(HOME_VIEW_EVENT, handleHomeView);
+    };
   }, [pathname]);
 
   // The logo is the most common exit from detail/watch pages. Warm the home
@@ -164,6 +186,16 @@ export default function NavbarClient({ user }: NavbarClientProps) {
     }
   }
 
+  function handleHomeViewClick(event: React.MouseEvent<HTMLAnchorElement>, mode: HomeViewMode) {
+    if (pathname !== "/") return;
+    event.preventDefault();
+    const href = mode === "browse" ? "/?view=browse" : "/";
+    window.history.pushState(null, "", href);
+    window.dispatchEvent(new CustomEvent(HOME_VIEW_EVENT, { detail: { mode } }));
+    setHomeView(mode);
+    setMobileMenuOpen(false);
+  }
+
   const isWatchPage = pathname.includes("/watch");
 
   return (
@@ -195,7 +227,7 @@ export default function NavbarClient({ user }: NavbarClientProps) {
           box-shadow: 0 0 0 1px rgba(255,255,255,0.12);
         }
       `}</style>
-      <nav className="fixed top-0 z-50 w-full">
+      <nav className="fixed top-0 z-50 w-full" style={{ viewTransitionName: "persistent-nav" }}>
         {/* Mobile Search Active Panel */}
         {mobileSearchActive && (
           <div className="flex h-16 w-full items-center px-4 gap-3 lg:hidden animate-slide-down bg-[#0a0b0c]/95 backdrop-blur-xl border-b border-white/5">
@@ -319,8 +351,8 @@ export default function NavbarClient({ user }: NavbarClientProps) {
 
           {/* Pill nav tabs (desktop) — centered */}
           <div className="hidden lg:flex items-center gap-1 bg-white/[0.06] backdrop-blur border border-white/[0.08] rounded-full px-1.5 py-1.5">
-            <Link href="/" className={`nav-pill ${pathname === "/" ? "active" : ""}`}>Home</Link>
-            <Link href="/search" className={`nav-pill ${pathname === "/search" && !pathname.includes("?") ? "active" : ""}`}>Browse</Link>
+            <Link href="/" data-home-view="home" onClick={(event) => handleHomeViewClick(event, "home")} className={`nav-pill ${pathname === "/" && homeView === "home" ? "active" : ""}`}>Home</Link>
+            <Link href="/?view=browse" data-home-view="browse" onClick={(event) => handleHomeViewClick(event, "browse")} className={`nav-pill ${pathname === "/" && homeView === "browse" ? "active" : ""}`}>Browse</Link>
             <Link href="/updates" className={`nav-pill ${pathname === "/updates" ? "active" : ""}`}>Schedule</Link>
             <Link href="/new" className={`nav-pill ${pathname === "/new" ? "active" : ""} !text-[#52ff7f]`}>New</Link>
             <Link href="/ongoing" className={`nav-pill ${pathname === "/ongoing" ? "active" : ""}`}>Ongoing</Link>
@@ -491,6 +523,8 @@ export default function NavbarClient({ user }: NavbarClientProps) {
             <div className="flex-1 overflow-y-auto py-2">
               <Link
                 href="/"
+                data-home-view="home"
+                onClick={(event) => handleHomeViewClick(event, "home")}
                 className="flex items-center gap-3 px-5 py-3.5 text-sm font-semibold text-white/70 hover:text-white hover:bg-white/5 transition-colors"
               >
                 <Home className="w-4 h-4 text-white/40" aria-hidden="true" />
@@ -502,6 +536,8 @@ export default function NavbarClient({ user }: NavbarClientProps) {
                   <Link
                     key={link.href}
                     href={link.href}
+                    data-home-view={link.label === "Browse" ? "browse" : undefined}
+                    onClick={link.label === "Browse" ? (event) => handleHomeViewClick(event, "browse") : undefined}
                     className="flex items-center gap-3 px-5 py-3.5 text-sm font-semibold text-white/70 hover:text-white hover:bg-white/5 transition-colors"
                   >
                     <Icon className="w-4 h-4 text-white/40" aria-hidden="true" />

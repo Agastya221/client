@@ -465,10 +465,10 @@ const POPULAR_QUERY = `
 
 const SEARCH_QUERY = `
   ${MEDIA_FRAGMENT}
-  query Search($search: String, $genre: String, $page: Int, $perPage: Int, $sort: [MediaSort], $status: MediaStatus, $format: MediaFormat, $season: MediaSeason, $seasonYear: Int) {
+  query Search($search: String, $genre: String, $page: Int, $perPage: Int, $sort: [MediaSort], $status: MediaStatus, $format: MediaFormat, $season: MediaSeason, $seasonYear: Int, $countryOfOrigin: CountryCode) {
     Page(page: $page, perPage: $perPage) {
       pageInfo { total currentPage lastPage hasNextPage }
-      media(search: $search, genre: $genre, type: ANIME, sort: $sort, isAdult: false, status: $status, format: $format, season: $season, seasonYear: $seasonYear) {
+      media(search: $search, genre: $genre, type: ANIME, sort: $sort, isAdult: false, status: $status, format: $format, season: $season, seasonYear: $seasonYear, countryOfOrigin: $countryOfOrigin) {
         ...MediaFields
       }
     }
@@ -882,6 +882,9 @@ async function searchJikanAnime(options: {
   sort?: string[];
   status?: string;
   format?: string;
+  season?: string;
+  seasonYear?: number;
+  countryOfOrigin?: string;
 }): Promise<{ media: AnilistMedia[]; pageInfo: AnilistPageInfo }> {
   const page = options.page || 1;
   const perPage = options.perPage || 24;
@@ -1165,6 +1168,7 @@ export async function searchAnilist(options: {
   format?: string;
   season?: string;
   seasonYear?: number;
+  countryOfOrigin?: string;
 }): Promise<{ media: AnilistMedia[]; pageInfo: AnilistPageInfo }> {
   const page = options.page || 1;
   const perPage = options.perPage || 24;
@@ -1180,6 +1184,7 @@ export async function searchAnilist(options: {
     options.format || "",
     options.season || "",
     options.seasonYear || "",
+    options.countryOfOrigin || "",
   ].join(":");
 
   const result = await withCatalogFallback(
@@ -1199,6 +1204,7 @@ export async function searchAnilist(options: {
           format: options.format || undefined,
           season: options.season || undefined,
           seasonYear: options.seasonYear || undefined,
+          countryOfOrigin: options.countryOfOrigin || undefined,
         });
         return {
           media: normalizeAnilistMediaCollection(data?.Page?.media),
@@ -1246,6 +1252,9 @@ export async function searchAnilist(options: {
     sort: ["POPULARITY_DESC"],
     status: options.status,
     format: options.format,
+    season: options.season,
+    seasonYear: options.seasonYear,
+    countryOfOrigin: options.countryOfOrigin,
   });
   const partialMatches = filterAnilistMediaByPartialTitle(catalogPool.media, shortQuery, perPage);
   if (partialMatches.length === 0) return result;

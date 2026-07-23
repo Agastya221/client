@@ -65,8 +65,12 @@ export default function AnilistCard({
         {/* Play button */}
         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
           <div
-            className="w-12 h-12 rounded-full flex items-center justify-center shadow-2xl pl-1"
-            style={{ backgroundColor: accentColor }}
+            className="flex h-12 w-12 items-center justify-center rounded-full border pl-1 shadow-2xl backdrop-blur-md"
+            style={{
+              backgroundColor: `${accentColor}32`,
+              borderColor: `${accentColor}90`,
+              boxShadow: `inset 0 1px 0 rgba(255,255,255,0.15), 0 12px 32px ${accentColor}36`,
+            }}
           >
             <Play className="w-5 h-5 text-white fill-current" />
           </div>
@@ -75,13 +79,20 @@ export default function AnilistCard({
         {/* Top badges */}
         <div className="absolute top-2 left-2 flex flex-col items-start gap-1">
           {isAiring && (
-            <span className="flex items-center gap-1 bg-[#ff5500] text-white text-[9px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-wider">
+            <span
+              className="flex items-center gap-1 rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-wider backdrop-blur-md"
+              style={{
+                backgroundColor: `${accentColor}24`,
+                borderColor: `${accentColor}75`,
+                color: `color-mix(in srgb, ${accentColor} 68%, white)`,
+              }}
+            >
               <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
               AIRING
             </span>
           )}
           {rank && (
-            <span className="bg-black/70 backdrop-blur text-white text-[10px] font-black px-1.5 py-0.5 rounded-md">
+            <span className="ap-glass-pill px-2 py-1 text-[10px] font-black text-white">
               #{rank}
             </span>
           )}
@@ -89,7 +100,7 @@ export default function AnilistCard({
 
         {/* Rating badge */}
         {rating && (
-          <div className="absolute top-2 right-2 flex items-center gap-0.5 bg-black/70 backdrop-blur text-yellow-400 text-[10px] font-black px-1.5 py-0.5 rounded-md">
+          <div className="absolute right-2 top-2 flex items-center gap-0.5 rounded-full border border-amber-300/35 bg-amber-300/15 px-2 py-1 text-[10px] font-black text-amber-300 backdrop-blur-md">
             <Star className="w-2.5 h-2.5 fill-current" />
             {rating}
           </div>
@@ -97,7 +108,7 @@ export default function AnilistCard({
 
         {/* Episodes count bottom right */}
         {media.episodes && (
-          <div className="absolute bottom-2 right-2 bg-black/70 backdrop-blur text-white/80 text-[9px] font-bold px-1.5 py-0.5 rounded-md">
+          <div className="ap-glass-pill absolute bottom-2 right-2 px-2 py-1 text-[9px] font-bold text-white/80">
             {media.nextAiringEpisode
               ? `EP ${media.nextAiringEpisode.episode - 1}/${media.episodes}`
               : `${media.episodes} EPS`}
@@ -121,10 +132,7 @@ export default function AnilistCard({
             {format}
           </span>
           {media.genres[0] && (
-            <span
-              className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
-              style={{ color: accentColor, background: `${accentColor}20` }}
-            >
+            <span className="ap-glass-pill px-2 py-1 text-[9px] font-bold text-white/55">
               {media.genres[0]}
             </span>
           )}

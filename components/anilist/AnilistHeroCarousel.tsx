@@ -9,7 +9,7 @@ import { Play, Bookmark, BookmarkCheck, ChevronLeft, ChevronRight, Star, Calenda
 import Link from "next/link";
 import { getImageProps } from "next/image";
 import { preload } from "react-dom";
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { ViewTransition, startTransition, useEffect, useState, useCallback, useMemo, useRef } from "react";
 
 interface HeroCarouselProps {
   slides: AnilistMedia[];
@@ -34,7 +34,9 @@ export default function AnilistHeroCarousel({
 
   const goTo = useCallback((index: number) => {
     if (deck.length === 0) return;
-    setActiveIndex((index + deck.length) % deck.length);
+    startTransition(() => {
+      setActiveIndex((index + deck.length) % deck.length);
+    });
   }, [deck.length]);
 
   const goPrev = useCallback(() => {
@@ -182,7 +184,8 @@ export default function AnilistHeroCarousel({
   };
 
   return (
-    <section
+    <ViewTransition key={slide.id} name="featured-hero-slide" share="morph" default="none">
+      <section
       className="relative h-[clamp(570px,155vw,640px)] w-full overflow-hidden bg-[#080809] lg:h-[100svh] lg:min-h-[520px]"
       aria-label="Featured anime carousel"
       tabIndex={0}
@@ -563,7 +566,8 @@ export default function AnilistHeroCarousel({
           </div>
         </div>
       </div>
-    </section>
+      </section>
+    </ViewTransition>
   );
 }
 
