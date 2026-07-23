@@ -10,21 +10,23 @@ import {
   ensureWatchHistoryHydrated,
   setWatchHistoryAuthentication,
 } from "@/lib/anime/watch-history";
+import { configureAnilistListEntryCache } from "@/lib/anilist/list-entry-client";
 
 export default function WatchHistorySyncClient() {
-  const { status } = useSession();
+  const { data: session, status } = useSession();
 
   useEffect(() => {
     if (status === "loading") return;
 
     const authenticated = status === "authenticated";
+    configureAnilistListEntryCache(authenticated ? session?.user?.id : null);
     setWatchHistoryAuthentication(authenticated);
     setBookmarksAuthentication(authenticated);
     if (!authenticated) return;
 
     void ensureWatchHistoryHydrated();
     void ensureBookmarksHydrated();
-  }, [status]);
+  }, [session?.user?.id, status]);
 
   return null;
 }

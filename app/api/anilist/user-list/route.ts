@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { kvCached, kvDelete } from "@/lib/cache/kv";
+import { kvCached } from "@/lib/cache/kv";
+import { ANILIST_USER_LIST_CACHE_TTL_SECONDS } from "@/lib/anilist/list-entry-cache";
 
 export async function GET(request: Request) {
   try {
@@ -19,8 +20,8 @@ export async function GET(request: Request) {
     }
 
     // Determine query variables
-    let queryVariables: Record<string, any> | null = null;
-    let query = `
+    let queryVariables: { userId?: number; userName?: string } | null = null;
+    const query = `
       query ($userId: Int, $userName: String) {
         MediaListCollection(userId: $userId, userName: $userName, type: ANIME) {
           lists {
@@ -109,7 +110,7 @@ export async function GET(request: Request) {
 
         return data?.data?.MediaListCollection?.lists ?? [];
       },
-      300, // 5-minute KV cache
+      ANILIST_USER_LIST_CACHE_TTL_SECONDS,
     );
 
     const entries: Array<{
@@ -174,7 +175,9 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json({ entries, total: entries.length, queriedWith: queryVariables });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || "Internal Server Error" }, { status: 500 });
+  } catch (error: unknown) {
+    return NextResponse.json({
+      error: error instanceof Error ? error.message : "Internal Server Error",
+    }, { status: 500 });
   }
 }

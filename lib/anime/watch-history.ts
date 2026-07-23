@@ -20,6 +20,8 @@ import {
   type WatchHistory,
   type WatchHistoryEntry,
 } from "@/lib/anime/watch-history-shared";
+import { writeCachedAnilistListEntry } from "@/lib/anilist/list-entry-client";
+import { fromAnilistListStatus } from "@/lib/anilist/list-status";
 
 const STORAGE_KEY = "animekai:watch-history";
 const MAX_ENTRIES = 100;
@@ -253,7 +255,13 @@ async function flushAniListProgress(): Promise<void> {
 
         const payload = await response.json().catch(() => null) as {
           success?: boolean;
-          entry?: { progress?: number };
+          entry?: {
+            id?: number;
+            mediaId?: number;
+            progress?: number;
+            status?: string;
+            score?: number | null;
+          };
           error?: string;
         } | null;
 
@@ -273,6 +281,15 @@ async function flushAniListProgress(): Promise<void> {
           Number(payload.entry?.progress || 0),
         );
         acknowledgedAniListProgress.set(pending.key, acknowledgedProgress);
+        const cachedMediaId = Number(pending.rawMediaId || payload.entry?.mediaId);
+        if (Number.isInteger(cachedMediaId) && cachedMediaId > 0) {
+          writeCachedAnilistListEntry(cachedMediaId, {
+            id: Number(payload.entry?.id) || null,
+            status: fromAnilistListStatus(payload.entry?.status || pending.status),
+            progress: acknowledgedProgress,
+            score: payload.entry?.score ?? null,
+          });
+        }
         if (pendingAniListProgress.get(pending.key) === pending) {
           pendingAniListProgress.delete(pending.key);
         }

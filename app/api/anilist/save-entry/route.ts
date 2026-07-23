@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { kvDelete } from "@/lib/cache/kv";
+import { kvDelete, kvSet } from "@/lib/cache/kv";
+import { fromAnilistListStatus } from "@/lib/anilist/list-status";
+import {
+  ANILIST_LIST_ENTRY_CACHE_TTL_SECONDS,
+  anilistListEntryCacheKey,
+} from "@/lib/anilist/list-entry-cache";
 
 type AniListSession = {
   accessToken?: string;
@@ -221,6 +226,7 @@ export async function POST(request: Request) {
     if (data.errors && data.errors.length > 0) {
       return NextResponse.json({ error: data.errors[0]?.message || "AniList GraphQL error" }, { status: 400 });
     }
+    const savedEntry = data?.data?.SaveMediaListEntry || null;
 
     // Invalidate the KV user-list cache so next fetch gets fresh data
     const sessionName = session.user?.name;
@@ -230,11 +236,25 @@ export async function POST(request: Request) {
     if (anilistUserId) {
       void kvDelete(`anilist:user-list:id:${anilistUserId}`);
       void kvDelete(`anilist:release-updates:user:${anilistUserId}`);
+      await kvSet(
+        anilistListEntryCacheKey(anilistUserId, mediaId),
+        {
+          entry: savedEntry
+            ? {
+                id: Number(savedEntry.id) || null,
+                status: fromAnilistListStatus(savedEntry.status),
+                progress: Math.max(0, Number(savedEntry.progress || 0)),
+                score: savedEntry.score ?? null,
+              }
+            : null,
+        },
+        ANILIST_LIST_ENTRY_CACHE_TTL_SECONDS,
+      );
     }
 
     return NextResponse.json({
       success: true,
-      entry: data?.data?.SaveMediaListEntry || null,
+      entry: savedEntry,
     });
   } catch (error: unknown) {
     return NextResponse.json({ error: errorMessage(error) }, { status: 500 });
@@ -296,6 +316,13 @@ export async function DELETE(request: Request) {
     const entryId = getData?.data?.Media?.mediaListEntry?.id;
 
     if (!entryId) {
+      if (anilistUserId) {
+        await kvSet(
+          anilistListEntryCacheKey(anilistUserId, mediaId),
+          { entry: null },
+          ANILIST_LIST_ENTRY_CACHE_TTL_SECONDS,
+        );
+      }
       return NextResponse.json({ success: true, message: "Entry was not in AniList list" });
     }
 
@@ -326,6 +353,11 @@ export async function DELETE(request: Request) {
     if (anilistUserId) {
       void kvDelete(`anilist:user-list:id:${anilistUserId}`);
       void kvDelete(`anilist:release-updates:user:${anilistUserId}`);
+      await kvSet(
+        anilistListEntryCacheKey(anilistUserId, mediaId),
+        { entry: null },
+        ANILIST_LIST_ENTRY_CACHE_TTL_SECONDS,
+      );
     }
 
     return NextResponse.json({

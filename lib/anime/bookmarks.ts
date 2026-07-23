@@ -6,6 +6,7 @@ import {
   type BookmarkEntry,
   type BookmarkStore,
 } from "@/lib/anime/bookmarks-shared";
+import { writeCachedAnilistListEntry } from "@/lib/anilist/list-entry-client";
 
 const STORAGE_KEY = "animekai:bookmarks";
 const REMOTE_SYNC_DEBOUNCE_MS = 900;
@@ -199,10 +200,12 @@ export async function ensureBookmarksHydrated(): Promise<void> {
           const anilistData = await anilistRes.json().catch(() => null);
           const anilistEntries: Array<{
             animeId: string;
+            rawId: number;
             title: string;
             poster: string | null;
             href: string;
             status: string;
+            progress: number;
             updatedAt: number;
           }> = anilistData?.entries ?? [];
 
@@ -216,6 +219,14 @@ export async function ensureBookmarksHydrated(): Promise<void> {
               status: entry.status,
               lastUpdated: entry.updatedAt,
             };
+            if (Number.isInteger(entry.rawId) && entry.rawId > 0) {
+              writeCachedAnilistListEntry(entry.rawId, {
+                id: null,
+                status: entry.status as import("@/lib/anilist/list-status").AnimeListStatus,
+                progress: Math.max(0, Number(entry.progress || 0)),
+                score: null,
+              });
+            }
           }
           // AniList is source of truth for status; local store wins on newer timestamp
           merged = mergeBookmarks(anilistStore, merged);

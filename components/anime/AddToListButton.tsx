@@ -22,6 +22,14 @@ import {
   setBookmarksAuthentication,
   subscribeToBookmarks,
 } from "@/lib/anime/bookmarks";
+import {
+  configureAnilistListEntryCache,
+  deleteCachedAnilistListEntry,
+  readCachedAnilistListEntry,
+  writeCachedAnilistListEntry,
+} from "@/lib/anilist/list-entry-client";
+import type { CachedAnilistListEntry } from "@/lib/anilist/list-entry-cache";
+import { fromAnilistListStatus } from "@/lib/anilist/list-status";
 
 interface AddToListButtonProps {
   animeId: string;
@@ -82,6 +90,7 @@ export default function AddToListButton({
     let cancelled = false;
     const controller = new AbortController();
     const authenticated = sessionStatus === "authenticated";
+    configureAnilistListEntryCache(authenticated ? session?.user?.id : null);
     setBookmarksAuthentication(authenticated);
     setChecked(false);
 
@@ -100,11 +109,45 @@ export default function AddToListButton({
       }
 
       try {
+        const applyEntry = (entry: CachedAnilistListEntry) => {
+          const nextStatus = String(entry.status || "PLAN_TO_WATCH");
+          const nextProgress = Math.max(0, Number(entry.progress || 0));
+          setIsBookmarked(true);
+          setCurrentStatus(nextStatus);
+          setProgress(nextProgress);
+          const existing = getBookmarks().find((bookmark) => bookmark.animeId === animeId);
+          if (!existing || existing.status !== nextStatus) {
+            saveBookmark({
+              animeId,
+              title,
+              poster,
+              href,
+              status: nextStatus,
+            });
+          }
+        };
+
+        const cachedBeforeHydration = rawMediaId
+          ? readCachedAnilistListEntry(rawMediaId)
+          : null;
+        if (cachedBeforeHydration) {
+          syncLocalState();
+          if (cachedBeforeHydration.entry) applyEntry(cachedBeforeHydration.entry);
+          void ensureBookmarksHydrated();
+          return;
+        }
+
         await ensureBookmarksHydrated();
         if (cancelled) return;
         syncLocalState();
 
         if (!rawMediaId) return;
+
+        const hydratedEntry = readCachedAnilistListEntry(rawMediaId);
+        if (hydratedEntry) {
+          if (hydratedEntry.entry) applyEntry(hydratedEntry.entry);
+          return;
+        }
 
         const response = await fetch(
           `/api/anilist/list-entry?mediaId=${encodeURIComponent(String(rawMediaId))}`,
@@ -120,19 +163,9 @@ export default function AddToListButton({
         if (cancelled) return;
         const entry = payload?.entry;
         if (entry) {
-          const nextStatus = String(entry.status || "PLAN_TO_WATCH");
-          const nextProgress = Math.max(0, Number(entry.progress || 0));
-          setIsBookmarked(true);
-          setCurrentStatus(nextStatus);
-          setProgress(nextProgress);
-          saveBookmark({
-            animeId,
-            title,
-            poster,
-            href,
-            status: nextStatus,
-          });
+          applyEntry(entry);
         }
+        writeCachedAnilistListEntry(rawMediaId, entry || null);
       } catch (error) {
         if (!(error instanceof DOMException && error.name === "AbortError")) {
           console.error("[AddToListButton] AniList status error:", error);
@@ -147,7 +180,7 @@ export default function AddToListButton({
       cancelled = true;
       controller.abort();
     };
-  }, [animeId, href, poster, rawMediaId, sessionStatus, title]);
+  }, [animeId, href, poster, rawMediaId, session?.user?.id, sessionStatus, title]);
 
   // Quick toggle when clicking main Add to List button
   const handleQuickToggle = async () => {
@@ -171,10 +204,18 @@ export default function AddToListButton({
       });
       setIsBookmarked(true);
       setCurrentStatus("PLAN_TO_WATCH");
+      if (rawMediaId) {
+        writeCachedAnilistListEntry(rawMediaId, {
+          id: null,
+          status: "PLAN_TO_WATCH",
+          progress: 0,
+          score: null,
+        });
+      }
 
       // Sync with AniList if logged in
       if (session?.user) {
-        fetch("/api/anilist/save-entry", {
+        void fetch("/api/anilist/save-entry", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -183,7 +224,26 @@ export default function AddToListButton({
             title,
             status: "PLAN_TO_WATCH",
           }),
-        }).catch((err) => console.error("[AddToListButton] AniList save error:", err));
+        })
+          .then(async (response) => {
+            const payload = await response.json().catch(() => null);
+            if (!response.ok || !payload?.success) {
+              if (rawMediaId) deleteCachedAnilistListEntry(rawMediaId);
+              return;
+            }
+            if (rawMediaId && payload.entry) {
+              writeCachedAnilistListEntry(rawMediaId, {
+                id: Number(payload.entry.id) || null,
+                status: fromAnilistListStatus(payload.entry.status),
+                progress: Math.max(0, Number(payload.entry.progress || 0)),
+                score: payload.entry.score ?? null,
+              });
+            }
+          })
+          .catch((err) => {
+            if (rawMediaId) deleteCachedAnilistListEntry(rawMediaId);
+            console.error("[AddToListButton] AniList save error:", err);
+          });
       }
     } finally {
       setLoading(false);
@@ -210,6 +270,14 @@ export default function AddToListButton({
       setIsBookmarked(true);
       if (newStatus) setCurrentStatus(newStatus);
       if (newProgress !== undefined) setProgress(newProgress);
+      if (rawMediaId) {
+        writeCachedAnilistListEntry(rawMediaId, {
+          id: null,
+          status: targetStatus as CachedAnilistListEntry["status"],
+          progress: targetProgress,
+          score: null,
+        });
+      }
 
       // Sync with AniList if logged in
       if (session?.user) {
@@ -224,12 +292,24 @@ export default function AddToListButton({
             progress: targetProgress,
           }),
         });
-        if (res.ok) {
+        const payload = await res.json().catch(() => null);
+        if (res.ok && payload?.success) {
+          if (rawMediaId && payload.entry) {
+            writeCachedAnilistListEntry(rawMediaId, {
+              id: Number(payload.entry.id) || null,
+              status: fromAnilistListStatus(payload.entry.status),
+              progress: Math.max(0, Number(payload.entry.progress || 0)),
+              score: payload.entry.score ?? null,
+            });
+          }
           setSynced(true);
           setTimeout(() => setSynced(false), 2500);
+        } else if (rawMediaId) {
+          deleteCachedAnilistListEntry(rawMediaId);
         }
       }
     } catch (err) {
+      if (rawMediaId) deleteCachedAnilistListEntry(rawMediaId);
       console.error("[AddToListButton] Update error:", err);
     } finally {
       setLoading(false);
@@ -243,11 +323,19 @@ export default function AddToListButton({
       removeBookmark(animeId);
       setIsBookmarked(false);
       setIsModalOpen(false);
+      if (rawMediaId) writeCachedAnilistListEntry(rawMediaId, null);
 
       if (session?.user) {
-        fetch(`/api/anilist/save-entry?animeId=${encodeURIComponent(animeId)}`, {
+        void fetch(`/api/anilist/save-entry?animeId=${encodeURIComponent(animeId)}`, {
           method: "DELETE",
-        }).catch((err) => console.error("[AddToListButton] AniList delete error:", err));
+        })
+          .then((response) => {
+            if (!response.ok && rawMediaId) deleteCachedAnilistListEntry(rawMediaId);
+          })
+          .catch((err) => {
+            if (rawMediaId) deleteCachedAnilistListEntry(rawMediaId);
+            console.error("[AddToListButton] AniList delete error:", err);
+          });
       }
     } finally {
       setLoading(false);

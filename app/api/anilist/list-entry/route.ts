@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { kvGet, kvSet } from "@/lib/cache/kv";
 import { getAnilistListEntry } from "@/lib/anilist/user";
 import { fromAnilistListStatus } from "@/lib/anilist/list-status";
+import {
+  ANILIST_LIST_ENTRY_CACHE_TTL_SECONDS,
+  anilistListEntryCacheKey,
+  type CachedAnilistListEntryEnvelope,
+} from "@/lib/anilist/list-entry-cache";
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -20,17 +26,22 @@ export async function GET(request: Request) {
       userId: session.user.id,
       provider: "anilist",
     },
-    select: { access_token: true },
+    select: {
+      access_token: true,
+      providerAccountId: true,
+    },
   });
 
-  if (!account?.access_token) {
+  if (!account?.access_token || !account.providerAccountId) {
     return NextResponse.json({ entry: null }, { status: 401 });
   }
 
   try {
-    const entry = await getAnilistListEntry(account.access_token, mediaId);
-    return NextResponse.json(
-      {
+    const cacheKey = anilistListEntryCacheKey(account.providerAccountId, mediaId);
+    let payload = await kvGet<CachedAnilistListEntryEnvelope>(cacheKey);
+    if (!payload) {
+      const entry = await getAnilistListEntry(account.access_token, mediaId);
+      payload = {
         entry: entry
           ? {
               id: entry.id,
@@ -39,7 +50,16 @@ export async function GET(request: Request) {
               score: entry.score ?? null,
             }
           : null,
-      },
+      };
+      await kvSet(
+        cacheKey,
+        payload,
+        ANILIST_LIST_ENTRY_CACHE_TTL_SECONDS,
+      );
+    }
+
+    return NextResponse.json(
+      payload,
       {
         headers: {
           "Cache-Control": "private, no-store",
