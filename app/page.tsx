@@ -2,6 +2,7 @@ import AnilistHeroCarousel from "@/components/anilist/AnilistHeroCarousel";
 import AnilistCard from "@/components/anilist/AnilistCard";
 import AiringSchedulePanel, { type AiringScheduleDay } from "@/components/anilist/AiringSchedulePanel";
 import ContinueWatchingRail from "@/components/anime/ContinueWatchingRail";
+import FollowedReleaseUpdatesRail from "@/components/anime/FollowedReleaseUpdatesRail";
 import Navbar from "@/components/ui/Navbar";
 import SiteFooter from "@/components/ui/SiteFooter";
 import { getCatalogAvailabilityForMedia, getWatchHrefsFromAvailability } from "@/lib/anilist/availability";
@@ -238,6 +239,10 @@ export default async function Home() {
         {/* Continue Watching (client-side, reads localStorage) */}
         <div className="mb-8">
           <ContinueWatchingRail />
+        </div>
+
+        <div className="mb-8">
+          <FollowedReleaseUpdatesRail />
         </div>
 
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">

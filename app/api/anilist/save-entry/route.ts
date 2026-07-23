@@ -5,6 +5,7 @@ import { kvDelete } from "@/lib/cache/kv";
 
 type AniListSession = {
   accessToken?: string;
+  anilistId?: string;
   user?: {
     id?: string | null;
     name?: string | null;
@@ -22,24 +23,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unauthorized: Please sign in with AniList" }, { status: 401 });
     }
 
-    let accessToken = (session as AniListSession).accessToken;
-
-    // Fallback: Check PostgreSQL database Account table if token is missing in JWT
-    if (!accessToken) {
-      const account = await prisma.account.findFirst({
-        where: {
-          userId: session.user.id,
-          provider: "anilist",
-        },
-        select: {
-          access_token: true,
-        },
-      });
-
-      if (account?.access_token) {
-        accessToken = account.access_token;
-      }
-    }
+    const account = await prisma.account.findFirst({
+      where: {
+        userId: session.user.id,
+        provider: "anilist",
+      },
+      select: {
+        access_token: true,
+        providerAccountId: true,
+      },
+    });
+    const accessToken =
+      (session as AniListSession).accessToken || account?.access_token || undefined;
+    const anilistUserId =
+      account?.providerAccountId || (session as AniListSession).anilistId || null;
 
     if (!accessToken) {
       return NextResponse.json({
@@ -230,6 +227,10 @@ export async function POST(request: Request) {
     if (sessionName) {
       void kvDelete(`anilist:user-list:name:${sessionName}`);
     }
+    if (anilistUserId) {
+      void kvDelete(`anilist:user-list:id:${anilistUserId}`);
+      void kvDelete(`anilist:release-updates:user:${anilistUserId}`);
+    }
 
     return NextResponse.json({
       success: true,
@@ -247,14 +248,14 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    let accessToken = (session as AniListSession).accessToken;
-    if (!accessToken) {
-      const account = await prisma.account.findFirst({
-        where: { userId: session.user.id, provider: "anilist" },
-        select: { access_token: true },
-      });
-      if (account?.access_token) accessToken = account.access_token;
-    }
+    const account = await prisma.account.findFirst({
+      where: { userId: session.user.id, provider: "anilist" },
+      select: { access_token: true, providerAccountId: true },
+    });
+    const accessToken =
+      (session as AniListSession).accessToken || account?.access_token || undefined;
+    const anilistUserId =
+      account?.providerAccountId || (session as AniListSession).anilistId || null;
 
     if (!accessToken) {
       return NextResponse.json({ error: "AniList access token missing" }, { status: 401 });
@@ -321,6 +322,10 @@ export async function DELETE(request: Request) {
     const sessionName = session.user?.name;
     if (sessionName) {
       void kvDelete(`anilist:user-list:name:${sessionName}`);
+    }
+    if (anilistUserId) {
+      void kvDelete(`anilist:user-list:id:${anilistUserId}`);
+      void kvDelete(`anilist:release-updates:user:${anilistUserId}`);
     }
 
     return NextResponse.json({

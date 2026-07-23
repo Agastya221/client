@@ -1,6 +1,5 @@
 "use client";
 
-import { hasAuthSessionCookie } from "@/lib/auth-client";
 import {
   bookmarksToList,
   mergeBookmarks,
@@ -28,6 +27,15 @@ let flushTimer: number | null = null;
 let pendingClear = false;
 const pendingRemovals = new Set<string>();
 const pendingUpserts = new Map<string, RemoteBookmarkPayload>();
+
+export function setBookmarksAuthentication(authenticated: boolean): void {
+  authState = authenticated ? "authenticated" : "guest";
+
+  if (!authenticated || typeof window === "undefined") return;
+  if (pendingClear || pendingRemovals.size > 0 || pendingUpserts.size > 0) {
+    queueRemoteFlush();
+  }
+}
 
 function readBookmarks(): BookmarkStore {
   if (typeof window === "undefined") return {};
@@ -82,11 +90,7 @@ function queueBookmarkUpsert(animeId: string): void {
 
 async function flushRemoteSync(): Promise<void> {
   if (typeof window === "undefined") return;
-  if (authState === "unknown" && !hasAuthSessionCookie()) {
-    authState = "guest";
-    return;
-  }
-  if (authState === "guest") return;
+  if (authState !== "authenticated") return;
 
   try {
     if (pendingClear) {
@@ -164,12 +168,8 @@ function rowsToStore(rows: unknown): BookmarkStore {
 
 export async function ensureBookmarksHydrated(): Promise<void> {
   if (typeof window === "undefined") return;
-  if (hasHydratedFromAccount || authState === "guest") return;
+  if (hasHydratedFromAccount || authState !== "authenticated") return;
   if (hydrationPromise) return hydrationPromise;
-  if (!hasAuthSessionCookie()) {
-    authState = "guest";
-    return;
-  }
 
   hydrationPromise = (async () => {
     try {

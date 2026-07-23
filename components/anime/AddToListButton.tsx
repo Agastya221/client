@@ -19,6 +19,7 @@ import {
   isBookmarked as getBookmarkState,
   removeBookmark,
   saveBookmark,
+  setBookmarksAuthentication,
   subscribeToBookmarks,
 } from "@/lib/anime/bookmarks";
 
@@ -50,7 +51,7 @@ export default function AddToListButton({
   totalEpisodes,
   rawMediaId,
 }: AddToListButtonProps) {
-  const session = useSession()?.data;
+  const { data: session, status: sessionStatus } = useSession();
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [currentStatus, setCurrentStatus] = useState<string>("PLAN_TO_WATCH");
   const [progress, setProgress] = useState<number>(0);
@@ -69,14 +70,84 @@ export default function AddToListButton({
       if (match) {
         setCurrentStatus(match.status || "PLAN_TO_WATCH");
       }
-      setChecked(true);
     };
 
     syncState();
-    void ensureBookmarksHydrated().finally(syncState);
-
     return subscribeToBookmarks(syncState);
   }, [animeId]);
+
+  useEffect(() => {
+    if (sessionStatus === "loading") return;
+
+    let cancelled = false;
+    const controller = new AbortController();
+    const authenticated = sessionStatus === "authenticated";
+    setBookmarksAuthentication(authenticated);
+    setChecked(false);
+
+    const syncLocalState = () => {
+      const all = getBookmarks();
+      const match = all.find((bookmark) => bookmark.animeId === animeId);
+      setIsBookmarked(Boolean(match));
+      if (match) setCurrentStatus(match.status || "PLAN_TO_WATCH");
+    };
+
+    async function resolveListState() {
+      if (!authenticated) {
+        syncLocalState();
+        if (!cancelled) setChecked(true);
+        return;
+      }
+
+      try {
+        await ensureBookmarksHydrated();
+        if (cancelled) return;
+        syncLocalState();
+
+        if (!rawMediaId) return;
+
+        const response = await fetch(
+          `/api/anilist/list-entry?mediaId=${encodeURIComponent(String(rawMediaId))}`,
+          {
+            cache: "no-store",
+            credentials: "same-origin",
+            signal: controller.signal,
+          },
+        );
+        if (!response.ok) return;
+
+        const payload = await response.json();
+        if (cancelled) return;
+        const entry = payload?.entry;
+        if (entry) {
+          const nextStatus = String(entry.status || "PLAN_TO_WATCH");
+          const nextProgress = Math.max(0, Number(entry.progress || 0));
+          setIsBookmarked(true);
+          setCurrentStatus(nextStatus);
+          setProgress(nextProgress);
+          saveBookmark({
+            animeId,
+            title,
+            poster,
+            href,
+            status: nextStatus,
+          });
+        }
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          console.error("[AddToListButton] AniList status error:", error);
+        }
+      } finally {
+        if (!cancelled) setChecked(true);
+      }
+    }
+
+    void resolveListState();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [animeId, href, poster, rawMediaId, sessionStatus, title]);
 
   // Quick toggle when clicking main Add to List button
   const handleQuickToggle = async () => {

@@ -57,6 +57,62 @@ const GET_VIEWER_ID_QUERY = `
   query { Viewer { id } }
 `;
 
+const LIST_ENTRY_QUERY = `
+  query ListEntry($mediaId: Int) {
+    Media(id: $mediaId, type: ANIME) {
+      mediaListEntry {
+        id
+        status
+        progress
+        score
+      }
+    }
+  }
+`;
+
+const FOLLOWED_RELEASES_QUERY = `
+  query FollowedReleases($userId: Int) {
+    MediaListCollection(userId: $userId, type: ANIME) {
+      lists {
+        entries {
+          status
+          progress
+          updatedAt
+          media {
+            id
+            title { userPreferred english romaji }
+            coverImage { extraLarge large color }
+            bannerImage
+            format
+            episodes
+            status
+            seasonYear
+            startDate { year month day }
+            nextAiringEpisode { episode airingAt }
+            relations {
+              edges {
+                relationType
+                node {
+                  id
+                  title { userPreferred english romaji }
+                  coverImage { extraLarge large color }
+                  bannerImage
+                  format
+                  episodes
+                  status
+                  seasonYear
+                  startDate { year month day }
+                  nextAiringEpisode { episode airingAt }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 async function anilistUserQuery<T>(
@@ -154,6 +210,49 @@ export async function getAnilistWatchingList(
   } catch {
     return [];
   }
+}
+
+export type AnilistListEntry = {
+  id: number;
+  status: string;
+  progress: number;
+  score: number | null;
+};
+
+/**
+ * Read the signed-in viewer's list entry for one anime.
+ * AniList exposes mediaListEntry only when the request is authenticated.
+ */
+export async function getAnilistListEntry(
+  accessToken: string,
+  mediaId: number,
+): Promise<AnilistListEntry | null> {
+  const data = await anilistUserQuery<{
+    Media: {
+      mediaListEntry: AnilistListEntry | null;
+    } | null;
+  }>(accessToken, LIST_ENTRY_QUERY, { mediaId });
+
+  return data.Media?.mediaListEntry ?? null;
+}
+
+/**
+ * Fetch list entries plus sequel/airing metadata used by the personalized
+ * release rail. The caller caches the derived result, not the OAuth token.
+ */
+export async function getAnilistFollowedReleaseEntries(
+  accessToken: string,
+  userId: number,
+) {
+  const data = await anilistUserQuery<{
+    MediaListCollection: {
+      lists: Array<{
+        entries: import("@/lib/anilist/release-updates").FollowedReleaseListEntry[];
+      }>;
+    } | null;
+  }>(accessToken, FOLLOWED_RELEASES_QUERY, { userId });
+
+  return data.MediaListCollection?.lists?.flatMap((list) => list.entries) ?? [];
 }
 
 /**

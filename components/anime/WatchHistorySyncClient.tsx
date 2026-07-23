@@ -2,7 +2,10 @@
 
 import { useEffect } from "react";
 import { useSession } from "next-auth/react";
-import { ensureBookmarksHydrated } from "@/lib/anime/bookmarks";
+import {
+  ensureBookmarksHydrated,
+  setBookmarksAuthentication,
+} from "@/lib/anime/bookmarks";
 import {
   ensureWatchHistoryHydrated,
   setWatchHistoryAuthentication,
@@ -16,6 +19,7 @@ export default function WatchHistorySyncClient() {
 
     const authenticated = status === "authenticated";
     setWatchHistoryAuthentication(authenticated);
+    setBookmarksAuthentication(authenticated);
     if (!authenticated) return;
 
     void ensureWatchHistoryHydrated();
