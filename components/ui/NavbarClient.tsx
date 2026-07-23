@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { Search, Shuffle, X, Menu, TrendingUp, Calendar, Radio, Sparkles, Film, Home, Bell, Tag, Library, Bookmark, History, LoaderCircle, Star, Users } from "lucide-react";
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { Search, Shuffle, X, Menu, TrendingUp, Calendar, Radio, Sparkles, Film, Home, Bell, Tag, Library, Bookmark, History, LoaderCircle, Star } from "lucide-react";
+import { useRouter, usePathname } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import UserMenu from "@/components/ui/UserMenu";
 import { type AnilistMedia, anilistTitle, anilistFormat, anilistYear, encodeAnilistRouteId } from "@/lib/anilist/api";
@@ -47,8 +47,6 @@ export default function NavbarClient({ user }: NavbarClientProps) {
   const { beginNavigation } = useNavigationPending();
   const router = useRouter();
   const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const sortParam = searchParams.get("sort");
   const [resolvedUser, setResolvedUser] = useState<NavbarUser | null>(user);
   const [searchValue, setSearchValue] = useState("");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -178,11 +176,29 @@ export default function NavbarClient({ user }: NavbarClientProps) {
         .animate-slide-down {
           animation: slideDown 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
+        .nav-pill {
+          padding: 0.4rem 0.85rem;
+          border-radius: 9999px;
+          font-size: 0.75rem;
+          font-weight: 700;
+          letter-spacing: 0.025em;
+          transition: all 0.15s ease;
+          color: rgba(255,255,255,0.6);
+        }
+        .nav-pill:hover {
+          color: white;
+          background: rgba(255,255,255,0.08);
+        }
+        .nav-pill.active {
+          color: white;
+          background: rgba(255,255,255,0.12);
+          box-shadow: 0 0 0 1px rgba(255,255,255,0.12);
+        }
       `}</style>
-      <nav className="fixed top-0 z-50 w-full border-b border-white/5 bg-[#0a0b0c]/90 backdrop-blur-md">
+      <nav className="fixed top-0 z-50 w-full">
         {/* Mobile Search Active Panel */}
         {mobileSearchActive && (
-          <div className="flex h-16 w-full items-center px-4 gap-3 lg:hidden animate-slide-down">
+          <div className="flex h-16 w-full items-center px-4 gap-3 lg:hidden animate-slide-down bg-[#0a0b0c]/95 backdrop-blur-xl border-b border-white/5">
             <button
               type="button"
               onClick={() => {
@@ -217,7 +233,7 @@ export default function NavbarClient({ user }: NavbarClientProps) {
               )}
 
               {isMobileFocused && searchValue.trim() && (
-                <div className="absolute top-full left-0 right-0 z-50 mt-1 max-h-[calc(100vh-5rem)] overflow-y-auto rounded-2xl border border-white/10 bg-[#0f1012]/98 p-2 shadow-2xl flex flex-col gap-1">
+                <div className="absolute top-full left-0 right-0 z-50 mt-1 rounded-2xl border border-white/10 bg-[#0f1012]/98 p-2 shadow-2xl flex flex-col gap-1">
                   {isSearching ? (
                     <div className="flex items-center justify-center py-6 gap-2 text-white/50 text-sm">
                       <LoaderCircle className="w-5 h-5 animate-spin text-[#52ff7f]" aria-hidden="true" />
@@ -284,9 +300,9 @@ export default function NavbarClient({ user }: NavbarClientProps) {
           </div>
         )}
 
-        <div className={`h-16 w-full items-center justify-between px-4 lg:px-12 xl:px-16 gap-6 ${mobileSearchActive ? "hidden lg:flex" : "flex"}`}>
+        <div className={`h-16 w-full items-center justify-between px-4 lg:px-12 xl:px-16 gap-6 bg-[#0a0b0c]/90 lg:bg-transparent backdrop-blur-lg lg:backdrop-blur-none ${mobileSearchActive ? "hidden lg:flex" : "flex"}`}>
           {/* Logo */}
-          <div className="flex shrink-0 items-center gap-3 lg:gap-8">
+          <div className="flex shrink-0 items-center gap-3">
             <button
               type="button"
               onClick={() => setMobileMenuOpen(true)}
@@ -299,47 +315,67 @@ export default function NavbarClient({ user }: NavbarClientProps) {
               <span className="text-white">Anime</span>
               <span className="text-[#52ff7f]">PLAY</span>
             </Link>
+          </div>
 
+          {/* Pill nav tabs (desktop) — centered */}
+          <div className="hidden lg:flex items-center gap-1 bg-white/[0.06] backdrop-blur border border-white/[0.08] rounded-full px-1.5 py-1.5">
+            <Link href="/" className={`nav-pill ${pathname === "/" ? "active" : ""}`}>Home</Link>
+            <Link href="/search" className={`nav-pill ${pathname === "/search" && !pathname.includes("?") ? "active" : ""}`}>Browse</Link>
+            <Link href="/updates" className={`nav-pill ${pathname === "/updates" ? "active" : ""}`}>Schedule</Link>
+            <Link href="/new" className={`nav-pill ${pathname === "/new" ? "active" : ""} !text-[#52ff7f]`}>New</Link>
+            <Link href="/ongoing" className={`nav-pill ${pathname === "/ongoing" ? "active" : ""}`}>Ongoing</Link>
+            <Link href="/genres" className={`nav-pill ${pathname.startsWith("/genres") ? "active" : ""}`}>Genres</Link>
+            <Link href="/types" className={`nav-pill ${pathname === "/types" ? "active" : ""}`}>Types</Link>
+          </div>
+
+          {/* Right: search + shuffle + user */}
+          <div className="hidden lg:flex items-center gap-2">
             {/* Search bar (desktop) */}
-            <div ref={desktopSearchRef} className={`relative hidden lg:block flex-1 transition-all duration-300 ease-out ${isDesktopFocused ? "max-w-[320px]" : "max-w-[200px]"}`}>
-              <form
-                onSubmit={handleSearch}
-                className="flex items-center gap-2 rounded-full bg-white/5 hover:bg-white/8 px-4 py-2 border border-white/5 hover:border-white/10 w-full transition-all"
-              >
-                <Search className="w-4 h-4 text-white/40 shrink-0" aria-hidden="true" />
-                <input
-                  id="navbar-search"
-                  name="q"
-                  type="text"
-                  value={searchValue}
-                  onFocus={() => setDesktopFocused(true)}
-                  onChange={(e) => setSearchValue(e.target.value)}
-                  placeholder="Search anime…"
-                  className="bg-transparent text-sm text-white focus:outline-none w-full placeholder:text-white/30"
-                />
-                {searchValue && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchValue("")}
-                    className="shrink-0"
-                    aria-label="Clear search input"
-                  >
-                    <X className="w-3.5 h-3.5 text-white/40 hover:text-white transition-colors" aria-hidden="true" />
-                  </button>
-                )}
-              </form>
+            <div ref={desktopSearchRef} className={`relative transition-all duration-300 ease-out ${isDesktopFocused ? "w-[260px]" : "w-9"}`}>
+              {isDesktopFocused ? (
+                <form
+                  onSubmit={handleSearch}
+                  className="flex items-center gap-2 rounded-full bg-white/8 px-3 py-1.5 border border-white/10 w-full transition-all animate-slide-down"
+                >
+                  <Search className="w-4 h-4 text-white/50 shrink-0" aria-hidden="true" />
+                  <input
+                    id="navbar-search"
+                    name="q"
+                    type="text"
+                    value={searchValue}
+                    autoFocus
+                    onFocus={() => setDesktopFocused(true)}
+                    onBlur={() => { if (!searchValue) setDesktopFocused(false); }}
+                    onChange={(e) => setSearchValue(e.target.value)}
+                    placeholder="Search anime…"
+                    className="bg-transparent text-sm text-white focus:outline-none w-full placeholder:text-white/30"
+                  />
+                  {searchValue && (
+                    <button type="button" onClick={() => setSearchValue("")} className="shrink-0" aria-label="Clear search">
+                      <X className="w-3.5 h-3.5 text-white/40 hover:text-white transition-colors" aria-hidden="true" />
+                    </button>
+                  )}
+                </form>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setDesktopFocused(true)}
+                  className="w-9 h-9 rounded-full bg-white/[0.07] hover:bg-white/[0.12] flex items-center justify-center border border-white/[0.08] transition-all"
+                  aria-label="Search"
+                >
+                  <Search className="w-4 h-4 text-white/70" aria-hidden="true" />
+                </button>
+              )}
 
               {isDesktopFocused && searchValue.trim() && (
-                <div className="absolute top-full left-0 z-50 mt-2.5 w-[480px] max-w-[calc(100vw-32px)] rounded-2xl border border-white/10 bg-[#0c0d0f]/85 backdrop-blur-xl p-3 shadow-[0_20px_50px_rgba(0,0,0,0.55)] flex flex-col gap-1.5 animate-slide-down">
+                <div className="absolute top-full right-0 z-50 mt-2 w-[420px] max-w-[calc(100vw-32px)] rounded-2xl border border-white/10 bg-[#0c0d0f]/95 backdrop-blur-xl p-3 shadow-[0_20px_50px_rgba(0,0,0,0.6)] flex flex-col gap-1.5 animate-slide-down">
                   {isSearching ? (
                     <div className="flex items-center justify-center py-8 gap-2.5 text-white/60 text-sm">
                       <LoaderCircle className="w-5 h-5 animate-spin text-[#52ff7f]" aria-hidden="true" />
-                      <span className="font-medium">Searching AniList catalog…</span>
+                      <span className="font-medium">Searching…</span>
                     </div>
                   ) : suggestions.length === 0 ? (
-                    <div className="py-6 text-center text-sm text-white/40 font-medium">
-                      No anime found matching your query
-                    </div>
+                    <div className="py-6 text-center text-sm text-white/40 font-medium">No anime found</div>
                   ) : (
                     <>
                       <div className="flex flex-col gap-1">
@@ -352,25 +388,15 @@ export default function NavbarClient({ user }: NavbarClientProps) {
                             <Link
                               key={media.id}
                               href={href}
-                              onClick={() => {
-                                setSearchValue("");
-                                setDesktopFocused(false);
-                              }}
+                              onClick={() => { setSearchValue(""); setDesktopFocused(false); }}
                               className="flex items-center gap-3.5 rounded-xl p-2.5 hover:bg-white/5 border border-transparent hover:border-white/5 transition-all group duration-200"
                             >
                               <div className="relative h-16 w-11 shrink-0 overflow-hidden rounded-lg bg-white/5 ring-1 ring-white/10">
-                                <img
-                                  src={media.coverImage.medium || media.coverImage.large}
-                                  alt=""
-                                  className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300"
-                                  loading="lazy"
-                                />
+                                <img src={media.coverImage.medium || media.coverImage.large} alt="" className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300" loading="lazy" />
                               </div>
                               <div className="flex flex-col min-w-0 flex-1 text-left gap-0.5">
                                 <div className="flex items-start justify-between gap-3">
-                                  <span className="text-sm font-bold text-white group-hover:text-[#52ff7f] transition-colors truncate">
-                                    {title}
-                                  </span>
+                                  <span className="text-sm font-bold text-white group-hover:text-[#52ff7f] transition-colors truncate">{title}</span>
                                   {media.averageScore && (
                                     <span className="flex items-center gap-0.5 text-amber-400 font-semibold text-xs shrink-0 bg-amber-400/10 px-1.5 py-0.5 rounded border border-amber-400/15">
                                       ★ {(media.averageScore / 10).toFixed(1)}
@@ -383,14 +409,9 @@ export default function NavbarClient({ user }: NavbarClientProps) {
                                   {media.episodes && <span>• {media.episodes} EP</span>}
                                 </div>
                                 {media.genres && media.genres.length > 0 && (
-                                  <div className="flex items-center gap-1.5 mt-1 flex-wrap shrink-0">
+                                  <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                                     {media.genres.slice(0, 2).map((genre) => (
-                                      <span
-                                        key={genre}
-                                        className="text-[9px] font-bold tracking-wider uppercase text-white/50 bg-white/5 border border-white/5 px-1.5 py-0.5 rounded"
-                                      >
-                                        {genre}
-                                      </span>
+                                      <span key={genre} className="text-[9px] font-bold tracking-wider uppercase text-white/50 bg-white/5 border border-white/5 px-1.5 py-0.5 rounded">{genre}</span>
                                     ))}
                                   </div>
                                 )}
@@ -400,14 +421,8 @@ export default function NavbarClient({ user }: NavbarClientProps) {
                         })}
                       </div>
                       <div className="border-t border-white/5 mt-1.5 pt-1.5">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            handleSearch(e);
-                            setDesktopFocused(false);
-                          }}
-                          className="w-full text-center py-2 text-xs font-extrabold tracking-wider uppercase text-[#52ff7f] hover:text-[#3eff6c] transition-colors hover:underline flex items-center justify-center gap-1"
-                        >
+                        <button type="button" onClick={(e) => { handleSearch(e); setDesktopFocused(false); }}
+                          className="w-full text-center py-2 text-xs font-extrabold tracking-wider uppercase text-[#52ff7f] hover:text-[#3eff6c] transition-colors hover:underline flex items-center justify-center gap-1">
                           See all results
                         </button>
                       </div>
@@ -416,42 +431,11 @@ export default function NavbarClient({ user }: NavbarClientProps) {
                 </div>
               )}
             </div>
-          </div>
 
-          {/* Nav links (desktop) */}
-          <div className="hidden lg:flex items-center gap-5 text-xs font-bold uppercase tracking-wider text-white/50">
-            {NAV_LINKS.map((link) => {
-              const isActive = link.href.includes("?")
-                ? (link.href === `/search?sort=${sortParam}`)
-                : link.href === "/search"
-                ? (pathname === "/search" && !sortParam)
-                : (pathname === link.href || (link.href !== "/" && pathname.startsWith(link.href)));
-              return (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  className={`nav-link transition-colors relative py-1 ${
-                    isActive
-                      ? "active text-[#52ff7f] font-extrabold"
-                      : link.href === "/new"
-                      ? "text-emerald-400 hover:text-white"
-                      : "hover:text-white"
-                  }`}
-                >
-                  {link.label}
-                  {isActive && (
-                    <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#52ff7f] rounded-full shadow-[0_0_8px_#52ff7f]" />
-                  )}
-                </Link>
-              );
-            })}
-
-            <div className="flex items-center gap-3 ml-2 border-l border-white/10 pl-5">
-              <Link href="/random" className="hover:text-white transition-colors" aria-label="Random anime">
-                <Shuffle className="w-4 h-4" aria-hidden="true" />
-              </Link>
-              <UserMenu user={resolvedUser} />
-            </div>
+            <Link href="/random" className="w-9 h-9 rounded-full bg-white/[0.07] hover:bg-white/[0.12] flex items-center justify-center border border-white/[0.08] transition-all" aria-label="Random anime">
+              <Shuffle className="w-4 h-4 text-white/70" aria-hidden="true" />
+            </Link>
+            <UserMenu user={resolvedUser} />
           </div>
 
           {/* Mobile: hamburger + user */}
@@ -540,13 +524,6 @@ export default function NavbarClient({ user }: NavbarClientProps) {
                 >
                   <History className="w-4 h-4 text-white/40 shrink-0" aria-hidden="true" />
                   Watch History
-                </Link>
-                <Link
-                  href="/watch-party"
-                  className="flex items-center gap-3 px-5 py-3.5 text-sm font-semibold text-white/70 hover:text-white hover:bg-white/5 transition-colors"
-                >
-                  <Users className="w-4 h-4 text-[#ff5500] shrink-0" aria-hidden="true" />
-                  Watch Together
                 </Link>
               </div>
             </div>

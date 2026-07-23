@@ -6,6 +6,7 @@ import FollowedReleaseUpdatesRail from "@/components/anime/FollowedReleaseUpdate
 import Navbar from "@/components/ui/Navbar";
 import SiteFooter from "@/components/ui/SiteFooter";
 import { getCatalogAvailabilityForMedia, getWatchHrefsFromAvailability } from "@/lib/anilist/availability";
+import { getAnilistHeroAssets } from "@/lib/anilist/hero-assets";
 import {
   getAnilistTrending,
   getAnilistSeasonal,
@@ -217,21 +218,34 @@ export default async function Home() {
     .slice(0, 8)
     .concat(trending.filter((m) => !m.bannerImage).slice(0, 3));
   const heroSlidesForCarousel = heroSlides.slice(0, 10);
-  const availabilityHints = await getCatalogAvailabilityForMedia([
-    ...heroSlidesForCarousel,
-    ...newAiring,
-    ...seasonHighlights,
-    ...trending.slice(0, 10),
-    ...popular,
+  const [availabilityHints, initialHeroAsset] = await Promise.all([
+    getCatalogAvailabilityForMedia([
+      ...heroSlidesForCarousel,
+      ...newAiring,
+      ...seasonHighlights,
+      ...trending.slice(0, 10),
+      ...popular,
+    ]),
+    heroSlidesForCarousel[0]
+      ? getAnilistHeroAssets(heroSlidesForCarousel[0].id)
+      : Promise.resolve({ logo: null, backdrop: null }),
   ]);
   const watchHrefs = getWatchHrefsFromAvailability(availabilityHints);
+  const initialHeroAssets = heroSlidesForCarousel[0]
+    ? { [heroSlidesForCarousel[0].id]: initialHeroAsset }
+    : {};
 
   return (
     <main className="min-h-screen bg-[#0a0b0c] text-[#eaeaea]">
       <Navbar />
 
       {/* Hero Carousel */}
-      <AnilistHeroCarousel slides={heroSlidesForCarousel} watchHrefs={watchHrefs} availabilityHints={availabilityHints} />
+      <AnilistHeroCarousel
+        slides={heroSlidesForCarousel}
+        watchHrefs={watchHrefs}
+        availabilityHints={availabilityHints}
+        initialHeroAssets={initialHeroAssets}
+      />
 
       {/* Main Content */}
       <div className="w-full px-3 py-8 sm:px-4 sm:py-10 lg:px-12 xl:px-16">

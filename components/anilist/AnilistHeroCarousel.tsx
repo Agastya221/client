@@ -1,10 +1,11 @@
 "use client";
 
 import { type AnilistMedia, anilistTitle, anilistRating, encodeAnilistRouteId } from "@/lib/anilist/api";
+import type { AnilistHeroAssets } from "@/lib/anilist/hero-assets";
 import type { CatalogAvailabilityHint } from "@/lib/anime/api";
 import { isBookmarked, saveBookmark, removeBookmark, subscribeToBookmarks } from "@/lib/anime/bookmarks";
 import WatchIntentLink from "@/components/anime/WatchIntentLink";
-import { Play, Bookmark, BookmarkCheck, ChevronLeft, ChevronRight, Star, Calendar, Tv } from "lucide-react";
+import { Play, Bookmark, BookmarkCheck, ChevronLeft, ChevronRight, Star, Calendar, Tv, Info, Clock, Layers3 } from "lucide-react";
 import Link from "next/link";
 import { getImageProps } from "next/image";
 import { preload } from "react-dom";
@@ -14,14 +15,22 @@ interface HeroCarouselProps {
   slides: AnilistMedia[];
   watchHrefs?: Record<string, string>;
   availabilityHints?: Record<string, CatalogAvailabilityHint>;
+  initialHeroAssets?: Record<number, AnilistHeroAssets>;
 }
 
-export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHints }: HeroCarouselProps) {
+export default function AnilistHeroCarousel({
+  slides,
+  watchHrefs,
+  availabilityHints,
+  initialHeroAssets = {},
+}: HeroCarouselProps) {
   const deck = useMemo(() => slides.slice(0, 10), [slides]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [bookmarked, setBookmarked] = useState(false);
-  const [titleLogos, setTitleLogos] = useState<Record<number, string | null>>({});
-  const requestedLogoIdsRef = useRef(new Set<number>());
+  const [heroAssets, setHeroAssets] = useState<Record<number, AnilistHeroAssets>>(initialHeroAssets);
+  const requestedAssetIdsRef = useRef(
+    new Set(Object.keys(initialHeroAssets).map((id) => Number(id))),
+  );
 
   const goTo = useCallback((index: number) => {
     if (deck.length === 0) return;
@@ -48,15 +57,42 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
     if (deck.length === 0) return;
     for (const item of deck) {
       const id = item.id;
-      if (!id || requestedLogoIdsRef.current.has(id)) continue;
-      requestedLogoIdsRef.current.add(id);
+      if (!id || requestedAssetIdsRef.current.has(id)) continue;
+      requestedAssetIdsRef.current.add(id);
       void fetch(`/api/anilist/title-logo?id=${id}`)
-        .then((response) => (response.ok ? (response.json() as Promise<{ logo?: string | null }>) : null))
+        .then((response) => (
+          response.ok
+            ? (response.json() as Promise<Partial<AnilistHeroAssets>>)
+            : null
+        ))
         .then((payload) => {
-          setTitleLogos((current) => ({ ...current, [id]: payload?.logo || null }));
+          const assets = {
+            logo: payload?.logo || null,
+            backdrop: payload?.backdrop || null,
+          };
+
+          if (assets.backdrop) {
+            const preloadBackdrop = getImageProps({
+              src: assets.backdrop,
+              alt: "",
+              fill: true,
+              quality: 90,
+              sizes: "100vw",
+            }).props;
+            preload(preloadBackdrop.src, {
+              as: "image",
+              imageSrcSet: preloadBackdrop.srcSet,
+              imageSizes: preloadBackdrop.sizes,
+            });
+          }
+
+          setHeroAssets((current) => ({ ...current, [id]: assets }));
         })
         .catch(() => {
-          setTitleLogos((current) => ({ ...current, [id]: null }));
+          setHeroAssets((current) => ({
+            ...current,
+            [id]: { logo: null, backdrop: null },
+          }));
         });
     }
   }, [deck]);
@@ -94,37 +130,37 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
   const watchHref = watchHrefs?.[String(slide.id)] || null;
   const availability = availabilityHints?.[String(slide.id)] || null;
   const description = slide.description?.replace(/<[^>]*>/g, "").slice(0, 180) || "";
-  const studios = slide.studios.nodes.map((s) => s.name).join(", ");
   const accentColor = slide.coverImage.color || "#ff5500";
   const isAiring = slide.status === "RELEASING";
-  const titleLogoState = titleLogos[slide.id];
+  const activeHeroAssets = heroAssets[slide.id];
+  const titleLogoState = activeHeroAssets?.logo;
   const desktopBackdrop = getImageProps({
-    src: slide.bannerImage || slide.coverImage.extraLarge,
+    src: activeHeroAssets?.backdrop || slide.bannerImage || slide.coverImage.extraLarge,
     alt: title,
     fill: true,
-    quality: 85,
+    quality: 90,
     sizes: "100vw",
   }).props;
   const mobileBackdrop = getImageProps({
     src: slide.coverImage.extraLarge || slide.bannerImage || "",
     alt: title,
     fill: true,
-    quality: 80,
-    sizes: "67vw",
+    quality: 85,
+    sizes: "100vw",
   }).props;
   preload(desktopBackdrop.src, {
     as: "image",
     fetchPriority: "high",
     imageSrcSet: desktopBackdrop.srcSet,
     imageSizes: desktopBackdrop.sizes,
-    media: "(min-width: 1024px)",
+    media: "(min-width: 768px)",
   });
   preload(mobileBackdrop.src, {
     as: "image",
     fetchPriority: "high",
     imageSrcSet: mobileBackdrop.srcSet,
     imageSizes: mobileBackdrop.sizes,
-    media: "(max-width: 1023px)",
+    media: "(max-width: 767px)",
   });
   const watchEpisode = slide.status === "RELEASING" && slide.nextAiringEpisode
     ? Math.max(1, slide.nextAiringEpisode.episode - 1)
@@ -147,7 +183,8 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
 
   return (
     <section
-      className="relative w-full overflow-hidden bg-[#0a0b0c]"
+      className="relative w-full overflow-hidden bg-[#080809]"
+      style={{ height: "100svh", minHeight: "520px" }}
       aria-label="Featured anime carousel"
       tabIndex={0}
       onKeyDown={(e) => {
@@ -157,65 +194,47 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
-      <div key={`backdrop-${slide.id}`} className="absolute inset-y-0 right-0 z-0 w-2/3 overflow-hidden lg:inset-0 lg:w-full">
-        <picture>
-          <source media="(max-width: 1023px)" srcSet={mobileBackdrop.srcSet} sizes={mobileBackdrop.sizes} />
-          <source media="(min-width: 1024px)" srcSet={desktopBackdrop.srcSet} sizes={desktopBackdrop.sizes} />
+      {/* ── Full-viewport background image ─────────────────────────────────── */}
+      <div key={`backdrop-${slide.id}`} className="absolute inset-0 z-0">
+        <picture className="absolute inset-0">
+          <source media="(max-width: 767px)" srcSet={mobileBackdrop.srcSet} sizes={mobileBackdrop.sizes} />
+          <source media="(min-width: 768px)" srcSet={desktopBackdrop.srcSet} sizes={desktopBackdrop.sizes} />
           <img
             {...desktopBackdrop}
             alt={title}
-            fetchPriority="high"
-            className="object-cover object-top lg:object-center"
+            className="absolute inset-0 w-full h-full object-cover object-center"
           />
         </picture>
+
+        {/* Cinematic readability layers; the accent wash changes with every anime. */}
+        <div
+          className="absolute inset-y-0 left-0 w-[48%] opacity-25"
+          style={{ background: `radial-gradient(circle at 12% 58%, ${accentColor} 0%, transparent 68%)` }}
+        />
+        <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-[#080809]/75 via-[#080809]/25 to-transparent" />
+        <div className="absolute inset-y-0 left-0 w-[56%] bg-gradient-to-r from-[#080809]/95 via-[#080809]/72 to-transparent" />
+        <div className="absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-[#080809] via-[#080809]/62 to-transparent" />
       </div>
 
-      {/* ── DESKTOP LAYOUT (lg+) ───────────────────────────────────────────── */}
-      <div className="hidden lg:block relative h-[92vh] overflow-hidden">
-        {/* Only the active responsive backdrop is mounted. */}
-        <div key={slide.id} className="absolute inset-0">
-          <div className="absolute inset-0 bg-gradient-to-r from-[#0a0b0c] from-[25%] via-[#0a0b0c]/50 via-[55%] to-transparent" />
-          <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-[#0a0b0c] to-transparent" />
-        </div>
+      {/* ── DESKTOP LAYOUT (lg+): same compact cinematic rhythm as the reference ── */}
+      <div className="absolute inset-0 z-10 hidden flex-col justify-end px-14 pb-[120px] lg:flex xl:px-20">
+        <div className="max-w-[520px]">
 
-        {/* Content — absolutely centred vertically, offset for navbar */}
-        <div className="absolute inset-0 flex items-center px-16 xl:px-24 pt-16 pb-20">
-          <div className="max-w-xl">
-            {/* Badges */}
-            <div className="flex items-center gap-2 mb-5 flex-wrap">
-              {isAiring && (
-                <span className="flex items-center gap-1.5 text-white text-[10px] font-black px-3 py-1.5 rounded-full uppercase tracking-wider" style={{ backgroundColor: accentColor }}>
-                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                  NOW AIRING
-                </span>
-              )}
-              {slide.format && (
-                <span className="bg-white/10 backdrop-blur text-white/80 text-[10px] font-bold px-3 py-1.5 rounded-full flex items-center gap-1">
-                  <Tv className="w-3 h-3" aria-hidden="true" /> {slide.format}
-                </span>
-              )}
-              {slide.seasonYear && (
-                <span className="bg-white/10 backdrop-blur text-white/80 text-[10px] font-bold px-3 py-1.5 rounded-full flex items-center gap-1">
-                  <Calendar className="w-3 h-3" aria-hidden="true" /> {slide.seasonYear}
-                </span>
-              )}
-              {rating && (
-                <span className="flex items-center gap-1 bg-yellow-400/20 text-yellow-400 text-[10px] font-black px-3 py-1.5 rounded-full">
-                  <Star className="w-3 h-3 fill-current" aria-hidden="true" /> {rating}
-                </span>
-              )}
-            </div>
-
-            <div className="mb-4 flex min-h-[3.5rem] max-h-36 max-w-[34rem] items-end justify-start">
-              {titleLogoState === undefined ? (
-                <div className="h-24 w-56 animate-pulse rounded-lg bg-white/5" />
-              ) : titleLogoState ? (
+            {/* Title/logo always occupies a stable slot; text appears immediately while a logo resolves. */}
+            <div className="mb-4 flex h-[116px] max-w-[380px] items-start justify-start">
+              {titleLogoState ? (
                 <img
                   src={titleLogoState}
                   alt={title}
-                  className="max-h-32 max-w-full object-contain object-left-bottom drop-shadow-[0_8px_24px_rgba(0,0,0,0.85)] transition-opacity duration-300"
+                  className="max-h-[112px] max-w-[340px] object-contain object-left-top drop-shadow-[0_8px_30px_rgba(0,0,0,0.95)]"
                   decoding="async"
-                  onError={() => setTitleLogos((current) => ({ ...current, [slide.id]: null }))}
+                  onError={() => setHeroAssets((current) => ({
+                    ...current,
+                    [slide.id]: {
+                      logo: null,
+                      backdrop: current[slide.id]?.backdrop || null,
+                    },
+                  }))}
                 />
               ) : (
                 <h1
@@ -225,221 +244,124 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
                       : title.length > 30
                         ? "text-3xl xl:text-4xl font-black line-clamp-2"
                         : "text-4xl xl:text-5xl font-black line-clamp-2"
-                  } text-white leading-tight tracking-tight`}
-                  style={{ textShadow: "0 4px 20px rgba(0,0,0,0.9)" }}
+                  } text-white leading-tight tracking-tight drop-shadow-[0_2px_20px_rgba(0,0,0,0.95)]`}
                 >
                   {title}
                 </h1>
               )}
             </div>
 
-            {/* Studio + genres */}
-            {(studios || slide.genres.length > 0) && (
-              <div className="flex items-center gap-2 mb-4 flex-wrap">
-                {studios && <span className="text-white/50 text-xs font-semibold">{studios}</span>}
-                {studios && slide.genres.length > 0 && <span className="w-1 h-1 rounded-full bg-white/20" />}
-                {slide.genres.slice(0, 3).map((g) => (
-                  <span key={g} className="text-xs font-semibold px-2 py-0.5 rounded-full"
-                    style={{ color: accentColor, background: `${accentColor}25` }}>
+            {/* Premium translucent metadata pills. */}
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              {isAiring && (
+                <span
+                  className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] backdrop-blur-md"
+                  style={{
+                    backgroundColor: `${accentColor}20`,
+                    borderColor: `${accentColor}70`,
+                    color: `color-mix(in srgb, ${accentColor} 72%, white)`,
+                    boxShadow: `inset 0 1px 0 rgba(255,255,255,0.1), 0 8px 24px ${accentColor}18`,
+                  }}
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                  Airing
+                </span>
+              )}
+              {rating && (
+                <span className="flex items-center gap-1.5 rounded-full border border-amber-300/35 bg-amber-300/15 px-3 py-1.5 text-[11px] font-black text-amber-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md">
+                  <Star className="h-3 w-3 fill-current" aria-hidden="true" /> {rating}
+                </span>
+              )}
+              {slide.seasonYear && (
+                <span className="flex items-center gap-1.5 rounded-full border border-white/15 bg-black/25 px-3 py-1.5 text-[11px] font-semibold text-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-md">
+                  <Calendar className="h-3 w-3 text-white/55" aria-hidden="true" /> {slide.seasonYear}
+                </span>
+              )}
+              {slide.episodes && (
+                <span className="flex items-center gap-1.5 rounded-full border border-white/15 bg-black/25 px-3 py-1.5 text-[11px] font-semibold text-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-md">
+                  <Layers3 className="h-3 w-3 text-white/55" aria-hidden="true" /> {slide.episodes} Episodes
+                </span>
+              )}
+              {slide.duration && (
+                <span className="flex items-center gap-1.5 rounded-full border border-white/15 bg-black/25 px-3 py-1.5 text-[11px] font-semibold text-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-md">
+                  <Clock className="h-3 w-3 text-white/55" aria-hidden="true" /> {slide.duration} min
+                </span>
+              )}
+              {slide.format && (
+                <span className="flex items-center gap-1.5 rounded-full border border-white/15 bg-black/25 px-3 py-1.5 text-[11px] font-semibold text-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-md">
+                  <Tv className="h-3 w-3 text-white/55" aria-hidden="true" /> {slide.format}
+                </span>
+              )}
+            </div>
+
+            {/* Genre chips stay neutral; accent color is reserved for primary actions. */}
+            {slide.genres.length > 0 && (
+              <div className="mb-4 flex flex-wrap items-center gap-2">
+                {slide.genres.slice(0, 4).map((g) => (
+                  <span
+                    key={g}
+                    className="rounded-full border border-white/15 bg-black/25 px-3 py-1 text-[11px] font-semibold text-white/75 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] backdrop-blur-md"
+                  >
                     {g}
                   </span>
                 ))}
               </div>
             )}
 
-            {/* Description — more lines on desktop */}
             {description && (
-              <p className="text-white/60 text-sm leading-relaxed mb-8 line-clamp-4">{description}</p>
+              <p className="mb-5 max-w-[450px] text-[13px] font-medium leading-[1.65] text-white/65 line-clamp-2">
+                {description}
+              </p>
             )}
 
-            {/* CTAs */}
             <div className="flex items-center gap-3">
               {watchHref ? (
                 <WatchIntentLink
                   href={watchHref}
                   animeId={animeId}
                   episodeNumber={watchEpisode}
-                  className="flex items-center gap-2.5 text-white font-black text-sm px-7 py-3.5 rounded-full transition-all duration-200 hover:scale-105 hover:shadow-lg shadow-md"
-                  style={{ backgroundColor: accentColor, boxShadow: `0 8px 24px ${accentColor}50` }}>
-                  <Play className="w-4 h-4 fill-current" aria-hidden="true" /> WATCH NOW
+                  className="flex items-center gap-2.5 rounded-full border px-6 py-3 text-sm font-black shadow-lg backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 hover:brightness-125"
+                  style={{
+                    backgroundColor: `${accentColor}22`,
+                    borderColor: `${accentColor}80`,
+                    color: `color-mix(in srgb, ${accentColor} 68%, white)`,
+                    boxShadow: `inset 0 1px 0 rgba(255,255,255,0.12), 0 10px 30px ${accentColor}24`,
+                  }}
+                >
+                  <Play className="h-4 w-4 fill-current" aria-hidden="true" /> Watch Now
                 </WatchIntentLink>
               ) : (
                 <Link href={href}
-                  className="flex items-center gap-2.5 text-white font-black text-sm px-7 py-3.5 rounded-full transition-all duration-200 hover:scale-105 hover:shadow-lg shadow-md"
-                  style={{ backgroundColor: accentColor, boxShadow: `0 8px 24px ${accentColor}50` }}>
-                  <Play className="w-4 h-4" aria-hidden="true" /> DETAILS
+                  className="flex items-center gap-2.5 rounded-full border px-6 py-3 text-sm font-black shadow-lg backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 hover:brightness-125"
+                  style={{
+                    backgroundColor: `${accentColor}22`,
+                    borderColor: `${accentColor}80`,
+                    color: `color-mix(in srgb, ${accentColor} 68%, white)`,
+                    boxShadow: `inset 0 1px 0 rgba(255,255,255,0.12), 0 10px 30px ${accentColor}24`,
+                  }}
+                >
+                  <Play className="h-4 w-4" aria-hidden="true" /> Details
                 </Link>
               )}
-              {watchHref && (
-                <Link href={href}
-                  className="flex items-center gap-2 text-white/80 hover:text-white font-bold text-sm px-6 py-3.5 rounded-full bg-white/10 hover:bg-white/15 transition-all duration-200 backdrop-blur border border-white/10">
-                  More Info
-                </Link>
-              )}
+              <Link href={href}
+                className="flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-5 py-3 text-sm font-bold text-white/85 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 hover:bg-white/16 hover:text-white"
+              >
+                <Info className="h-4 w-4" aria-hidden="true" /> More Info
+              </Link>
               <button
                 type="button"
                 onClick={toggleBookmark}
-                className={`w-12 h-12 rounded-full flex items-center justify-center border transition-all duration-200 ${
+                className={`flex h-11 w-11 items-center justify-center rounded-full border shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 ${
                   bookmarked
                     ? "border-yellow-400/50 bg-yellow-400/15 hover:bg-yellow-400/25"
-                    : "bg-white/10 hover:bg-white/20 border-white/10"
+                    : "border-white/20 bg-white/10 hover:bg-white/16"
                 }`}
                 title={bookmarked ? "Remove from my list" : "Add to my list"}
                 aria-label={bookmarked ? "Remove from my list" : "Add to my list"}
               >
                 {bookmarked
-                  ? <BookmarkCheck className="w-4 h-4 text-yellow-400 fill-yellow-400" aria-hidden="true" />
-                  : <Bookmark className="w-4 h-4 text-white/70" aria-hidden="true" />
-                }
-              </button>
-            </div>
-
-
-          </div>
-        </div>
-
-        {/* Nav controls pinned to bottom-left */}
-        <div className="absolute bottom-8 left-16 xl:left-24 z-20 flex items-center gap-4">
-          <NavButtons goPrev={goPrev} goNext={goNext} deck={deck} activeIndex={activeIndex} goTo={goTo} accentColor={accentColor} />
-        </div>
-      </div>
-
-      {/* ── MOBILE LAYOUT (< lg) ──────────────────────────────────────────── */}
-      {/*
-        Mobile uses a completely different design:
-        - Poster image on the RIGHT (taller crop, portrait aspect) with gradient fade left
-        - Text content on the LEFT overlaid on a dark background
-        - No wasted empty space — height fits the content
-      */}
-      {/* Fixed height prevents layout shift when slides have different content lengths */}
-      <div className="lg:hidden relative h-[400px] overflow-hidden">
-        {/* Navbar spacer — absolutely positioned so it doesn't add to flow height */}
-        <div className="absolute top-0 left-0 right-0 h-16 z-10" />
-
-        {/* Slide container — fills the fixed height */}
-        <div className="absolute inset-0">
-          {/* Background: cover image right side, fading left */}
-          <div className="absolute inset-0 overflow-hidden">
-            {/* Accent colour wash */}
-            <div
-              className="absolute inset-0"
-              style={{ background: `linear-gradient(135deg, ${accentColor}18 0%, transparent 60%)` }}
-            />
-            {/* Cover image anchored to the right */}
-            <div className="absolute right-0 top-0 bottom-0 w-2/3">
-              {/* Fade to the left */}
-              <div className="absolute inset-0 bg-gradient-to-r from-[#0a0b0c] via-[#0a0b0c]/85 to-transparent/30" />
-            </div>
-            {/* Strong bottom-to-top fade for nav bar area */}
-            <div className="absolute inset-0 bg-gradient-to-t from-[#0a0b0c] via-[#0a0b0c]/50 to-transparent" />
-            {/* Left coverage */}
-            <div className="absolute inset-0 bg-gradient-to-r from-[#0a0b0c] via-[#0a0b0c]/90 to-transparent w-3/4" />
-          </div>
-
-          {/* Content — positioned from top with navbar offset */}
-          <div className="relative z-10 px-4 pt-20 pb-12">
-            {/* Badges row */}
-            <div className="flex items-center gap-1.5 mb-3 flex-wrap">
-              {isAiring && (
-                <span className="flex items-center gap-1 text-white text-[9px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider" style={{ backgroundColor: accentColor }}>
-                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                  NOW AIRING
-                </span>
-              )}
-              {slide.format && (
-                <span className="bg-white/10 backdrop-blur text-white/70 text-[9px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1">
-                  <Tv className="w-2.5 h-2.5" aria-hidden="true" /> {slide.format}
-                </span>
-              )}
-              {slide.seasonYear && (
-                <span className="bg-white/10 backdrop-blur text-white/70 text-[9px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1">
-                  <Calendar className="w-2.5 h-2.5" aria-hidden="true" /> {slide.seasonYear}
-                </span>
-              )}
-              {rating && (
-                <span className="flex items-center gap-0.5 bg-yellow-400/20 text-yellow-400 text-[9px] font-black px-2.5 py-1 rounded-full">
-                  <Star className="w-2.5 h-2.5 fill-current" aria-hidden="true" /> {rating}
-                </span>
-              )}
-            </div>
-
-            <div className="mb-2 flex h-16 max-w-[60%] items-end justify-start">
-              {titleLogoState === undefined ? (
-                <div className="h-12 w-36 animate-pulse rounded-lg bg-white/5" />
-              ) : titleLogoState ? (
-                <img
-                  src={titleLogoState}
-                  alt={title}
-                  className="max-h-16 max-w-full object-contain object-left-bottom drop-shadow-[0_5px_14px_rgba(0,0,0,0.85)] transition-opacity duration-300"
-                  decoding="async"
-                  onError={() => setTitleLogos((current) => ({ ...current, [slide.id]: null }))}
-                />
-              ) : (
-                <h1 className="text-[18px] font-black text-white leading-tight max-w-full line-clamp-2">
-                  {title}
-                </h1>
-              )}
-            </div>
-
-            {/* Studio + genres */}
-            {(studios || slide.genres.length > 0) && (
-              <div className="flex items-center gap-1.5 mb-3 flex-wrap">
-                {studios && <span className="text-white/40 text-[10px] font-semibold">{studios}</span>}
-                {studios && slide.genres.length > 0 && <span className="w-1 h-1 rounded-full bg-white/20" />}
-                {slide.genres.slice(0, 3).map((g) => (
-                  <span key={g} className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                    style={{ color: accentColor, background: `${accentColor}25` }}>
-                    {g}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {/* Description — only 2 lines on mobile */}
-            {description && (
-              <p className="text-white/55 text-[11px] leading-relaxed mb-4 max-w-[60%] line-clamp-2">
-                {description}
-              </p>
-            )}
-
-            {/* CTA buttons */}
-            <div className="flex items-center gap-2">
-              {watchHref ? (
-                <WatchIntentLink
-                  href={watchHref}
-                  animeId={animeId}
-                  episodeNumber={watchEpisode}
-                  className="flex items-center gap-1.5 text-white font-black text-[11px] px-4 py-2.5 rounded-full transition-all duration-200 shadow-md"
-                  style={{ backgroundColor: accentColor, boxShadow: `0 6px 16px ${accentColor}50` }}>
-                  <Play className="w-3.5 h-3.5 fill-current" aria-hidden="true" />WATCH NOW
-                </WatchIntentLink>
-              ) : (
-                <Link href={href}
-                  className="flex items-center gap-1.5 text-white font-black text-[11px] px-4 py-2.5 rounded-full transition-all duration-200 shadow-md"
-                  style={{ backgroundColor: accentColor, boxShadow: `0 6px 16px ${accentColor}50` }}>
-                  <Play className="w-3.5 h-3.5" aria-hidden="true" />DETAILS
-                </Link>
-              )}
-              {watchHref && (
-                <Link href={href}
-                  className="flex items-center text-white/75 font-bold text-[11px] px-3.5 py-2.5 rounded-full bg-white/10 border border-white/10 backdrop-blur">
-                  More Info
-                </Link>
-              )}
-              <button
-                type="button"
-                onClick={toggleBookmark}
-                className={`w-9 h-9 rounded-full flex items-center justify-center border transition-all ${
-                  bookmarked
-                    ? "border-yellow-400/50 bg-yellow-400/15"
-                    : "bg-white/10 border-white/10"
-                }`}
-                title={bookmarked ? "Remove from my list" : "Add to my list"}
-                aria-label={bookmarked ? "Remove from my list" : "Add to my list"}
-              >
-                {bookmarked
-                  ? <BookmarkCheck className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" aria-hidden="true" />
-                  : <Bookmark className="w-3.5 h-3.5 text-white/60" aria-hidden="true" />
+                  ? <BookmarkCheck className="h-4 w-4 fill-yellow-400 text-yellow-400" aria-hidden="true" />
+                  : <Bookmark className="h-4 w-4 text-white/75" aria-hidden="true" />
                 }
               </button>
             </div>
@@ -450,54 +372,209 @@ export default function AnilistHeroCarousel({ slides, watchHrefs, availabilityHi
               </p>
             )}
           </div>
+
+      </div>
+
+      <div className="absolute bottom-10 left-14 z-20 hidden items-center lg:flex xl:left-20">
+        <NavButtons deck={deck} activeIndex={activeIndex} goTo={goTo} accentColor={accentColor} />
+      </div>
+
+      {/* Counter precedes the circular arrows, matching the reference. */}
+      <div className="absolute bottom-8 right-14 z-20 hidden items-center gap-3 lg:flex xl:right-20">
+        <span className="mr-1 text-xs font-black text-white/55">{activeIndex + 1}/{deck.length}</span>
+        <button type="button" onClick={goPrev} aria-label="Previous slide"
+          className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md transition-all hover:border-white/35 hover:bg-white/15">
+          <ChevronLeft className="h-4 w-4 text-white" aria-hidden="true" />
+        </button>
+        <button type="button" onClick={goNext} aria-label="Next slide"
+          className="flex h-10 w-10 items-center justify-center rounded-full border bg-black/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md transition-all hover:bg-white/15"
+          style={{ borderColor: `${accentColor}90` }}>
+          <ChevronRight className="h-4 w-4 text-white" aria-hidden="true" />
+        </button>
+      </div>
+
+      {/* ── MOBILE layout (<lg): content pinned to bottom-left ──────────────── */}
+      <div className="lg:hidden absolute inset-0 z-10 flex flex-col justify-end px-4 pb-8">
+        <div className="max-w-[85%]">
+
+          {/* 1. Title / logo — first and prominent */}
+          <div className="mb-2.5 flex h-16 max-w-full items-end justify-start">
+            {titleLogoState === undefined ? (
+              <div className="h-10 w-32 animate-pulse rounded-lg bg-white/5" />
+            ) : titleLogoState ? (
+              <img
+                src={titleLogoState}
+                alt={title}
+                className="max-h-16 max-w-[75vw] object-contain object-left-bottom drop-shadow-[0_5px_16px_rgba(0,0,0,0.95)]"
+                decoding="async"
+                onError={() => setHeroAssets((current) => ({
+                  ...current,
+                  [slide.id]: {
+                    logo: null,
+                    backdrop: current[slide.id]?.backdrop || null,
+                  },
+                }))}
+              />
+            ) : (
+              <h1 className="text-xl font-black text-white leading-tight line-clamp-2 drop-shadow-[0_2px_10px_rgba(0,0,0,0.95)]">
+                {title}
+              </h1>
+            )}
+          </div>
+
+          {/* 2. Stats badges row */}
+          <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+            {isAiring && (
+              <span
+                className="flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-widest backdrop-blur-md"
+                style={{
+                  backgroundColor: `${accentColor}20`,
+                  borderColor: `${accentColor}70`,
+                  color: `color-mix(in srgb, ${accentColor} 72%, white)`,
+                }}
+              >
+                <span className="w-1 h-1 rounded-full bg-white animate-pulse" />
+                AIRING
+              </span>
+            )}
+            {rating && (
+              <span className="flex items-center gap-0.5 bg-black/30 backdrop-blur text-yellow-400 text-[9px] font-black px-2 py-0.5 rounded-md border border-yellow-400/25">
+                <Star className="w-2 h-2 fill-yellow-400" aria-hidden="true" /> {rating}
+              </span>
+            )}
+            {slide.seasonYear && (
+              <span className="flex items-center gap-0.5 bg-white/[0.12] text-white/80 text-[9px] font-semibold px-2 py-0.5 rounded-md border border-white/[0.08]">
+                <Calendar className="w-2 h-2 text-white/60" aria-hidden="true" /> {slide.seasonYear}
+              </span>
+            )}
+            {slide.episodes && (
+              <span className="flex items-center gap-0.5 bg-white/[0.12] text-white/80 text-[9px] font-semibold px-2 py-0.5 rounded-md border border-white/[0.08]">
+                {slide.episodes} EP
+              </span>
+            )}
+            {slide.duration && (
+              <span className="flex items-center gap-0.5 bg-white/[0.12] text-white/80 text-[9px] font-semibold px-2 py-0.5 rounded-md border border-white/[0.08]">
+                <Clock className="w-2 h-2 text-white/60" aria-hidden="true" /> {slide.duration}m
+              </span>
+            )}
+            {slide.format && (
+              <span className="flex items-center gap-0.5 bg-white/[0.12] text-white/80 text-[9px] font-semibold px-2 py-0.5 rounded-md border border-white/[0.08]">
+                {slide.format}
+              </span>
+            )}
+          </div>
+
+          {/* 3. Genre chips — dark, flat */}
+          {slide.genres.length > 0 && (
+            <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+              {slide.genres.slice(0, 3).map((g) => (
+                <span
+                  key={g}
+                  className="text-[9px] font-semibold px-2.5 py-0.5 rounded-full bg-white/[0.1] border border-white/[0.1] text-white/75"
+                >
+                  {g}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* 4. Description */}
+          {description && (
+            <p className="text-white/55 text-[11px] leading-relaxed mb-3 line-clamp-2">
+              {description}
+            </p>
+          )}
+
+          {/* 5. CTA buttons — accent color Watch Now, glass More Info */}
+          <div className="flex items-center gap-2">
+            {watchHref ? (
+              <WatchIntentLink
+                href={watchHref}
+                animeId={animeId}
+                episodeNumber={watchEpisode}
+                className="flex items-center gap-1.5 rounded-full border px-4 py-2 text-[11px] font-black shadow-md backdrop-blur-md transition-all"
+                style={{
+                  backgroundColor: `${accentColor}22`,
+                  borderColor: `${accentColor}80`,
+                  color: `color-mix(in srgb, ${accentColor} 68%, white)`,
+                  boxShadow: `inset 0 1px 0 rgba(255,255,255,0.12), 0 4px 16px ${accentColor}24`,
+                }}
+              >
+                <Play className="w-3 h-3 fill-current" aria-hidden="true" /> Watch Now
+              </WatchIntentLink>
+            ) : (
+              <Link
+                href={href}
+                className="flex items-center gap-1.5 rounded-full border px-4 py-2 text-[11px] font-black shadow-md backdrop-blur-md transition-all"
+                style={{
+                  backgroundColor: `${accentColor}22`,
+                  borderColor: `${accentColor}80`,
+                  color: `color-mix(in srgb, ${accentColor} 68%, white)`,
+                  boxShadow: `inset 0 1px 0 rgba(255,255,255,0.12), 0 4px 16px ${accentColor}24`,
+                }}
+              >
+                <Play className="w-3 h-3" aria-hidden="true" /> Details
+              </Link>
+            )}
+            <Link
+              href={href}
+              className="flex items-center gap-1 text-white/75 font-bold text-[11px] px-3 py-2 rounded-full bg-white/[0.1] border border-white/[0.1] backdrop-blur"
+            >
+              More Info
+            </Link>
+            <button
+              type="button"
+              onClick={toggleBookmark}
+              className={`w-8 h-8 rounded-full flex items-center justify-center border transition-all ${
+                bookmarked
+                  ? "border-yellow-400/50 bg-yellow-400/15"
+                  : "bg-white/[0.1] border-white/[0.1]"
+              }`}
+              title={bookmarked ? "Remove from my list" : "Add to my list"}
+              aria-label={bookmarked ? "Remove from my list" : "Add to my list"}
+            >
+              {bookmarked
+                ? <BookmarkCheck className="w-3 h-3 text-yellow-400 fill-yellow-400" aria-hidden="true" />
+                : <Bookmark className="w-3 h-3 text-white/60" aria-hidden="true" />
+              }
+            </button>
+          </div>
         </div>
 
-        {/* Mobile: navigation controls — overlaid at the bottom */}
-        <div className="absolute bottom-3 left-4 z-20 flex items-center gap-3">
-          <NavButtons goPrev={goPrev} goNext={goNext} deck={deck} activeIndex={activeIndex} goTo={goTo} accentColor={accentColor} />
+        {/* Mobile: slide navigation */}
+        <div className="mt-4 flex items-center gap-2">
+          <NavButtons deck={deck} activeIndex={activeIndex} goTo={goTo} accentColor={accentColor} />
+          <span className="text-white/40 text-[10px] font-bold ml-1">{activeIndex + 1} / {deck.length}</span>
         </div>
       </div>
     </section>
   );
 }
 
-/* ── Shared nav buttons ───────────────────────────────────────────────── */
+/* ── Slide indicator dots only (arrows are in bottom-right) ───────────── */
 function NavButtons({
-  goPrev, goNext, deck, activeIndex, goTo, accentColor,
+  deck, activeIndex, goTo, accentColor,
 }: {
-  goPrev: () => void;
-  goNext: () => void;
   deck: AnilistMedia[];
   activeIndex: number;
   goTo: (i: number) => void;
   accentColor: string;
 }) {
   return (
-    <>
-      <button type="button" onClick={goPrev} aria-label="Previous slide"
-        className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center border border-white/20 backdrop-blur transition-all focus:outline-none focus:ring-2 focus:ring-[#ff5500]/50">
-        <ChevronLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" aria-hidden="true" />
-      </button>
-
-      <div className="flex items-center gap-1.5">
-        {deck.map((_, i) => (
-          <button key={i} onClick={() => goTo(i)} aria-label={`Go to slide ${i + 1}`} className="rounded-full transition-all duration-300"
-            style={{
-              width: i === activeIndex ? "20px" : "5px",
-              height: "5px",
-              backgroundColor: i === activeIndex ? accentColor : "rgba(255,255,255,0.3)",
-            }} />
-        ))}
-      </div>
-
-      <button type="button" onClick={goNext} aria-label="Next slide"
-        className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center border border-white/20 backdrop-blur transition-all focus:outline-none focus:ring-2 focus:ring-[#ff5500]/50">
-        <ChevronRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" aria-hidden="true" />
-      </button>
-
-      <span className="text-white/40 text-[10px] sm:text-xs font-bold ml-1">
-        {activeIndex + 1} / {deck.length}
-      </span>
-    </>
+    <div className="flex items-center gap-1.5">
+      {deck.map((_, i) => (
+        <button
+          key={i}
+          onClick={() => goTo(i)}
+          aria-label={`Go to slide ${i + 1}`}
+          className="rounded-full transition-all duration-300"
+          style={{
+            width: i === activeIndex ? "20px" : "5px",
+            height: "5px",
+            backgroundColor: i === activeIndex ? accentColor : "rgba(255,255,255,0.3)",
+          }}
+        />
+      ))}
+    </div>
   );
 }
