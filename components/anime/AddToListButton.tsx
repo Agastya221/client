@@ -351,7 +351,7 @@ export default function AddToListButton({
         <button
           type="button"
           disabled
-          className="flex items-center justify-center w-12 h-12 rounded-lg bg-[#0e0f11] border border-white/5 text-white/40"
+          className="flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md"
         >
           <Loader2 className="w-5 h-5 animate-spin" />
         </button>
@@ -361,7 +361,7 @@ export default function AddToListButton({
       <button
         type="button"
         disabled
-        className="flex items-center gap-2 text-white/40 font-bold text-sm px-6 py-4 rounded-full bg-white/5 border border-white/10"
+        className="flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-5 py-3 text-sm font-bold text-white/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md"
       >
         <Loader2 className="w-4 h-4 animate-spin" />
         Loading...
@@ -377,10 +377,10 @@ export default function AddToListButton({
           type="button"
           onClick={handleQuickToggle}
           disabled={loading}
-          className={`flex items-center justify-center w-12 h-12 rounded-lg border transition-colors active:scale-95 ${
+          className={`flex h-11 w-11 items-center justify-center rounded-full border shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 active:scale-95 ${
             isBookmarked
               ? "bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/25"
-              : "bg-[#0e0f11] text-white/70 hover:text-white border-white/5 hover:bg-white/5 hover:border-white/10"
+              : "border-white/20 bg-white/10 text-white/75 hover:bg-white/16 hover:text-white"
           }`}
           title={isBookmarked ? "Manage List Entry" : "Add to List"}
         >
@@ -397,10 +397,10 @@ export default function AddToListButton({
           type="button"
           onClick={handleQuickToggle}
           disabled={loading}
-          className={`flex items-center gap-2.5 font-bold text-sm px-6 py-4 rounded-full transition-all border shadow-lg active:scale-95 ${
+          className={`flex items-center gap-2 rounded-full border px-5 py-3 text-sm font-bold shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 active:scale-95 ${
             isBookmarked
-              ? "bg-white/10 text-white border-white/20 hover:bg-white/15"
-              : "bg-white/10 text-white/80 hover:text-white border-white/10 hover:bg-white/15"
+              ? "border-white/25 bg-white/12 text-white hover:bg-white/16"
+              : "border-white/20 bg-white/10 text-white/85 hover:bg-white/16 hover:text-white"
           }`}
         >
           {loading ? (

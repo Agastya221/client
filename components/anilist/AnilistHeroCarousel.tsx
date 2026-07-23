@@ -183,8 +183,7 @@ export default function AnilistHeroCarousel({
 
   return (
     <section
-      className="relative w-full overflow-hidden bg-[#080809]"
-      style={{ height: "100svh", minHeight: "520px" }}
+      className="relative h-[clamp(570px,155vw,640px)] w-full overflow-hidden bg-[#080809] lg:h-[100svh] lg:min-h-[520px]"
       aria-label="Featured anime carousel"
       tabIndex={0}
       onKeyDown={(e) => {
@@ -208,12 +207,13 @@ export default function AnilistHeroCarousel({
 
         {/* Cinematic readability layers; the accent wash changes with every anime. */}
         <div
-          className="absolute inset-y-0 left-0 w-[48%] opacity-25"
+          className="absolute inset-y-0 left-0 hidden w-[48%] opacity-25 lg:block"
           style={{ background: `radial-gradient(circle at 12% 58%, ${accentColor} 0%, transparent 68%)` }}
         />
         <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-[#080809]/75 via-[#080809]/25 to-transparent" />
-        <div className="absolute inset-y-0 left-0 w-[56%] bg-gradient-to-r from-[#080809]/95 via-[#080809]/72 to-transparent" />
-        <div className="absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-[#080809] via-[#080809]/62 to-transparent" />
+        <div className="absolute inset-y-0 left-0 hidden w-[56%] bg-gradient-to-r from-[#080809]/95 via-[#080809]/72 to-transparent lg:block" />
+        <div className="absolute inset-x-0 bottom-0 hidden h-56 bg-gradient-to-t from-[#080809] via-[#080809]/62 to-transparent lg:block" />
+        <div className="absolute inset-x-0 bottom-0 h-[62%] bg-gradient-to-t from-[#080809] via-[#080809]/60 to-transparent lg:hidden" />
       </div>
 
       {/* ── DESKTOP LAYOUT (lg+): same compact cinematic rhythm as the reference ── */}
@@ -393,19 +393,18 @@ export default function AnilistHeroCarousel({
         </button>
       </div>
 
-      {/* ── MOBILE layout (<lg): content pinned to bottom-left ──────────────── */}
-      <div className="lg:hidden absolute inset-0 z-10 flex flex-col justify-end px-4 pb-8">
-        <div className="max-w-[85%]">
+      {/* ── MOBILE: the same desktop design, fitted to a portrait stage ────── */}
+      <div className="absolute inset-0 z-10 flex flex-col justify-end px-6 pb-6 lg:hidden">
+        <div className="w-full">
 
-          {/* 1. Title / logo — first and prominent */}
-          <div className="mb-2.5 flex h-16 max-w-full items-end justify-start">
+          <div className="mb-3 flex h-20 max-w-full items-end justify-start">
             {titleLogoState === undefined ? (
-              <div className="h-10 w-32 animate-pulse rounded-lg bg-white/5" />
+              <div className="h-14 w-40 animate-pulse rounded-lg bg-white/5" />
             ) : titleLogoState ? (
               <img
                 src={titleLogoState}
                 alt={title}
-                className="max-h-16 max-w-[75vw] object-contain object-left-bottom drop-shadow-[0_5px_16px_rgba(0,0,0,0.95)]"
+                className="max-h-20 max-w-[62vw] object-contain object-left-bottom drop-shadow-[0_7px_22px_rgba(0,0,0,0.98)]"
                 decoding="async"
                 onError={() => setHeroAssets((current) => ({
                   ...current,
@@ -416,61 +415,61 @@ export default function AnilistHeroCarousel({
                 }))}
               />
             ) : (
-              <h1 className="text-xl font-black text-white leading-tight line-clamp-2 drop-shadow-[0_2px_10px_rgba(0,0,0,0.95)]">
+              <h1 className="max-w-[88vw] text-3xl font-black leading-[1.05] tracking-tight text-white line-clamp-3 drop-shadow-[0_3px_14px_rgba(0,0,0,0.98)]">
                 {title}
               </h1>
             )}
           </div>
 
-          {/* 2. Stats badges row */}
-          <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+          {/* Identical metadata system to desktop. */}
+          <div className="mb-2.5 flex flex-wrap items-center gap-1.5">
             {isAiring && (
               <span
-                className="flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-widest backdrop-blur-md"
+                className="flex items-center gap-1 rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-wider text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] backdrop-blur-md"
                 style={{
                   backgroundColor: `${accentColor}20`,
                   borderColor: `${accentColor}70`,
                   color: `color-mix(in srgb, ${accentColor} 72%, white)`,
+                  boxShadow: `inset 0 1px 0 rgba(255,255,255,0.1), 0 8px 24px ${accentColor}18`,
                 }}
               >
-                <span className="w-1 h-1 rounded-full bg-white animate-pulse" />
-                AIRING
+                <span className="h-1 w-1 rounded-full bg-white" />
+                Airing
               </span>
             )}
             {rating && (
-              <span className="flex items-center gap-0.5 bg-black/30 backdrop-blur text-yellow-400 text-[9px] font-black px-2 py-0.5 rounded-md border border-yellow-400/25">
-                <Star className="w-2 h-2 fill-yellow-400" aria-hidden="true" /> {rating}
+              <span className="flex items-center gap-1 rounded-full border border-amber-300/35 bg-amber-300/15 px-2.5 py-1 text-[9px] font-black text-amber-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md">
+                <Star className="h-2.5 w-2.5 fill-current" aria-hidden="true" /> {rating}
               </span>
             )}
             {slide.seasonYear && (
-              <span className="flex items-center gap-0.5 bg-white/[0.12] text-white/80 text-[9px] font-semibold px-2 py-0.5 rounded-md border border-white/[0.08]">
-                <Calendar className="w-2 h-2 text-white/60" aria-hidden="true" /> {slide.seasonYear}
+              <span className="flex items-center gap-1 rounded-full border border-white/15 bg-black/25 px-2.5 py-1 text-[9px] font-semibold text-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-md">
+                <Calendar className="h-2.5 w-2.5 text-white/55" aria-hidden="true" /> {slide.seasonYear}
               </span>
             )}
             {slide.episodes && (
-              <span className="flex items-center gap-0.5 bg-white/[0.12] text-white/80 text-[9px] font-semibold px-2 py-0.5 rounded-md border border-white/[0.08]">
-                {slide.episodes} EP
+              <span className="flex items-center gap-1 rounded-full border border-white/15 bg-black/25 px-2.5 py-1 text-[9px] font-semibold text-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-md">
+                <Layers3 className="h-2.5 w-2.5 text-white/55" aria-hidden="true" /> {slide.episodes} Episodes
               </span>
             )}
             {slide.duration && (
-              <span className="flex items-center gap-0.5 bg-white/[0.12] text-white/80 text-[9px] font-semibold px-2 py-0.5 rounded-md border border-white/[0.08]">
-                <Clock className="w-2 h-2 text-white/60" aria-hidden="true" /> {slide.duration}m
+              <span className="flex items-center gap-1 rounded-full border border-white/15 bg-black/25 px-2.5 py-1 text-[9px] font-semibold text-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-md">
+                <Clock className="h-2.5 w-2.5 text-white/55" aria-hidden="true" /> {slide.duration} min
               </span>
             )}
             {slide.format && (
-              <span className="flex items-center gap-0.5 bg-white/[0.12] text-white/80 text-[9px] font-semibold px-2 py-0.5 rounded-md border border-white/[0.08]">
-                {slide.format}
+              <span className="flex items-center gap-1 rounded-full border border-white/15 bg-black/25 px-2.5 py-1 text-[9px] font-semibold text-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-md">
+                <Tv className="h-2.5 w-2.5 text-white/55" aria-hidden="true" /> {slide.format}
               </span>
             )}
           </div>
 
-          {/* 3. Genre chips — dark, flat */}
           {slide.genres.length > 0 && (
-            <div className="flex items-center gap-1.5 mb-2 flex-wrap">
-              {slide.genres.slice(0, 3).map((g) => (
+            <div className="mb-2.5 flex flex-wrap items-center gap-1.5">
+              {slide.genres.slice(0, 4).map((g) => (
                 <span
                   key={g}
-                  className="text-[9px] font-semibold px-2.5 py-0.5 rounded-full bg-white/[0.1] border border-white/[0.1] text-white/75"
+                  className="rounded-full border border-white/15 bg-black/25 px-2.5 py-1 text-[9px] font-semibold text-white/75 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] backdrop-blur-md"
                 >
                   {g}
                 </span>
@@ -478,73 +477,90 @@ export default function AnilistHeroCarousel({
             </div>
           )}
 
-          {/* 4. Description */}
           {description && (
-            <p className="text-white/55 text-[11px] leading-relaxed mb-3 line-clamp-2">
+            <p className="mb-3 max-w-[90vw] text-[11px] font-medium leading-[1.5] text-white/65 line-clamp-2">
               {description}
             </p>
           )}
 
-          {/* 5. CTA buttons — accent color Watch Now, glass More Info */}
+          {/* Identical actions to desktop: same shape, color, size and states. */}
           <div className="flex items-center gap-2">
             {watchHref ? (
               <WatchIntentLink
                 href={watchHref}
                 animeId={animeId}
                 episodeNumber={watchEpisode}
-                className="flex items-center gap-1.5 rounded-full border px-4 py-2 text-[11px] font-black shadow-md backdrop-blur-md transition-all"
+                className="flex items-center gap-1.5 whitespace-nowrap rounded-full border px-4 py-2.5 text-[11px] font-black shadow-lg backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 hover:brightness-125"
                 style={{
                   backgroundColor: `${accentColor}22`,
                   borderColor: `${accentColor}80`,
                   color: `color-mix(in srgb, ${accentColor} 68%, white)`,
-                  boxShadow: `inset 0 1px 0 rgba(255,255,255,0.12), 0 4px 16px ${accentColor}24`,
+                  boxShadow: `inset 0 1px 0 rgba(255,255,255,0.12), 0 10px 30px ${accentColor}24`,
                 }}
               >
-                <Play className="w-3 h-3 fill-current" aria-hidden="true" /> Watch Now
+                <Play className="h-3.5 w-3.5 fill-current" aria-hidden="true" /> Watch Now
               </WatchIntentLink>
             ) : (
               <Link
                 href={href}
-                className="flex items-center gap-1.5 rounded-full border px-4 py-2 text-[11px] font-black shadow-md backdrop-blur-md transition-all"
+                className="flex items-center gap-1.5 whitespace-nowrap rounded-full border px-4 py-2.5 text-[11px] font-black shadow-lg backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 hover:brightness-125"
                 style={{
                   backgroundColor: `${accentColor}22`,
                   borderColor: `${accentColor}80`,
                   color: `color-mix(in srgb, ${accentColor} 68%, white)`,
-                  boxShadow: `inset 0 1px 0 rgba(255,255,255,0.12), 0 4px 16px ${accentColor}24`,
+                  boxShadow: `inset 0 1px 0 rgba(255,255,255,0.12), 0 10px 30px ${accentColor}24`,
                 }}
               >
-                <Play className="w-3 h-3" aria-hidden="true" /> Details
+                <Play className="h-3.5 w-3.5" aria-hidden="true" /> Details
               </Link>
             )}
             <Link
               href={href}
-              className="flex items-center gap-1 text-white/75 font-bold text-[11px] px-3 py-2 rounded-full bg-white/[0.1] border border-white/[0.1] backdrop-blur"
+              className="flex items-center gap-1.5 whitespace-nowrap rounded-full border border-white/20 bg-white/10 px-4 py-2.5 text-[11px] font-bold text-white/85 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 hover:bg-white/16 hover:text-white"
             >
-              More Info
+              <Info className="h-3.5 w-3.5" aria-hidden="true" /> More Info
             </Link>
             <button
               type="button"
               onClick={toggleBookmark}
-              className={`w-8 h-8 rounded-full flex items-center justify-center border transition-all ${
+              className={`flex h-9 w-9 items-center justify-center rounded-full border shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 ${
                 bookmarked
-                  ? "border-yellow-400/50 bg-yellow-400/15"
-                  : "bg-white/[0.1] border-white/[0.1]"
+                  ? "border-yellow-400/50 bg-yellow-400/15 hover:bg-yellow-400/25"
+                  : "border-white/20 bg-white/10 hover:bg-white/16"
               }`}
               title={bookmarked ? "Remove from my list" : "Add to my list"}
               aria-label={bookmarked ? "Remove from my list" : "Add to my list"}
             >
               {bookmarked
-                ? <BookmarkCheck className="w-3 h-3 text-yellow-400 fill-yellow-400" aria-hidden="true" />
-                : <Bookmark className="w-3 h-3 text-white/60" aria-hidden="true" />
+                ? <BookmarkCheck className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" aria-hidden="true" />
+                : <Bookmark className="h-3.5 w-3.5 text-white/75" aria-hidden="true" />
               }
             </button>
           </div>
         </div>
 
-        {/* Mobile: slide navigation */}
-        <div className="mt-4 flex items-center gap-2">
+        <div className="mt-4 flex items-center justify-between">
           <NavButtons deck={deck} activeIndex={activeIndex} goTo={goTo} accentColor={accentColor} />
-          <span className="text-white/40 text-[10px] font-bold ml-1">{activeIndex + 1} / {deck.length}</span>
+          <div className="flex items-center gap-2">
+            <span className="mr-1 text-[10px] font-black text-white/55">{activeIndex + 1}/{deck.length}</span>
+            <button
+              type="button"
+              onClick={goPrev}
+              aria-label="Previous slide"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md transition-all hover:border-white/35 hover:bg-white/15"
+            >
+              <ChevronLeft className="h-4 w-4 text-white" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              onClick={goNext}
+              aria-label="Next slide"
+              className="flex h-9 w-9 items-center justify-center rounded-full border bg-black/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md transition-all hover:bg-white/15"
+              style={{ borderColor: `${accentColor}90` }}
+            >
+              <ChevronRight className="h-4 w-4 text-white" aria-hidden="true" />
+            </button>
+          </div>
         </div>
       </div>
     </section>

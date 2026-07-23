@@ -300,7 +300,7 @@ export default function NavbarClient({ user }: NavbarClientProps) {
           </div>
         )}
 
-        <div className={`h-16 w-full items-center justify-between px-4 lg:px-12 xl:px-16 gap-6 bg-[#0a0b0c]/90 lg:bg-transparent backdrop-blur-lg lg:backdrop-blur-none ${mobileSearchActive ? "hidden lg:flex" : "flex"}`}>
+        <div className={`h-16 w-full items-center justify-between gap-3 bg-gradient-to-b from-[#080809]/85 via-[#080809]/45 to-transparent px-4 lg:gap-6 lg:bg-transparent lg:px-12 lg:backdrop-blur-none xl:px-16 ${mobileSearchActive ? "hidden lg:flex" : "flex"}`}>
           {/* Logo */}
           <div className="flex shrink-0 items-center gap-3">
             <button
@@ -448,6 +448,13 @@ export default function NavbarClient({ user }: NavbarClientProps) {
             >
               <Search className="w-4 h-4 text-white/60" aria-hidden="true" />
             </button>
+            <Link
+              href="/updates"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5"
+              aria-label="Release updates"
+            >
+              <Bell className="h-4 w-4 text-white/60" aria-hidden="true" />
+            </Link>
             <UserMenu user={resolvedUser} />
           </div>
         </div>

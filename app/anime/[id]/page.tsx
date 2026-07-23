@@ -177,22 +177,30 @@ async function AnilistDetailContent({
               {/* Badges */}
               <div className="flex flex-wrap items-center gap-2">
                 {media.status === "RELEASING" && (
-                  <span className="flex items-center gap-1.5 bg-[#ff5500] text-white text-[10px] font-black px-3 py-1.5 rounded-full uppercase tracking-wider">
-                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                  <span
+                    className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] backdrop-blur-md"
+                    style={{
+                      backgroundColor: `${accentColor}20`,
+                      borderColor: `${accentColor}70`,
+                      color: `color-mix(in srgb, ${accentColor} 72%, white)`,
+                      boxShadow: `inset 0 1px 0 rgba(255,255,255,0.1), 0 8px 24px ${accentColor}18`,
+                    }}
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-white" />
                     NOW AIRING
                   </span>
                 )}
-                <span className="bg-white/10 text-white/70 text-[10px] font-bold px-3 py-1.5 rounded-full flex items-center gap-1">
-                  <Tv className="w-3 h-3" /> {format}
+                <span className="flex items-center gap-1.5 rounded-full border border-white/15 bg-black/25 px-3 py-1.5 text-[11px] font-semibold text-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-md">
+                  <Tv className="h-3 w-3 text-white/55" /> {format}
                 </span>
                 {year && (
-                  <span className="bg-white/10 text-white/70 text-[10px] font-bold px-3 py-1.5 rounded-full flex items-center gap-1">
-                    <Calendar className="w-3 h-3" /> {year}
+                  <span className="flex items-center gap-1.5 rounded-full border border-white/15 bg-black/25 px-3 py-1.5 text-[11px] font-semibold text-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-md">
+                    <Calendar className="h-3 w-3 text-white/55" /> {year}
                   </span>
                 )}
                 {rating && (
-                  <span className="flex items-center gap-1 bg-yellow-400/20 text-yellow-400 text-[10px] font-black px-3 py-1.5 rounded-full">
-                    <Star className="w-3 h-3 fill-current" /> {rating}
+                  <span className="flex items-center gap-1.5 rounded-full border border-amber-300/35 bg-amber-300/15 px-3 py-1.5 text-[11px] font-black text-amber-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md">
+                    <Star className="h-3 w-3 fill-current" /> {rating}
                   </span>
                 )}
               </div>
@@ -215,8 +223,7 @@ async function AnilistDetailContent({
                   <Link
                     key={g}
                     href={`/search?genre=${encodeURIComponent(g)}`}
-                    className="text-xs font-bold px-2.5 py-1 rounded-full transition-all hover:opacity-80"
-                    style={{ color: accentColor, background: `${accentColor}20`, border: `1px solid ${accentColor}30` }}
+                    className="rounded-full border border-white/15 bg-black/25 px-3 py-1 text-[11px] font-semibold text-white/75 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] backdrop-blur-md transition-colors hover:border-white/25 hover:text-white"
                   >
                     {g}
                   </Link>
@@ -236,8 +243,13 @@ async function AnilistDetailContent({
                   href={watchHref}
                   animeId={routeId}
                   episodeNumber={fromAiring ? latestEpisode : 1}
-                  className="flex items-center gap-2.5 text-white font-black text-sm px-8 py-4 rounded-full transition-all hover:scale-105 shadow-xl"
-                  style={{ backgroundColor: accentColor, boxShadow: `0 12px 32px ${accentColor}50` }}
+                  className="flex items-center gap-2.5 rounded-full border px-6 py-3 text-sm font-black shadow-lg backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 hover:brightness-125"
+                  style={{
+                    backgroundColor: `${accentColor}22`,
+                    borderColor: `${accentColor}80`,
+                    color: `color-mix(in srgb, ${accentColor} 68%, white)`,
+                    boxShadow: `inset 0 1px 0 rgba(255,255,255,0.12), 0 10px 30px ${accentColor}24`,
+                  }}
                 >
                   <Play className="w-4 h-4 fill-current" />
                   WATCH NOW

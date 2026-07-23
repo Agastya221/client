@@ -194,12 +194,12 @@ async function DetailContent({ idPromise, searchParamsPromise }: { idPromise: Pr
               <div className="flex flex-wrap items-center gap-2">
                 <ProviderBadge provider={detail.activeProvider} active={true} />
                 {detail.anime.type && (
-                  <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-white/50">
+                  <span className="rounded-full border border-white/15 bg-black/25 px-3 py-1.5 text-[11px] font-semibold text-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-md">
                     {detail.anime.type}
                   </span>
                 )}
                 {detail.anime.year && (
-                  <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-white/50">
+                  <span className="rounded-full border border-white/15 bg-black/25 px-3 py-1.5 text-[11px] font-semibold text-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-md">
                     {detail.anime.year}
                   </span>
                 )}
@@ -233,14 +233,20 @@ async function DetailContent({ idPromise, searchParamsPromise }: { idPromise: Pr
                 <Link
                   href={`/anime/${id}/watch?ep=1&provider=${detail.activeProvider}`}
                   prefetch
-                  className="inline-flex items-center gap-2 rounded-full bg-[#ff5500] px-8 py-3.5 text-sm font-black text-white transition-transform hover:scale-105 shadow-[0_0_20px_rgba(255,85,0,0.4)]"
+                  className="inline-flex items-center gap-2.5 rounded-full border px-6 py-3 text-sm font-black shadow-lg backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 hover:brightness-125"
+                  style={{
+                    backgroundColor: "#ff550022",
+                    borderColor: "#ff550080",
+                    color: "color-mix(in srgb, #ff5500 68%, white)",
+                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.12), 0 10px 30px #ff550024",
+                  }}
                 >
                   <Play className="h-4 w-4 fill-current" aria-hidden="true" />
                   Start watching
                 </Link>
                 <Link
                   href="/search"
-                  className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-6 py-3.5 text-sm font-semibold text-white/70 hover:text-white hover:bg-white/10 transition-all"
+                  className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-5 py-3 text-sm font-bold text-white/85 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 hover:bg-white/16 hover:text-white"
                 >
                   <Sparkles className="h-4 w-4" aria-hidden="true" />
                   Browse more
@@ -268,7 +274,7 @@ async function DetailContent({ idPromise, searchParamsPromise }: { idPromise: Pr
                 <Link
                   key={genre}
                   href={`/search?genre=${encodeURIComponent(genre)}`}
-                  className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-white/50 hover:text-[#ff5500] hover:border-[#ff5500]/30 transition-colors"
+                  className="rounded-full border border-white/15 bg-black/25 px-3 py-1 text-[11px] font-semibold text-white/75 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] backdrop-blur-md transition-colors hover:border-white/25 hover:text-white"
                 >
                   {genre}
                 </Link>

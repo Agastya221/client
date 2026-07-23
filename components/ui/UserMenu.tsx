@@ -32,10 +32,11 @@ export default function UserMenu({ user }: UserMenuProps) {
     return (
       <Link
         href="/auth/signin"
-        className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#ff5500] text-white text-xs font-bold hover:bg-[#e64d00] transition-all active:scale-95"
+        className="flex items-center gap-2 rounded-xl bg-[#ff5500] px-3.5 py-2 text-xs font-bold text-white transition-all hover:bg-[#e64d00] active:scale-95 max-[420px]:h-9 max-[420px]:w-9 max-[420px]:justify-center max-[420px]:rounded-full max-[420px]:px-0"
+        aria-label="Sign in"
       >
         <LogIn className="w-3.5 h-3.5" aria-hidden="true" />
-        Sign In
+        <span className="max-[420px]:hidden">Sign In</span>
       </Link>
     );
   }
@@ -48,7 +49,7 @@ export default function UserMenu({ user }: UserMenuProps) {
         aria-haspopup="true"
         aria-expanded={open}
         aria-label="User menu"
-        className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 transition-all p-0.5 pr-3"
+        className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 p-0.5 pr-0 transition-all hover:bg-white/10 sm:pr-3"
       >
         {user.image ? (
           <img
