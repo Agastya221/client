@@ -511,4 +511,35 @@ h1, h2, h3 {
   animation: playOverlayScale 500ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/*
+ * Mobile scroll performance:
+ * keep the same translucent surfaces, but avoid continuously re-rasterizing
+ * large backdrop-filter layers while the page is moving.
+ */
+@media (max-width: 1023px) {
+  .ap-glass-panel,
+  .ap-glass-control,
+  .ap-glass-button,
+  .ap-glass-pill,
+  .mobile-carousel-stage .backdrop-blur-md {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .mobile-carousel-stage {
+    contain: layout paint style;
+    isolation: isolate;
+  }
+
+  .hero-carousel-artwork {
+    backface-visibility: hidden;
+    transform: translateZ(0);
+  }
+
+  .home-render-section {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 1200px;
+  }
+}
+
 

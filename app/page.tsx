@@ -282,7 +282,7 @@ export default async function Home({
           <div className="flex min-w-0 flex-col gap-6">
 
             {/* New Airing */}
-            <section className="ap-glass-panel p-3 sm:p-5">
+            <section className="home-render-section ap-glass-panel p-3 sm:p-5">
               <SectionHeader
                 title="New Airing"
                 icon={Radio}
@@ -297,7 +297,7 @@ export default async function Home({
             </section>
 
             {/* Current Season */}
-            <section className="ap-glass-panel p-3 sm:p-5">
+            <section className="home-render-section ap-glass-panel p-3 sm:p-5">
               <SectionHeader
                 title="This Season"
                 icon={Zap}
@@ -312,7 +312,7 @@ export default async function Home({
             </section>
 
             {/* Trending Now */}
-            <section className="ap-glass-panel p-3 sm:p-5">
+            <section className="home-render-section ap-glass-panel p-3 sm:p-5">
               <SectionHeader
                 title="Trending Now"
                 icon={Flame}
@@ -327,7 +327,7 @@ export default async function Home({
             </section>
 
             {/* Browse Genres */}
-            <section className="ap-glass-panel p-3 sm:p-5">
+            <section className="home-render-section ap-glass-panel p-3 sm:p-5">
               <SectionHeader title="Browse by Genre" icon={TrendingUp} accentColor="#a855f7" />
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {[

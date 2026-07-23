@@ -9,7 +9,19 @@ import { Play, Bookmark, BookmarkCheck, ChevronLeft, ChevronRight, Star, Calenda
 import Link from "next/link";
 import { getImageProps } from "next/image";
 import { preload } from "react-dom";
-import { ViewTransition, startTransition, useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { ViewTransition, addTransitionType, startTransition, useEffect, useState, useCallback, useMemo, useRef } from "react";
+
+const carouselEnterTransition = {
+  "carousel-next": "slide-from-right",
+  "carousel-prev": "slide-from-left",
+  default: "fade-in",
+} as const;
+
+const carouselExitTransition = {
+  "carousel-next": "slide-to-left",
+  "carousel-prev": "slide-to-right",
+  default: "fade-out",
+} as const;
 
 interface HeroCarouselProps {
   slides: AnilistMedia[];
@@ -31,13 +43,25 @@ export default function AnilistHeroCarousel({
   const requestedAssetIdsRef = useRef(
     new Set(Object.keys(initialHeroAssets).map((id) => Number(id))),
   );
+  const carouselRef = useRef<HTMLElement | null>(null);
+  const carouselVisibleRef = useRef(true);
+  const userScrollingRef = useRef(false);
+  const scrollIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const goTo = useCallback((index: number) => {
     if (deck.length === 0) return;
+    const nextIndex = (index + deck.length) % deck.length;
+    if (nextIndex === activeIndex) return;
+    const forwardDistance = (nextIndex - activeIndex + deck.length) % deck.length;
+    const backwardDistance = (activeIndex - nextIndex + deck.length) % deck.length;
+
     startTransition(() => {
-      setActiveIndex((index + deck.length) % deck.length);
+      addTransitionType(
+        forwardDistance <= backwardDistance ? "carousel-next" : "carousel-prev",
+      );
+      setActiveIndex(nextIndex);
     });
-  }, [deck.length]);
+  }, [activeIndex, deck.length]);
 
   const goPrev = useCallback(() => {
     if (deck.length <= 1) return;
@@ -51,9 +75,52 @@ export default function AnilistHeroCarousel({
 
   useEffect(() => {
     if (deck.length <= 1) return;
-    const timer = setInterval(goNext, 7000);
+    const timer = setInterval(() => {
+      if (
+        carouselVisibleRef.current
+        && !userScrollingRef.current
+        && document.visibilityState === "visible"
+      ) {
+        goNext();
+      }
+    }, 7000);
     return () => clearInterval(timer);
   }, [goNext, deck.length]);
+
+  useEffect(() => {
+    const carousel = carouselRef.current;
+    if (!carousel) return;
+
+    const observer = new IntersectionObserver(([entry]) => {
+      carouselVisibleRef.current = Boolean(
+        entry?.isIntersecting && entry.intersectionRatio >= 0.55,
+      );
+    }, {
+      threshold: [0, 0.55],
+    });
+
+    const handleScroll = () => {
+      userScrollingRef.current = true;
+      if (scrollIdleTimerRef.current) {
+        clearTimeout(scrollIdleTimerRef.current);
+      }
+      scrollIdleTimerRef.current = setTimeout(() => {
+        userScrollingRef.current = false;
+      }, 180);
+    };
+
+    observer.observe(carousel);
+    window.addEventListener("scroll", handleScroll, { passive: true });
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("scroll", handleScroll);
+      if (scrollIdleTimerRef.current) {
+        clearTimeout(scrollIdleTimerRef.current);
+        scrollIdleTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (deck.length === 0) return;
@@ -100,18 +167,22 @@ export default function AnilistHeroCarousel({
   }, [deck]);
 
   // Touch swipe support for mobile
-  const touchStartX = useRef<number | null>(null);
+  const touchStartPoint = useRef<{ x: number; y: number } | null>(null);
   const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX;
+    touchStartPoint.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+    };
   };
   const handleTouchEnd = (e: React.TouchEvent) => {
-    if (touchStartX.current === null) return;
-    const diff = touchStartX.current - e.changedTouches[0].clientX;
-    if (Math.abs(diff) > 50) {
-      if (diff > 0) goNext();
+    if (!touchStartPoint.current) return;
+    const diffX = touchStartPoint.current.x - e.changedTouches[0].clientX;
+    const diffY = touchStartPoint.current.y - e.changedTouches[0].clientY;
+    if (Math.abs(diffX) > 50 && Math.abs(diffX) > Math.abs(diffY) * 1.2) {
+      if (diffX > 0) goNext();
       else goPrev();
     }
-    touchStartX.current = null;
+    touchStartPoint.current = null;
   };
 
   const slide = deck[activeIndex] || null;
@@ -184,9 +255,9 @@ export default function AnilistHeroCarousel({
   };
 
   return (
-    <ViewTransition key={slide.id} name="featured-hero-slide" share="morph" default="none">
-      <section
-      className="relative h-[clamp(570px,155vw,640px)] w-full overflow-hidden bg-[#080809] lg:h-[100svh] lg:min-h-[520px]"
+    <section
+      ref={carouselRef}
+      className="mobile-carousel-stage relative h-[clamp(570px,155vw,640px)] w-full touch-pan-y overflow-hidden bg-[#080809] lg:h-[100svh] lg:min-h-[520px]"
       aria-label="Featured anime carousel"
       tabIndex={0}
       onKeyDown={(e) => {
@@ -197,14 +268,20 @@ export default function AnilistHeroCarousel({
       onTouchEnd={handleTouchEnd}
     >
       {/* ── Full-viewport background image ─────────────────────────────────── */}
-      <div key={`backdrop-${slide.id}`} className="absolute inset-0 z-0">
+      <ViewTransition
+        key={`backdrop-${slide.id}`}
+        enter={carouselEnterTransition}
+        exit={carouselExitTransition}
+        default="none"
+      >
+      <div className="absolute inset-0 z-0">
         <picture className="absolute inset-0">
           <source media="(max-width: 767px)" srcSet={mobileBackdrop.srcSet} sizes={mobileBackdrop.sizes} />
           <source media="(min-width: 768px)" srcSet={desktopBackdrop.srcSet} sizes={desktopBackdrop.sizes} />
           <img
             {...desktopBackdrop}
             alt={title}
-            className="absolute inset-0 w-full h-full object-cover object-center"
+            className="hero-carousel-artwork absolute inset-0 h-full w-full object-cover object-center"
           />
         </picture>
 
@@ -218,9 +295,16 @@ export default function AnilistHeroCarousel({
         <div className="absolute inset-x-0 bottom-0 hidden h-56 bg-gradient-to-t from-[#080809] via-[#080809]/62 to-transparent lg:block" />
         <div className="absolute inset-x-0 bottom-0 h-[62%] bg-gradient-to-t from-[#080809] via-[#080809]/60 to-transparent lg:hidden" />
       </div>
+      </ViewTransition>
 
       {/* ── DESKTOP LAYOUT (lg+): same compact cinematic rhythm as the reference ── */}
       <div className="absolute inset-0 z-10 hidden flex-col justify-end px-14 pb-[120px] lg:flex xl:px-20">
+        <ViewTransition
+          key={`desktop-copy-${slide.id}`}
+          enter={carouselEnterTransition}
+          exit={carouselExitTransition}
+          default="none"
+        >
         <div className="max-w-[520px]">
 
             {/* Title/logo always occupies a stable slot; text appears immediately while a logo resolves. */}
@@ -375,6 +459,7 @@ export default function AnilistHeroCarousel({
               </p>
             )}
           </div>
+        </ViewTransition>
 
       </div>
 
@@ -398,6 +483,12 @@ export default function AnilistHeroCarousel({
 
       {/* ── MOBILE: the same desktop design, fitted to a portrait stage ────── */}
       <div className="absolute inset-0 z-10 flex flex-col justify-end px-6 pb-6 lg:hidden">
+        <ViewTransition
+          key={`mobile-copy-${slide.id}`}
+          enter={carouselEnterTransition}
+          exit={carouselExitTransition}
+          default="none"
+        >
         <div className="w-full">
 
           <div className="mb-3 flex h-20 max-w-full items-end justify-start">
@@ -541,6 +632,7 @@ export default function AnilistHeroCarousel({
             </button>
           </div>
         </div>
+        </ViewTransition>
 
         <div className="mt-4 flex items-center justify-between">
           <NavButtons deck={deck} activeIndex={activeIndex} goTo={goTo} accentColor={accentColor} />
@@ -566,8 +658,7 @@ export default function AnilistHeroCarousel({
           </div>
         </div>
       </div>
-      </section>
-    </ViewTransition>
+    </section>
   );
 }
 
@@ -581,19 +672,27 @@ function NavButtons({
   accentColor: string;
 }) {
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex h-5 items-center gap-2">
       {deck.map((_, i) => (
         <button
           key={i}
+          type="button"
           onClick={() => goTo(i)}
           aria-label={`Go to slide ${i + 1}`}
-          className="rounded-full transition-all duration-300"
-          style={{
-            width: i === activeIndex ? "20px" : "5px",
-            height: "5px",
-            backgroundColor: i === activeIndex ? accentColor : "rgba(255,255,255,0.3)",
-          }}
-        />
+          aria-current={i === activeIndex ? "true" : undefined}
+          className="flex h-5 shrink-0 items-center justify-center rounded-full transition-[width] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+          style={{ width: i === activeIndex ? "20px" : "5px" }}
+        >
+          <span
+            aria-hidden="true"
+            className="h-[5px] w-full rounded-full transition-colors duration-300"
+            style={{
+              backgroundColor: i === activeIndex
+                ? accentColor
+                : "rgba(255,255,255,0.30)",
+            }}
+          />
+        </button>
       ))}
     </div>
   );
