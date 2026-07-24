@@ -13,7 +13,6 @@ import {
 } from "@vidstack/react";
 import {
   defaultLayoutIcons,
-  DefaultMenuCheckbox,
   DefaultMenuItem,
   DefaultVideoLayout,
 } from "@vidstack/react/player/layouts/default";
@@ -363,11 +362,14 @@ export default function VidstackPlayer({
           slots={{
             captionsMenuItemsStart: (
               <DefaultMenuItem label="Hard-sub look">
-                <DefaultMenuCheckbox
-                  label="Hard-sub look"
-                  checked={subtitlePresentation === "hard"}
-                  onChange={(checked) => {
-                    const next = checked ? "hard" : "classic";
+                <button
+                  type="button"
+                  className="vds-menu-checkbox anime-caption-style-switch"
+                  role="menuitemcheckbox"
+                  aria-label="Hard-sub look"
+                  aria-checked={subtitlePresentation === "hard"}
+                  onClick={() => {
+                    const next = subtitlePresentation === "hard" ? "classic" : "hard";
                     setSubtitlePresentation(next);
                     prefs.setSubtitlePresentation(next);
                   }}

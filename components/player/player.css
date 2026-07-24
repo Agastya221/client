@@ -526,6 +526,24 @@
   margin-left: auto;
 }
 
+.vds-captions-menu .anime-caption-style-switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 18px;
+  overflow: hidden;
+  box-sizing: border-box;
+  padding: 0;
+  border: 0;
+  appearance: none;
+  vertical-align: middle;
+}
+
+.vds-captions-menu .anime-caption-style-switch::after {
+  left: 0;
+  right: auto;
+}
+
 .anime-seek-controls {
   display: inline-flex;
   flex: 0 0 auto;
