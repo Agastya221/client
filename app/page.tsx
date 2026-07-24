@@ -103,7 +103,6 @@ function buildAiringScheduleDays(media: AnilistMedia[]): AiringScheduleDay[] {
         episode: item.nextAiringEpisode?.episode || 1,
         href: `/anime/${encodeAnilistRouteId(item.id)}?from=airing`,
       }));
-
     return {
       key,
       weekday: weekdayFormatter.format(date),
@@ -125,53 +124,82 @@ function SidebarMediaPanel({
   media: AnilistMedia[];
   href: string;
   accentColor: string;
-  icon: React.ElementType;
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   fromAiring?: boolean;
 }) {
   return (
-    <section className="ap-glass-panel overflow-hidden">
-      <div className="flex items-center gap-2 border-b border-white/[0.08] p-4">
-        <Icon className="h-4 w-4" style={{ color: accentColor }} aria-hidden="true" />
-        <h2 className="text-sm font-black uppercase text-white">{title}</h2>
+    <section className="home-render-section ap-glass-panel overflow-hidden rounded-2xl border border-white/10 bg-[#0c0d10]/80 shadow-[0_8px_32px_rgba(0,0,0,0.36)] backdrop-blur-xl">
+      <div className="flex items-center justify-between border-b border-white/[0.08] p-4 bg-gradient-to-r from-white/[0.03] to-transparent">
+        <div className="flex items-center gap-2.5">
+          <div className="h-5 w-1 rounded-full" style={{ backgroundColor: accentColor, boxShadow: `0 0 12px ${accentColor}90` }} />
+          <div className="flex items-center gap-2">
+            <Icon className="h-4 w-4" style={{ color: accentColor }} aria-hidden="true" />
+            <h2 className="text-base font-black tracking-tight text-white">{title}</h2>
+          </div>
+        </div>
+        <Link
+          href={href}
+          className="group flex items-center gap-1 text-[11px] font-bold text-white/50 transition-colors hover:text-white"
+        >
+          <span>View All</span>
+          <ChevronRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
+        </Link>
       </div>
 
       <div className="space-y-2 p-3">
-        {media.slice(0, 5).map((item) => {
+        {media.slice(0, 5).map((item, idx) => {
           const titleText = anilistTitle(item);
           const rating = anilistRating(item);
           const year = item.seasonYear || item.startDate.year;
           const episode = item.nextAiringEpisode
             ? Math.max(0, item.nextAiringEpisode.episode - 1)
             : item.episodes;
+          const isUpcoming = item.status === "NOT_YET_RELEASED" || item.status === "Upcoming";
+
           return (
             <Link
               key={item.id}
               href={`/anime/${encodeAnilistRouteId(item.id)}${fromAiring ? "?from=airing" : ""}`}
-              className="group flex min-h-20 items-center gap-3 rounded-xl border border-white/[0.035] bg-white/[0.025] p-2 transition-colors hover:border-white/10 hover:bg-white/[0.05]"
+              className="group flex min-h-[4.5rem] items-center gap-3 rounded-xl border border-white/[0.04] bg-white/[0.02] p-2 transition-all duration-200 hover:border-white/15 hover:bg-white/[0.06] hover:shadow-[0_4px_20px_rgba(0,0,0,0.3)]"
             >
-              <div className="relative h-[4.5rem] w-12 shrink-0 overflow-hidden rounded-lg bg-[#1a1c22]">
+              {/* Cover image with optional rank or soon badge */}
+              <div className="relative h-[4.75rem] w-[3.25rem] shrink-0 overflow-hidden rounded-lg bg-[#1a1c22]">
                 <Image
                   src={item.coverImage.large || item.coverImage.extraLarge}
                   alt={titleText}
                   fill
-                  quality={60}
-                  sizes="48px"
+                  quality={65}
+                  sizes="52px"
                   className="object-cover transition-transform duration-500 group-hover:scale-105"
                 />
+                {fromAiring && (
+                  <span className="absolute top-1 left-1 rounded bg-black/80 px-1 py-0.5 text-[8px] font-black text-amber-300 shadow backdrop-blur-md">
+                    #{idx + 1}
+                  </span>
+                )}
+                {isUpcoming && (
+                  <span className="absolute top-1 right-1 rounded-full bg-black/80 px-1 py-0.5 text-[7px] font-black text-white shadow backdrop-blur-md">
+                    Soon
+                  </span>
+                )}
               </div>
+
               <div className="min-w-0 flex-1">
-                <div className="flex items-start gap-2">
-                  <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: accentColor }} />
-                  <p className="line-clamp-2 text-[13px] font-bold leading-snug text-white/85 transition-colors group-hover:text-white">
+                <div className="flex items-start gap-1.5">
+                  <span
+                    className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: accentColor, boxShadow: `0 0 6px ${accentColor}` }}
+                  />
+                  <p className="line-clamp-2 text-xs font-bold leading-snug text-white/85 transition-colors group-hover:text-white">
                     {titleText}
                   </p>
                 </div>
-                <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-4 text-[9px] font-bold uppercase text-white/30">
-                  <span className="rounded bg-white/[0.04] px-1.5 py-0.5">{item.format}</span>
-                  {year && <span className="rounded bg-white/[0.04] px-1.5 py-0.5">{year}</span>}
-                  {episode ? <span className="rounded bg-white/[0.04] px-1.5 py-0.5">EP {episode}{item.episodes ? ` / ${item.episodes}` : ""}</span> : null}
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[9px] font-bold uppercase text-white/40">
+                  <span className="rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5">{item.format}</span>
+                  {year && <span className="rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5">{year}</span>}
+                  {episode ? <span className="rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5">EP {episode}{item.episodes ? `/${item.episodes}` : ""}</span> : null}
                   {rating && (
-                    <span className="inline-flex items-center gap-0.5 text-yellow-400/60">
+                    <span className="inline-flex items-center gap-0.5 text-amber-400 font-bold">
                       <Star className="h-2.5 w-2.5 fill-current" aria-hidden="true" />
                       {rating}
                     </span>
@@ -184,10 +212,10 @@ function SidebarMediaPanel({
 
         <Link
           href={href}
-          className="flex items-center justify-center rounded-xl bg-white/[0.025] py-3 text-white/30 transition-colors hover:bg-white/[0.05] hover:text-white/60"
-          aria-label={`View all ${title}`}
+          className="group mt-3 flex items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/5 py-2 text-xs font-bold text-white/60 transition-all duration-200 hover:border-white/20 hover:bg-white/10 hover:text-white"
         >
-          <ChevronDown className="h-4 w-4" aria-hidden="true" />
+          <span>View All</span>
+          <ChevronRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
         </Link>
       </div>
     </section>
@@ -199,30 +227,45 @@ export default async function Home({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const [query, trending, seasonal, airingResult, upcomingResult, genres] = await Promise.all([
+  const [query, trendingRaw, seasonalRaw, airingResult, upcomingResult, genres] = await Promise.all([
     searchParams,
-    getAnilistTrending(12),
+    getAnilistTrending(16),
     getAnilistSeasonal(30),
     searchAnilist({ sort: ["POPULARITY_DESC"], status: "RELEASING", perPage: 50 }),
-    searchAnilist({ sort: ["POPULARITY_DESC"], status: "NOT_YET_RELEASED", perPage: 5 }),
+    searchAnilist({ sort: ["POPULARITY_DESC"], status: "NOT_YET_RELEASED", perPage: 15 }),
     getAnilistGenres().catch(() => [] as string[]),
   ]);
   const initialMode: HomeViewMode = (
     Array.isArray(query.view) ? query.view[0] : query.view
   ) === "browse" ? "browse" : "home";
 
-  const airingMedia = airingResult.media.filter((media) => media.nextAiringEpisode);
+  const isUnreleased = (m: AnilistMedia) =>
+    m.status === "NOT_YET_RELEASED" ||
+    m.status === "Upcoming" ||
+    (!m.nextAiringEpisode && m.startDate && m.startDate.year && m.startDate.year >= 2026);
+
+  // 1. Pure Coming Soon media
+  const upcomingRaw = upcomingResult.media || [];
+  const comingSoonFromOther = [...trendingRaw, ...seasonalRaw].filter(isUnreleased);
+  const comingSoonMedia = [
+    ...new Map([...upcomingRaw, ...comingSoonFromOther].map((m) => [m.id, m])).values(),
+  ].slice(0, 10);
+
+  // 2. Filter out unreleased anime from other rails
+  const trending = trendingRaw.filter((m) => !isUnreleased(m));
+  const airingMedia = airingResult.media.filter((media) => media.nextAiringEpisode && !isUnreleased(media));
   const popular = airingMedia.slice(0, 8);
   const upcoming = upcomingResult.media.slice(0, 5);
   const airingScheduleDays = buildAiringScheduleDays(airingMedia);
 
+  const seasonalClean = seasonalRaw.filter((m) => !isUnreleased(m));
   const newAiring = [
     ...new Map(
-      [...seasonal.filter((media) => media.status === "RELEASING"), ...popular].map((media) => [media.id, media]),
+      [...seasonalClean.filter((media) => media.status === "RELEASING"), ...popular].map((media) => [media.id, media]),
     ).values(),
   ].slice(0, 10);
   const newAiringIds = new Set(newAiring.map((media) => media.id));
-  const seasonHighlights = seasonal.filter((media) => !newAiringIds.has(media.id)).slice(0, 10);
+  const seasonHighlights = seasonalClean.filter((media) => !newAiringIds.has(media.id)).slice(0, 10);
 
   // Hero: top trending with banner images first
   const heroSlides = [...trending]
@@ -236,6 +279,7 @@ export default async function Home({
       ...newAiring,
       ...seasonHighlights,
       ...trending.slice(0, 10),
+      ...comingSoonMedia,
       ...popular,
     ]),
     heroSlidesForCarousel[0]
@@ -325,52 +369,40 @@ export default async function Home({
               </div>
             </section>
 
-            {/* Browse Genres */}
-            <section className="home-render-section ap-glass-panel p-3 sm:p-5">
-              <SectionHeader title="Browse by Genre" icon={TrendingUp} accentColor="#a855f7" />
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                {[
-                  { name: "Action", color: "#ef4444", emoji: "⚔️" },
-                  { name: "Romance", color: "#ec4899", emoji: "💕" },
-                  { name: "Fantasy", color: "#8b5cf6", emoji: "🔮" },
-                  { name: "Adventure", color: "#f97316", emoji: "🗺️" },
-                  { name: "Comedy", color: "#eab308", emoji: "😂" },
-                  { name: "Sci-Fi", color: "#06b6d4", emoji: "🤖" },
-                  { name: "Horror", color: "#6b7280", emoji: "💀" },
-                  { name: "Mystery", color: "#3b82f6", emoji: "🔍" },
-                ].map(({ name, color, emoji }) => (
+            {/* Coming Soon */}
+            {comingSoonMedia.length > 0 && (
+              <section className="home-render-section ap-glass-panel p-3 sm:p-5">
+                <div className="flex items-center justify-between gap-3 mb-4">
+                  <div className="flex items-center gap-2.5">
+                    <div className="h-5 w-1 rounded-full bg-purple-500" style={{ boxShadow: "0 0 12px rgba(168,85,247,0.6)" }} />
+                    <h2 className="text-base sm:text-lg font-black tracking-tight text-white flex items-center gap-2">
+                      Coming Soon
+                      <span className="rounded-full border border-purple-500/30 bg-purple-500/15 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-purple-300 shadow-[0_0_12px_rgba(168,85,247,0.25)]">
+                        UPCOMING
+                      </span>
+                    </h2>
+                  </div>
                   <Link
-                    key={name}
-                    href={`/search?genre=${name}`}
-                    className="group relative overflow-hidden rounded-2xl p-4 border border-white/5 hover:border-white/15 transition-all duration-200 flex items-center gap-3"
-                    style={{ background: `linear-gradient(135deg, ${color}15, ${color}05)` }}
+                    href="/search?status=NOT_YET_RELEASED"
+                    className="group flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-bold text-white/60 transition-colors hover:border-white/20 hover:bg-white/10 hover:text-white"
                   >
-                    <span className="text-2xl">{emoji}</span>
-                    <div>
-                      <p className="text-white font-bold text-sm">{name}</p>
-                      <p className="text-white/40 text-[10px]">Explore →</p>
-                    </div>
-                    <div
-                      className="absolute -right-4 -bottom-4 w-16 h-16 rounded-full opacity-10 group-hover:opacity-20 transition-opacity"
-                      style={{ backgroundColor: color }}
-                    />
+                    <span>View All</span>
+                    <span className="transition-transform group-hover:translate-x-0.5">→</span>
                   </Link>
-                ))}
-              </div>
-            </section>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 gap-y-7 sm:grid-cols-3 md:grid-cols-4 2xl:grid-cols-5">
+                  {comingSoonMedia.map((media) => (
+                    <AnilistCard key={media.id} media={media} availability={availabilityHints[media.id]} />
+                  ))}
+                </div>
+              </section>
+            )}
           </div>
 
           {/* Right Sidebar */}
           <aside className="flex flex-col gap-6 xl:sticky xl:top-24 xl:self-start">
             <AiringSchedulePanel days={airingScheduleDays} />
-
-            <SidebarMediaPanel
-              title="Upcoming"
-              media={upcoming}
-              href="/search?sort=season"
-              accentColor="#ff9f1c"
-              icon={Megaphone}
-            />
 
             <SidebarMediaPanel
               title="Top Airing"

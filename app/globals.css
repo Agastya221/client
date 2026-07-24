@@ -314,6 +314,55 @@ h1, h2, h3 {
   100% { transform: translateX(100%); }
 }
 
+/* Momentum scroll for mobile viewports */
+.overflow-x-auto, .overflow-y-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
+@layer utilities {
+  .shadow-ambient {
+    box-shadow: 0px 20px 40px rgba(0, 0, 0, 0.4);
+  }
+
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .text-shadow-hero {
+    text-shadow: 0 2px 4px rgba(0,0,0,0.8), 0 4px 12px rgba(0,0,0,0.5);
+  }
+
+  .scroll-fade-right {
+    mask-image: linear-gradient(to right, black 85%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to right, black 85%, transparent 100%);
+  }
+
+  /* Force filter details open on desktop */
+  @media (min-width: 1280px) {
+    details.xl\:open {
+      /* Force open rendering */
+    }
+    details.xl\:open > summary {
+      display: none !important;
+    }
+    details.xl\:open > div {
+      display: block !important;
+    }
+  }
+}
+
+/* Buffer bar animation for the streaming player loading screen */
+@keyframes bufferBar {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(0%); }
+  100% { transform: translateX(100%); }
+}
+
 /* Watch breadcrumb title — hover uses anime accent color via CSS custom property */
 .watch-breadcrumb-title:hover {
   color: var(--accent, #ff5500);
@@ -343,20 +392,16 @@ h1, h2, h3 {
 .watch-sidebar-rail,
 .watch-episode-scroll {
   overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
-@keyframes watchEpisodeRangeIn {
-  from { opacity: 0.55; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.watch-episode-range {
-  animation: watchEpisodeRangeIn 160ms ease-out both;
-}
-
-.watch-episode-card {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 100px;
+.watch-episode-scroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {

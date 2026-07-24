@@ -26,13 +26,7 @@ export default function AnilistCard({
   const image = media.coverImage.extraLarge || media.coverImage.large || media.coverImage.medium || "";
   const accentColor = media.coverImage.color || "#ff5500";
   const isAiring = media.status === "RELEASING";
-  const availabilityTone =
-    availability?.isAvailable
-      ? "bg-emerald-500/85 text-black"
-      : availability?.status === "NOT_FOUND"
-        ? "bg-[#ff5500]/85 text-white"
-        : null;
-
+  const isUpcoming = media.status === "NOT_YET_RELEASED" || media.status === "Upcoming";
   return (
     <Link
       href={href}
@@ -98,13 +92,18 @@ export default function AnilistCard({
           )}
         </div>
 
-        {/* Rating badge */}
-        {rating && (
+        {/* Rating or Soon badge */}
+        {isUpcoming ? (
+          <div className="absolute right-2 top-2 flex items-center gap-1 rounded-full border border-white/20 bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur-md shadow-md">
+            <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
+            <span>Soon</span>
+          </div>
+        ) : rating ? (
           <div className="absolute right-2 top-2 flex items-center gap-0.5 rounded-full border border-amber-300/35 bg-amber-300/15 px-2 py-1 text-[10px] font-black text-amber-300 backdrop-blur-md">
             <Star className="w-2.5 h-2.5 fill-current" />
             {rating}
           </div>
-        )}
+        ) : null}
 
         {/* Episodes count bottom right */}
         {media.episodes && (
@@ -112,12 +111,6 @@ export default function AnilistCard({
             {media.nextAiringEpisode
               ? `EP ${media.nextAiringEpisode.episode - 1}/${media.episodes}`
               : `${media.episodes} EPS`}
-          </div>
-        )}
-
-        {availability && availabilityTone && (
-          <div className={`absolute bottom-2 left-2 rounded-md px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider ${availabilityTone}`}>
-            {availability.message}
           </div>
         )}
       </div>

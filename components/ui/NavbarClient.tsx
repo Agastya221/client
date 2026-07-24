@@ -77,7 +77,7 @@ export default function NavbarClient({ user }: NavbarClientProps) {
 
   const activeTabId =
     pathname === "/"
-      ? homeView === "browse" ? "browse" : "home"
+      ? (homeView === "browse" ? "browse" : "home")
       : pathname === "/updates"
         ? "schedule"
         : pathname === "/new"
@@ -90,7 +90,7 @@ export default function NavbarClient({ user }: NavbarClientProps) {
                 ? "types"
                 : pathname === "/search"
                   ? "browse"
-                  : "home";
+                  : "";
 
   useEffect(() => {
     const el = tabRefs.current[activeTabId];

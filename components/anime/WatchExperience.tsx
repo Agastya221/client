@@ -2435,7 +2435,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
             {`No episodes match "${episodeQuery}"`}
           </p>
         ) : episodeView === "cards" ? (
-          <div key={`cards-${episodeRangeStart}`} className="watch-episode-range watch-episode-scroll max-h-[244px] space-y-1.5 overflow-y-auto pr-1 hide-scrollbar sm:h-full sm:max-h-none sm:space-y-2">
+          <div key={`cards-${episodeRangeStart}`} className="watch-episode-range watch-episode-scroll max-h-[340px] sm:max-h-[420px] xl:max-h-none space-y-1.5 overflow-y-auto pr-1 hide-scrollbar sm:h-full sm:space-y-2">
             {visibleEpisodes.map((episode) => {
               const active = episode.number === displayedEpisodeNumber;
               const watched = watchedEpisodes.has(episode.number);
@@ -2528,7 +2528,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
         ) : episodeView === "list" ? (
           <div
             key={`list-${episodeRangeStart}`}
-            className="watch-episode-range watch-episode-scroll max-h-[244px] space-y-1 overflow-y-auto pr-1 hide-scrollbar sm:h-full sm:max-h-none"
+            className="watch-episode-range watch-episode-scroll max-h-[340px] sm:max-h-[420px] xl:max-h-none space-y-1 overflow-y-auto pr-1 hide-scrollbar"
           >
             {visibleEpisodes.map((episode) => {
               const active = episode.number === displayedEpisodeNumber;
@@ -2571,7 +2571,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
             })}
           </div>
         ) : (
-          <div key={`grid-${episodeRangeStart}`} className="watch-episode-range watch-episode-scroll h-full min-h-0 overflow-y-auto pr-1">
+          <div key={`grid-${episodeRangeStart}`} className="watch-episode-range watch-episode-scroll max-h-[340px] sm:max-h-[420px] xl:max-h-none xl:h-full min-h-0 overflow-y-auto pr-1 hide-scrollbar">
             <EpisodeNumberGrid
               episodes={visibleEpisodes}
               activeNumber={displayedEpisodeNumber}
