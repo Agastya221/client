@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Bookmark, History, LogIn, LogOut, User } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { clearBookmarks } from "@/lib/anime/bookmarks";
 import { clearHistory } from "@/lib/anime/watch-history";
+import { useExitTransition } from "@/components/ui/useExitTransition";
 
 interface UserMenuProps {
   user: {
@@ -18,15 +19,17 @@ interface UserMenuProps {
 export default function UserMenu({ user }: UserMenuProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const finishClosing = useCallback(() => setOpen(false), []);
+  const { isClosing, prepareOpen, requestClose } = useExitTransition(open, finishClosing, 140);
 
   // Close on click outside
   useEffect(() => {
     const handle = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target as Node)) requestClose();
     };
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
-  }, []);
+  }, [requestClose]);
 
   if (!user) {
     return (
@@ -45,7 +48,13 @@ export default function UserMenu({ user }: UserMenuProps) {
     <div ref={ref} className="relative">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          if (open) requestClose();
+          else {
+            prepareOpen();
+            setOpen(true);
+          }
+        }}
         aria-haspopup="true"
         aria-expanded={open}
         aria-label="User menu"
@@ -70,7 +79,9 @@ export default function UserMenu({ user }: UserMenuProps) {
 
       {/* Dropdown */}
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-white/10 bg-[#111215] shadow-[0_8px_30px_rgba(0,0,0,0.5)] z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+        <div className={`popup-panel-motion absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-xl border border-white/10 bg-[#111215] shadow-[0_8px_30px_rgba(0,0,0,0.5)] ${
+          isClosing ? "popup-transition-closing" : ""
+        }`}>
           {/* User info */}
           <div className="p-4 border-b border-white/5">
             <p className="text-sm font-bold text-white truncate">{user.name}</p>
@@ -79,8 +90,8 @@ export default function UserMenu({ user }: UserMenuProps) {
 
           {/* Links */}
           <div className="p-1.5">
-            <MenuLink href="/my-list" icon={Bookmark} label="My List" onClick={() => setOpen(false)} />
-            <MenuLink href="/history" icon={History} label="Watch History" onClick={() => setOpen(false)} />
+            <MenuLink href="/my-list" icon={Bookmark} label="My List" onClick={requestClose} />
+            <MenuLink href="/history" icon={History} label="Watch History" onClick={requestClose} />
           </div>
 
           {/* Sign out */}

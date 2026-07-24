@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useSession } from "next-auth/react";
 import {
@@ -31,6 +31,7 @@ import {
 } from "@/lib/anilist/list-entry-client";
 import type { CachedAnilistListEntry } from "@/lib/anilist/list-entry-cache";
 import { fromAnilistListStatus } from "@/lib/anilist/list-status";
+import { useExitTransition } from "@/components/ui/useExitTransition";
 
 interface AddToListButtonProps {
   animeId: string;
@@ -68,6 +69,12 @@ export default function AddToListButton({
   const [checked, setChecked] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [synced, setSynced] = useState(false);
+  const finishClosingModal = useCallback(() => setIsModalOpen(false), []);
+  const {
+    isClosing: isModalClosing,
+    prepareOpen: prepareModalOpen,
+    requestClose: closeModal,
+  } = useExitTransition(isModalOpen, finishClosingModal);
 
   useEffect(() => {
     const syncState = () => {
@@ -189,6 +196,7 @@ export default function AddToListButton({
 
     if (isBookmarked) {
       // If already bookmarked, open the manage modal so user can change status or remove
+      prepareModalOpen();
       setIsModalOpen(true);
       return;
     }
@@ -323,7 +331,7 @@ export default function AddToListButton({
     try {
       removeBookmark(animeId);
       setIsBookmarked(false);
-      setIsModalOpen(false);
+      closeModal();
       if (rawMediaId) writeCachedAnilistListEntry(rawMediaId, null);
 
       if (session?.user) {
@@ -428,16 +436,18 @@ export default function AddToListButton({
 
       {/* Unified Manage Modal Popover - Teleported to Body via Portal to prevent overflow clipping */}
       {isModalOpen && typeof document !== "undefined" && createPortal(
-        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+        <div className={`modal-backdrop-motion fixed inset-0 z-[99999] flex items-center justify-center bg-black/80 p-4 backdrop-blur-md ${
+          isModalClosing ? "modal-transition-closing" : ""
+        }`}>
           {/* Backdrop Click */}
           <div
             className="fixed inset-0"
-            onClick={() => setIsModalOpen(false)}
+            onClick={closeModal}
             aria-hidden="true"
           />
 
           {/* Modal Card */}
-          <div className="relative w-full max-w-md rounded-3xl bg-[#0f1117] border border-white/15 p-6 shadow-[0_24px_48px_rgba(0,0,0,0.95)] z-[100000] animate-in zoom-in-95 duration-150 text-white overflow-hidden">
+          <div className="modal-panel-motion relative z-[100000] w-full max-w-md overflow-hidden rounded-3xl border border-white/15 bg-[#0f1117] p-6 text-white shadow-[0_24px_48px_rgba(0,0,0,0.95)]">
             {/* Header */}
             <div className="flex items-center justify-between pb-4 mb-5 border-b border-white/10">
               <div className="flex items-center gap-2.5">
@@ -461,7 +471,7 @@ export default function AddToListButton({
               </div>
               <button
                 type="button"
-                onClick={() => setIsModalOpen(false)}
+                onClick={closeModal}
                 className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/60 hover:text-white transition-colors"
               >
                 <X className="w-4 h-4" />
@@ -557,7 +567,7 @@ export default function AddToListButton({
               </button>
               <button
                 type="button"
-                onClick={() => setIsModalOpen(false)}
+                onClick={closeModal}
                 className="w-full py-3 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-bold text-white transition-all"
               >
                 Done

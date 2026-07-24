@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Copy, Link2, Loader2, Users, X, Play, LogIn } from "lucide-react";
+import { useExitTransition } from "@/components/ui/useExitTransition";
 
 export type PartyMode = "create" | "join";
 
@@ -39,6 +40,7 @@ export default function WatchPartyModal({
   const [createdCode, setCreatedCode] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const joinInputRef = useRef<HTMLInputElement>(null);
+  const { isClosing, requestClose } = useExitTransition(true, onClose);
 
   useEffect(() => {
     if (mode === "join") joinInputRef.current?.focus();
@@ -115,15 +117,17 @@ export default function WatchPartyModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-backdrop-in"
+      className={`modal-backdrop-motion fixed inset-0 z-50 flex items-center justify-center p-4 ${
+        isClosing ? "modal-transition-closing" : ""
+      }`}
       style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(8px)" }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onClick={(e) => { if (e.target === e.currentTarget) requestClose(); }}
       role="dialog"
       aria-modal="true"
       aria-label="Watch Party"
     >
       <div
-        className="relative w-full max-w-md overflow-hidden rounded-2xl border border-white/10 shadow-2xl animate-modal-in"
+        className="modal-panel-motion relative w-full max-w-md overflow-hidden rounded-2xl border border-white/10 shadow-2xl"
         style={{
           background: "linear-gradient(135deg, #0f1012 0%, #141618 100%)",
           boxShadow: `0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06), 0 0 60px ${accentColor}18`,
@@ -150,7 +154,7 @@ export default function WatchPartyModal({
             </div>
             <button
               type="button"
-              onClick={onClose}
+              onClick={requestClose}
               aria-label="Close"
               className="flex h-8 w-8 items-center justify-center rounded-lg text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white btn-press-active"
             >
@@ -184,7 +188,7 @@ export default function WatchPartyModal({
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={requestClose}
                   className="flex-1 rounded-[12px] border border-white/10 bg-white/[0.03] py-3.5 text-[13px] font-bold text-white/50 hover:text-white transition-all btn-press-active"
                 >
                   Keep Watching
@@ -193,7 +197,7 @@ export default function WatchPartyModal({
                   type="button"
                   onClick={() => {
                     onLeaveRoom?.();
-                    onClose();
+                    requestClose();
                   }}
                   className="flex-1 rounded-[12px] bg-red-600 hover:bg-red-700 py-3.5 text-[13px] font-bold text-white transition-all btn-press-active shadow-lg shadow-red-600/20"
                 >

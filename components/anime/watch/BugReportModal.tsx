@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useExitTransition } from "@/components/ui/useExitTransition";
 
 interface BugReportModalProps {
   animeId: string;
@@ -51,19 +52,20 @@ export default function BugReportModal({
   const [notes, setNotes] = useState("");
   const [status, setStatus] = useState<"idle" | "sending" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
+  const { isClosing, requestClose } = useExitTransition(true, onClose);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && status !== "sending") onClose();
+      if (event.key === "Escape" && status !== "sending") requestClose();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [onClose, status]);
+  }, [requestClose, status]);
 
   const toggleIssue = (issue: WatchReportIssue) => {
     setSelectedIssues((current) =>
@@ -117,14 +119,16 @@ export default function BugReportModal({
 
   return (
     <div
-      className="fixed inset-0 z-[120] flex items-end justify-center bg-black/75 backdrop-blur-sm sm:items-center sm:p-4"
+      className={`modal-backdrop-motion fixed inset-0 z-[120] flex items-end justify-center bg-black/75 backdrop-blur-sm sm:items-center sm:p-4 ${
+        isClosing ? "modal-transition-closing" : ""
+      }`}
       role="presentation"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget && status !== "sending") onClose();
+        if (event.target === event.currentTarget && status !== "sending") requestClose();
       }}
     >
       <section
-        className="max-h-[92dvh] w-full overflow-y-auto rounded-t-[1.5rem] border border-white/10 bg-[#101113] px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4 shadow-2xl shadow-black/80 sm:max-w-xl sm:rounded-2xl sm:p-5"
+        className="modal-panel-motion max-h-[92dvh] w-full overflow-y-auto rounded-t-[1.5rem] border border-white/10 bg-[#101113] px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4 shadow-2xl shadow-black/80 sm:max-w-xl sm:rounded-2xl sm:p-5"
         role="dialog"
         aria-modal="true"
         aria-labelledby="bug-report-title"
@@ -149,7 +153,7 @@ export default function BugReportModal({
           <button
             type="button"
             disabled={status === "sending"}
-            onClick={onClose}
+            onClick={requestClose}
             className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/8 bg-white/[0.035] text-white/45 transition-colors hover:border-white/15 hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
             aria-label="Close report form"
           >
@@ -215,7 +219,7 @@ export default function BugReportModal({
           <button
             type="button"
             disabled={status === "sending"}
-            onClick={onClose}
+            onClick={requestClose}
             className="h-11 rounded-xl border border-white/9 bg-white/[0.025] px-5 text-xs font-bold text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white/70 disabled:opacity-30"
           >
             Cancel
