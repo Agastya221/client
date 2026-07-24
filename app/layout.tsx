@@ -54,6 +54,9 @@ export const metadata: Metadata = {
   },
 };
 
+import Navbar from "@/components/ui/Navbar";
+import PageTransitionWrapper from "@/components/ui/PageTransitionWrapper";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -72,10 +75,13 @@ export default function RootLayout({
             detailLoader={<AnimeDetailLoading />}
             watchLoader={<WatchPageLoading />}
           >
+            <Navbar />
             <Suspense fallback={null}>
               <ScrollToTop />
             </Suspense>
-            {children}
+            <PageTransitionWrapper>
+              {children}
+            </PageTransitionWrapper>
           </NavigationPendingController>
         </AuthSessionProvider>
         <Analytics />

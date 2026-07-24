@@ -10,7 +10,6 @@ export const metadata = {
 export default function HistoryPage() {
   return (
     <main className="min-h-screen bg-[#0a0b0c] text-white">
-      <Navbar />
       <HistoryClient />
       <SiteFooter />
     </main>

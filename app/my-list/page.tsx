@@ -15,7 +15,6 @@ export default async function MyListPage() {
 
   return (
     <main className="min-h-screen bg-[#0a0b0c] text-white">
-      <Navbar />
       <MyListClient user={session?.user ?? null} />
       <SiteFooter />
     </main>

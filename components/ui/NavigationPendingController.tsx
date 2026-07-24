@@ -13,7 +13,7 @@ import {
   type ReactNode,
 } from "react";
 
-type LoaderKind = "root" | "detail" | "watch";
+type LoaderKind = "none" | "detail" | "watch";
 
 type NavigationPendingContextValue = {
   isNavigationPending: boolean;
@@ -23,9 +23,9 @@ type NavigationPendingContextValue = {
 const NavigationPendingContext = createContext<NavigationPendingContextValue | null>(null);
 
 function loaderKindForPath(pathname: string): LoaderKind {
-  if (/^\/anime\/[^/]+\/watch\/?$/.test(pathname)) return "watch";
+  if (/\/(watch|player)\//.test(pathname) || /^\/anime\/[^/]+\/watch\/?$/.test(pathname)) return "watch";
   if (/^\/anime\/[^/]+\/?$/.test(pathname)) return "detail";
-  return "root";
+  return "none";
 }
 
 function isModifiedClick(event: MouseEvent): boolean {
@@ -61,7 +61,7 @@ export default function NavigationPendingController({
   const committedPathRef = useRef(pathname);
   const pendingRef = useRef(false);
   const [pending, setPending] = useState(false);
-  const [loaderKind, setLoaderKind] = useState<LoaderKind>("root");
+  const [loaderKind, setLoaderKind] = useState<LoaderKind>("none");
 
   const beginNavigation = useCallback((href: string) => {
     const destination = new URL(href, window.location.href);
@@ -70,8 +70,13 @@ export default function NavigationPendingController({
     if (destination.pathname === current.pathname && destination.search === current.search) return false;
     if (pendingRef.current) return false;
 
+    const kind = loaderKindForPath(destination.pathname);
+    if (kind === "none") {
+      return true;
+    }
+
     pendingRef.current = true;
-    setLoaderKind(loaderKindForPath(destination.pathname));
+    setLoaderKind(kind);
     setPending(true);
     return true;
   }, []);
@@ -123,7 +128,7 @@ export default function NavigationPendingController({
     ? watchLoader
     : loaderKind === "detail"
       ? detailLoader
-      : rootLoader;
+      : null;
 
   return (
     <NavigationPendingContext.Provider value={value}>
@@ -131,7 +136,7 @@ export default function NavigationPendingController({
         <SearchCommitObserver onCommit={finishNavigation} />
       </Suspense>
       {children}
-      {pending ? (
+      {pending && activeLoader ? (
         <div className="fixed inset-0 z-[200] overflow-y-auto bg-[#0a0b0c]" aria-busy="true">
           {activeLoader}
         </div>

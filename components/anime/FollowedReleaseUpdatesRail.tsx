@@ -1,134 +1,248 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { BellRing, CalendarDays, Play, Sparkles } from "lucide-react";
-import { useEffect, useState } from "react";
+import { BellRing, Play, Sparkles, Bookmark } from "lucide-react";
+import { useEffect, useState, useCallback } from "react";
 import type { FollowedReleaseUpdate } from "@/lib/anilist/release-updates";
+import { getBookmarks, BOOKMARKS_UPDATED_EVENT } from "@/lib/anime/bookmarks";
+import { getRecentlyWatched, subscribeToWatchHistory } from "@/lib/anime/watch-history";
+
+function parseAnilistId(rawId: string | number): number {
+  if (typeof rawId === "number") return rawId;
+  if (!rawId) return 0;
+  const str = String(rawId).trim();
+  if (str.startsWith("anilist~")) {
+    const num = Number(str.replace("anilist~", ""));
+    return Number.isInteger(num) ? num : 0;
+  }
+  const num = Number(str);
+  return Number.isInteger(num) ? num : 0;
+}
 
 export default function FollowedReleaseUpdatesRail() {
   const { status } = useSession();
   const [updates, setUpdates] = useState<FollowedReleaseUpdate[]>([]);
+  const [isAnilistSynced, setIsAnilistSynced] = useState(false);
 
-  useEffect(() => {
-    if (status !== "authenticated") return;
+  const fetchAllUpdates = useCallback(async () => {
+    const combinedUpdates: FollowedReleaseUpdate[] = [];
+    const seenKeys = new Set<string>();
 
-    const controller = new AbortController();
-    void fetch("/api/anilist/release-updates", {
-      cache: "no-store",
-      credentials: "same-origin",
-      signal: controller.signal,
-    })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((payload) => {
-        if (Array.isArray(payload?.updates)) {
-          setUpdates(payload.updates);
+    // 1. If signed in with AniList, fetch remote AniList updates
+    if (status === "authenticated") {
+      try {
+        const response = await fetch("/api/anilist/release-updates", {
+          cache: "no-store",
+          credentials: "same-origin",
+        });
+        if (response.ok) {
+          const payload = await response.json();
+          if (Array.isArray(payload?.updates) && payload.updates.length > 0) {
+            for (const item of payload.updates) {
+              if (!seenKeys.has(item.key)) {
+                seenKeys.add(item.key);
+                combinedUpdates.push(item);
+              }
+            }
+            setIsAnilistSynced(true);
+          }
         }
-      })
-      .catch((error) => {
-        if (!(error instanceof DOMException && error.name === "AbortError")) {
-          console.error("[FollowedReleaseUpdatesRail] Unable to load updates:", error);
-        }
-      });
+      } catch (err) {
+        console.error("[FollowedReleaseUpdatesRail] AniList fetch error:", err);
+      }
+    }
 
-    return () => controller.abort();
+    // 2. Fetch local updates from local bookmarks & watch history
+    try {
+      const localBookmarks = getBookmarks();
+      const localHistory = getRecentlyWatched(30);
+
+      const localItemsMap = new Map<number, { id: number; progress: number; status: string }>();
+
+      for (const item of localHistory) {
+        const id = parseAnilistId(item.animeId);
+        if (id > 0) {
+          localItemsMap.set(id, {
+            id,
+            progress: item.lastEpisode || 0,
+            status: "CURRENT",
+          });
+        }
+      }
+
+      for (const entry of localBookmarks) {
+        const id = parseAnilistId(entry.animeId);
+        if (id > 0 && !localItemsMap.has(id)) {
+          localItemsMap.set(id, {
+            id,
+            progress: 0,
+            status: (entry.status || "PLANNING").toUpperCase(),
+          });
+        }
+      }
+
+      const items = Array.from(localItemsMap.values());
+      if (items.length > 0) {
+        const res = await fetch("/api/anilist/release-updates", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items }),
+        });
+
+        if (res.ok) {
+          const payload = await res.json();
+          if (Array.isArray(payload?.updates)) {
+            for (const item of payload.updates) {
+              if (!seenKeys.has(item.key)) {
+                seenKeys.add(item.key);
+                combinedUpdates.push(item);
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[FollowedReleaseUpdatesRail] Local updates error:", err);
+    }
+
+    combinedUpdates.sort((a, b) => b.sortAt - a.sortAt);
+    setUpdates(combinedUpdates.slice(0, 16));
   }, [status]);
 
-  if (status !== "authenticated" || updates.length === 0) return null;
+  useEffect(() => {
+    fetchAllUpdates();
+
+    const unsubHistory = subscribeToWatchHistory(() => fetchAllUpdates());
+    const handleBookmarkUpdate = () => fetchAllUpdates();
+    if (typeof window !== "undefined") {
+      window.addEventListener(BOOKMARKS_UPDATED_EVENT, handleBookmarkUpdate);
+    }
+
+    return () => {
+      unsubHistory();
+      if (typeof window !== "undefined") {
+        window.removeEventListener(BOOKMARKS_UPDATED_EVENT, handleBookmarkUpdate);
+      }
+    };
+  }, [fetchAllUpdates]);
+
+  if (updates.length === 0) return null;
 
   return (
-    <section className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0f1012]/90 p-3 sm:p-5">
+    <section className="relative">
       <div className="mb-4 flex items-center justify-between gap-4">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-400/10 text-emerald-300 ring-1 ring-emerald-300/15">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#22d3ee]/15 text-[#22d3ee]">
             <BellRing className="h-4 w-4" aria-hidden="true" />
           </div>
           <div className="min-w-0">
-            <h2 className="text-lg font-black tracking-tight text-white">New from Your List</h2>
+            <h2 className="text-lg font-bold tracking-tight text-white">New from Your List</h2>
             <p className="truncate text-[11px] font-medium text-white/40">
               New episodes and seasons from anime you follow
             </p>
           </div>
         </div>
-        <span className="hidden shrink-0 items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.035] px-3 py-1.5 text-[9px] font-black uppercase tracking-[0.14em] text-white/45 sm:inline-flex">
-          <Sparkles className="h-3 w-3 text-emerald-300" aria-hidden="true" />
-          AniList synced
-        </span>
+
+        {isAnilistSynced ? (
+          <span className="hidden shrink-0 items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.035] px-3 py-1 text-[10px] font-bold text-white/50 sm:inline-flex">
+            <Sparkles className="h-3 w-3 text-cyan-400" aria-hidden="true" />
+            AniList Synced
+          </span>
+        ) : (
+          <span className="hidden shrink-0 items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.035] px-3 py-1 text-[10px] font-bold text-white/50 sm:inline-flex">
+            <Bookmark className="h-3 w-3 text-[#22d3ee]" aria-hidden="true" />
+            My Watchlist
+          </span>
+        )}
       </div>
 
-      <div className="-mx-3 flex gap-3 overflow-x-auto px-3 pb-1 sm:-mx-5 sm:px-5 hide-scrollbar">
+      {/* Horizontal Rail of Anime Poster Cards */}
+      <div className="flex gap-3.5 sm:gap-4 overflow-x-auto pb-2 hide-scrollbar -mx-3 px-3 sm:-mx-4 sm:px-4 lg:-mx-12 lg:px-12 xl:-mx-16 xl:px-16">
         {updates.map((update) => {
           const accent = update.accentColor || "#22d3ee";
-          const artwork = update.banner || update.poster;
-          const badge =
+          const badgeText =
             update.kind === "season"
-              ? "New season"
+              ? "New Season"
               : update.newEpisodeCount === 1
-                ? `Episode ${update.latestEpisode} is out`
-                : `${update.newEpisodeCount} new episodes`;
+                ? `Ep ${update.latestEpisode} Out`
+                : `${update.newEpisodeCount} New Eps`;
 
           return (
-            <Link
+            <div
               key={update.key}
-              href={update.href}
-              className="group relative min-h-[170px] w-[280px] shrink-0 overflow-hidden rounded-2xl border bg-[#14161a] transition-[border-color,transform] duration-200 hover:-translate-y-0.5 sm:w-[330px]"
-              style={{
-                borderColor: `${accent}35`,
-                boxShadow: `inset 0 -1px 0 ${accent}18`,
-              }}
+              className="group relative min-w-[145px] sm:min-w-[165px] max-w-[145px] sm:max-w-[165px] aspect-[2/3] shrink-0"
             >
-              {artwork ? (
-                <Image
-                  src={artwork}
-                  alt=""
-                  fill
-                  sizes="(max-width: 640px) 280px, 330px"
-                  quality={72}
-                  className="object-cover transition-transform duration-500 group-hover:scale-[1.03]"
-                />
-              ) : null}
-              <div className="absolute inset-0 bg-gradient-to-r from-black/95 via-black/72 to-black/25" />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-black/15" />
+              <Link href={update.href} className="block w-full h-full">
+                <div
+                  className="relative w-full h-full rounded-2xl overflow-hidden border bg-[#121316] transition-all duration-300 shadow-lg hover:shadow-2xl group-hover:-translate-y-1"
+                  style={{
+                    borderColor: "rgba(255, 255, 255, 0.08)",
+                    ["--accent-color" as any]: accent,
+                  }}
+                >
+                  {/* Poster Image */}
+                  {update.poster ? (
+                    <img
+                      src={update.poster}
+                      alt={update.title}
+                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-white/5 flex items-center justify-center">
+                      <Play className="w-8 h-8 text-white/20" />
+                    </div>
+                  )}
 
-              <div className="relative flex h-full min-h-[170px] flex-col justify-between p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <span
-                    className="rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.13em]"
-                    style={{
-                      color: accent,
-                      borderColor: `${accent}55`,
-                      backgroundColor: `${accent}18`,
-                    }}
-                  >
-                    {badge}
-                  </span>
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-black shadow-lg transition-transform group-hover:scale-105">
-                    {update.kind === "episode" ? (
-                      <Play className="h-4 w-4 fill-current" aria-hidden="true" />
-                    ) : (
-                      <CalendarDays className="h-4 w-4" aria-hidden="true" />
-                    )}
-                  </span>
-                </div>
+                  {/* Gradient Overlay */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/35 to-transparent" />
 
-                <div>
-                  <h3 className="line-clamp-2 text-base font-black leading-tight text-white">
-                    {update.title}
-                  </h3>
-                  <p className="mt-1 line-clamp-1 text-[11px] font-medium text-white/55">
-                    {update.kind === "season"
-                      ? `A new season of ${update.sourceTitle} is available`
-                      : `You watched through episode ${update.progress}`}
-                  </p>
-                  <div className="mt-3 flex items-center gap-2 text-[9px] font-black uppercase tracking-wider text-white/40">
-                    {update.format ? <span>{update.format.replaceAll("_", " ")}</span> : null}
-                    {update.seasonYear ? <span>• {update.seasonYear}</span> : null}
-                    <span style={{ color: accent }}>Open now →</span>
+                  {/* Pill Tag — Top Left (Matching User Reference Image) */}
+                  <div className="absolute top-2.5 left-2.5 z-10">
+                    <span
+                      className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider backdrop-blur-md bg-black/60 shadow-md"
+                      style={{
+                        color: accent,
+                        borderColor: `${accent}60`,
+                        boxShadow: `0 2px 10px ${accent}25`,
+                      }}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: accent }} />
+                      {badgeText}
+                    </span>
+                  </div>
+
+                  {/* Hover Play Button Overlay — Translucent Glass with Accent Border & Icon */}
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300">
+                    <div
+                      className="w-12 h-12 rounded-full flex items-center justify-center backdrop-blur-md bg-black/60 border shadow-xl scale-90 group-hover:scale-105 transition-transform"
+                      style={{
+                        borderColor: `${accent}80`,
+                        color: accent,
+                        boxShadow: `0 0 20px ${accent}40, inset 0 0 12px ${accent}15`,
+                      }}
+                    >
+                      <Play className="w-5 h-5 fill-current ml-0.5" style={{ color: accent }} />
+                    </div>
+                  </div>
+
+                  {/* Bottom Details */}
+                  <div className="absolute bottom-0 left-0 right-0 p-3.5 z-10">
+                    <h3 className="text-xs sm:text-sm font-extrabold text-white line-clamp-2 leading-tight transition-colors mb-1 group-hover:text-[var(--accent-color)]">
+                      {update.title}
+                    </h3>
+                    <p className="text-[10px] sm:text-[11px] font-medium text-white/60 line-clamp-1">
+                      {update.kind === "season"
+                        ? `New season available`
+                        : update.progress > 0
+                          ? `Watched ep ${update.progress}`
+                          : `Ep ${update.latestEpisode} available`}
+                    </p>
                   </div>
                 </div>
-              </div>
-            </Link>
+              </Link>
+            </div>
           );
         })}
       </div>

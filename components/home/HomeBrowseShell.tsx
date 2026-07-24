@@ -1,13 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import BrowseExperience from "@/components/search/BrowseExperience";
-import { HOME_VIEW_EVENT, type HomeViewMode } from "@/lib/home-view";
-
-function readHomeView(): HomeViewMode {
-  if (typeof window === "undefined") return "home";
-  return new URLSearchParams(window.location.search).get("view") === "browse" ? "browse" : "home";
-}
+import type { HomeViewMode } from "@/lib/home-view";
 
 export default function HomeBrowseShell({
   initialMode,
@@ -20,26 +15,9 @@ export default function HomeBrowseShell({
   genres: string[];
   children: React.ReactNode;
 }) {
-  const [mode, setMode] = useState<HomeViewMode>(initialMode);
-
-  const changeMode = useCallback((nextMode: HomeViewMode) => {
-    setMode(nextMode);
-  }, []);
-
-  useEffect(() => {
-    const handleViewChange = (event: Event) => {
-      const nextMode = (event as CustomEvent<{ mode?: HomeViewMode }>).detail?.mode;
-      changeMode(nextMode === "browse" ? "browse" : "home");
-    };
-    const handlePopState = () => changeMode(readHomeView());
-
-    window.addEventListener(HOME_VIEW_EVENT, handleViewChange);
-    window.addEventListener("popstate", handlePopState);
-    return () => {
-      window.removeEventListener(HOME_VIEW_EVENT, handleViewChange);
-      window.removeEventListener("popstate", handlePopState);
-    };
-  }, [changeMode]);
+  const searchParams = useSearchParams();
+  const viewParam = searchParams.get("view");
+  const mode: HomeViewMode = viewParam === "browse" ? "browse" : viewParam === "home" ? "home" : initialMode;
 
   return (
     <div data-home-view={mode} className="relative overflow-clip">

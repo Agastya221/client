@@ -1475,3 +1475,79 @@ export async function getAnilistFranchiseSeasonEntries(
     .slice(0, maxMainlineEntries);
   return mainline;
 }
+
+// ─── Weekly Airing Schedule Query ──────────────────────────────────────────
+
+const WEEKLY_AIRING_SCHEDULE_QUERY = `
+  ${MEDIA_FRAGMENT}
+  query WeeklyAiringSchedule($start: Int, $end: Int, $page: Int) {
+    Page(page: $page, perPage: 50) {
+      pageInfo {
+        hasNextPage
+        currentPage
+      }
+      airingSchedules(airingAt_greater: $start, airingAt_lesser: $end, sort: TIME) {
+        id
+        airingAt
+        timeUntilAiring
+        episode
+        media {
+          ...MediaFields
+        }
+      }
+    }
+  }
+`;
+
+export interface AnilistAiringScheduleEntry {
+  id: number;
+  airingAt: number;
+  timeUntilAiring: number;
+  episode: number;
+  media: AnilistMedia;
+}
+
+export const getWeeklyAiringSchedule = cache(
+  async (start: number, end: number): Promise<AnilistAiringScheduleEntry[]> => {
+    try {
+      let schedules: any[] = [];
+      let currentPage = 1;
+      const MAX_PAGES = 6;
+
+      while (currentPage <= MAX_PAGES) {
+        const res = await anilistQuery<{
+          Page: {
+            pageInfo: { hasNextPage: boolean };
+            airingSchedules: any[];
+          };
+        }>(WEEKLY_AIRING_SCHEDULE_QUERY, { start, end, page: currentPage });
+
+        const items = res?.Page?.airingSchedules || [];
+        schedules = schedules.concat(items);
+
+        if (!res?.Page?.pageInfo?.hasNextPage || items.length === 0) {
+          break;
+        }
+        currentPage++;
+      }
+
+      return schedules
+        .map((item) => {
+          const normalizedMedia = normalizeAnilistMediaEntry(item.media);
+          if (!normalizedMedia) return null;
+          return {
+            id: asNumber(item.id),
+            airingAt: asNumber(item.airingAt),
+            timeUntilAiring: asNumber(item.timeUntilAiring),
+            episode: asNumber(item.episode),
+            media: normalizedMedia,
+          };
+        })
+        .filter((entry): entry is AnilistAiringScheduleEntry => entry !== null);
+    } catch (err) {
+      console.error("Error fetching weekly airing schedule:", err);
+      return [];
+    }
+  }
+);
+

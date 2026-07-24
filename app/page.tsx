@@ -249,7 +249,6 @@ export default async function Home({
 
   return (
     <main className="min-h-screen bg-[#0a0b0c] text-[#eaeaea]">
-      <Navbar />
 
       <HomeBrowseShell
         initialMode={initialMode}

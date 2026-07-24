@@ -182,7 +182,6 @@ export default async function WatchPage({
 
   return (
     <main className="min-h-screen bg-[#0a0b0c] text-[#eaeaea] flex flex-col">
-      <Navbar />
 
       <section className="relative flex-1 overflow-x-clip px-0 pb-12 pt-[4.75rem] sm:px-4 sm:pt-20 md:px-6">
         <div className="absolute inset-0" style={{ background: 'radial-gradient(circle at top center, rgba(255,255,255,0.02), transparent 50%)' }} />

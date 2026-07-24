@@ -389,7 +389,6 @@ export default async function AnilistDetailPage({
 
   return (
     <main className="min-h-screen bg-[#0a0b0c] text-[#eaeaea]">
-      <Navbar />
       <AnilistDetailContent anilistId={anilistId} searchParams={resolvedSearchParams} />
       <SiteFooter />
     </main>

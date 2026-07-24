@@ -44,8 +44,7 @@ export default async function GenresPage() {
   const featuredGenres = FEATURED_GENRES.filter((g) => genres.includes(g) || true).slice(0, 6);
 
   return (
-    <main className="min-h-screen bg-[#0a0b0c] text-white">
-      <Navbar />
+    <main className="min-h-screen bg-[#0a0b0c] text-white page-transition-enter">
 
       {/* Hero */}
       <section className="border-b border-white/5 bg-gradient-to-br from-[#0f1114] to-[#0a0b0c] px-6 pb-14 pt-28">

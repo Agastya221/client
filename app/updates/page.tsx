@@ -1,142 +1,111 @@
 import Navbar from "@/components/ui/Navbar";
 import SiteFooter from "@/components/ui/SiteFooter";
+import ScheduleClient, { type WeekDayInfo, type ScheduleItem } from "@/components/schedule/ScheduleClient";
+import { getWeeklyAiringSchedule, encodeAnilistRouteId } from "@/lib/anilist/api";
 import { getCatalogAvailabilityForMedia, getWatchHrefsFromAvailability } from "@/lib/anilist/availability";
-import { searchAnilist, anilistTitle, type AnilistMedia } from "@/lib/anilist/api";
-import { Calendar, Clock, ChevronRight } from "lucide-react";
-import Link from "next/link";
 
 export const metadata = {
-  title: "Schedule & Updates | AnimePlay",
-  description: "See the weekly airing schedule and latest episode updates on AnimePlay.",
+  title: "Anime Schedule & Airing Updates | AnimePlay",
+  description: "Weekly anime airing schedule for currently releasing anime.",
 };
 
-// Group airing anime by day of week
-function groupByDay(media: AnilistMedia[]): Record<string, AnilistMedia[]> {
-  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  const grouped: Record<string, AnilistMedia[]> = {};
+function getWeekDays(referenceDate = new Date()): WeekDayInfo[] {
+  const currentDayOfWeek = referenceDate.getDay();
+  const sunday = new Date(referenceDate);
+  sunday.setDate(referenceDate.getDate() - currentDayOfWeek);
+  sunday.setHours(0, 0, 0, 0);
 
-  for (const day of days) grouped[day] = [];
+  const days: WeekDayInfo[] = [];
+  for (let i = 0; i < 7; i++) {
+    const day = new Date(sunday);
+    day.setDate(sunday.getDate() + i);
 
-  for (const item of media) {
-    if (!item.nextAiringEpisode) continue;
-    const date = new Date(item.nextAiringEpisode.airingAt * 1000);
-    const day = days[date.getDay()];
-    grouped[day].push(item);
+    const dayShort = day.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase();
+    const dayNumber = day.getDate();
+    const monthShort = day.toLocaleDateString("en-US", { month: "short" });
+    const fullDayName = day.toLocaleDateString("en-US", { weekday: "long" });
+
+    const year = day.getFullYear();
+    const month = String(day.getMonth() + 1).padStart(2, "0");
+    const dateNum = String(day.getDate()).padStart(2, "0");
+    const key = `${year}-${month}-${dateNum}`;
+
+    const isToday = day.toDateString() === referenceDate.toDateString();
+
+    const startTimestamp = Math.floor(new Date(day).setHours(0, 0, 0, 0) / 1000);
+    const endTimestamp = Math.floor(new Date(day).setHours(23, 59, 59, 999) / 1000);
+
+    days.push({
+      key,
+      dayShort,
+      dayNumber,
+      monthShort,
+      fullDayName,
+      isToday,
+      startTimestamp,
+      endTimestamp,
+    });
   }
 
-  return grouped;
-}
-
-function formatAiringTime(timestamp: number): string {
-  const date = new Date(timestamp * 1000);
-  const now = new Date();
-  const diff = date.getTime() - now.getTime();
-  const hours = Math.floor(diff / (1000 * 60 * 60));
-  const days = Math.floor(hours / 24);
-
-  if (diff < 0) return "Aired";
-  if (hours < 1) return "< 1 hour";
-  if (hours < 24) return `${hours}h`;
-  return `${days}d ${hours % 24}h`;
+  return days;
 }
 
 export default async function UpdatesPage() {
-  const { media } = await searchAnilist({
-    sort: ["POPULARITY_DESC"],
-    status: "RELEASING",
-    perPage: 50,
-  });
-  const availabilityHints = await getCatalogAvailabilityForMedia(media);
+  const now = new Date();
+  const weekDays = getWeekDays(now);
+
+  const startOfWeek = weekDays[0].startTimestamp;
+  const endOfWeek = weekDays[6].endTimestamp;
+
+  const rawSchedules = await getWeeklyAiringSchedule(startOfWeek, endOfWeek);
+
+  const mediaList = rawSchedules.map((s) => s.media);
+  const availabilityHints = await getCatalogAvailabilityForMedia(mediaList);
   const watchHrefs = getWatchHrefsFromAvailability(availabilityHints);
 
-  // Only those with airing info
-  const withAiring = media.filter((m) => m.nextAiringEpisode);
-  const grouped = groupByDay(withAiring);
-  const today = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][new Date().getDay()];
+  const nowSeconds = Math.floor(now.getTime() / 1000);
 
-  // Rotate days to start from today
-  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  const todayIdx = days.indexOf(today);
-  const orderedDays = [...days.slice(todayIdx), ...days.slice(0, todayIdx)];
+  const schedulesByDay: Record<string, ScheduleItem[]> = {};
+  for (const day of weekDays) {
+    schedulesByDay[day.key] = [];
+  }
+
+  for (const item of rawSchedules) {
+    const itemDate = new Date(item.airingAt * 1000);
+    const year = itemDate.getFullYear();
+    const month = String(itemDate.getMonth() + 1).padStart(2, "0");
+    const dateNum = String(itemDate.getDate()).padStart(2, "0");
+    const dayKey = `${year}-${month}-${dateNum}`;
+
+    const href = watchHrefs[String(item.media.id)] || `/anime/${encodeAnilistRouteId(item.media.id)}`;
+
+    const scheduleItem: ScheduleItem = {
+      id: item.id,
+      airingAt: item.airingAt,
+      episode: item.episode,
+      media: item.media,
+      watchHref: href,
+      hasAired: item.airingAt <= nowSeconds,
+    };
+
+    if (schedulesByDay[dayKey]) {
+      schedulesByDay[dayKey].push(scheduleItem);
+    }
+  }
+
+  for (const dayKey in schedulesByDay) {
+    schedulesByDay[dayKey].sort((a, b) => a.airingAt - b.airingAt);
+  }
+
+  const todayKey = weekDays.find((d) => d.isToday)?.key || weekDays[0].key;
 
   return (
-    <main className="min-h-screen bg-[#0a0b0c] text-white">
-      <Navbar />
-
-      <section className="pt-24 pb-16 px-4 lg:px-12 xl:px-16">
-        <div className="mb-10">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-9 h-9 rounded-xl bg-blue-500/15 flex items-center justify-center">
-              <Calendar className="w-4.5 h-4.5 text-blue-400" />
-            </div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-blue-400">Airing Schedule</p>
-          </div>
-          <h1 className="text-4xl font-black text-white mb-2">Schedule & Updates</h1>
-          <p className="text-white/40 text-sm">Weekly airing schedule for currently releasing anime.</p>
-        </div>
-
-        <div className="space-y-8">
-          {orderedDays.map((day) => {
-            const items = grouped[day];
-            const isToday = day === today;
-
-            return (
-              <div key={day}>
-                <div className="flex items-center gap-3 mb-4">
-                  <h2 className={`text-lg font-bold ${isToday ? "text-[#ff5500]" : "text-white/80"}`}>
-                    {day}
-                    {isToday && <span className="ml-2 text-xs bg-[#ff5500]/20 text-[#ff5500] px-2 py-0.5 rounded-full font-bold">Today</span>}
-                  </h2>
-                  <div className="flex-1 h-px bg-white/5" />
-                  <span className="text-xs text-white/30">{items.length} anime</span>
-                </div>
-
-                {items.length === 0 ? (
-                  <p className="text-white/20 text-sm pl-4 py-2">No scheduled releases</p>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                    {items.map((item) => (
-                      <Link
-                        key={item.id}
-                        href={watchHrefs[String(item.id)] || `/anime/anilist~${item.id}`}
-                        className="flex items-center gap-3 rounded-xl bg-white/[0.03] border border-white/5 p-3 hover:bg-white/[0.06] hover:border-white/10 transition-all group"
-                      >
-                        <img
-                          src={item.coverImage.medium}
-                          alt={anilistTitle(item)}
-                          className="w-12 h-16 rounded-lg object-cover shrink-0"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-white truncate group-hover:text-[#ff5500] transition-colors">
-                            {anilistTitle(item)}
-                          </p>
-                          {item.nextAiringEpisode && (
-                            <div className="flex items-center gap-2 mt-1">
-                              <span className="text-[10px] font-bold text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded">
-                                EP {item.nextAiringEpisode.episode}
-                              </span>
-                              <span className="text-[11px] text-white/40 flex items-center gap-1">
-                                <Clock className="w-3 h-3" />
-                                {formatAiringTime(item.nextAiringEpisode.airingAt)}
-                              </span>
-                            </div>
-                          )}
-                          {availabilityHints[item.id] ? (
-                            <p className="mt-1 text-[10px] font-black uppercase tracking-wider text-white/35">
-                              {availabilityHints[item.id].isAvailable ? "Watch ready" : availabilityHints[item.id].message}
-                            </p>
-                          ) : null}
-                        </div>
-                      </Link>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
+    <main className="min-h-screen bg-[#0a0b0c] text-white page-transition-enter">
+      <ScheduleClient
+        weekDays={weekDays}
+        schedulesByDay={schedulesByDay}
+        todayKey={todayKey}
+      />
       <SiteFooter />
     </main>
   );

@@ -536,10 +536,27 @@ h1, h2, h3 {
     transform: translateZ(0);
   }
 
-  .home-render-section {
-    content-visibility: auto;
-    contain-intrinsic-size: auto 1200px;
+}
+
+/* App View Slide-Up Transition */
+@keyframes pageSlideUpFade {
+  0% {
+    opacity: 0;
+    transform: translateY(28px) scale(0.992);
+    filter: blur(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0px);
   }
 }
+
+.page-transition-enter {
+  animation: pageSlideUpFade 0.42s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity, filter;
+}
+
+
 
 

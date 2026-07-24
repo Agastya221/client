@@ -40,8 +40,7 @@ export default async function TypesPage({
   const availabilityHints = results ? await getCatalogAvailabilityForMedia(results.media) : {};
 
   return (
-    <main className="min-h-screen bg-[#0a0b0c] text-white">
-      <Navbar />
+    <main className="min-h-screen bg-[#0a0b0c] text-white page-transition-enter">
 
       <section className="pt-24 pb-16 px-4 lg:px-12 xl:px-16">
         <div className="mb-10">

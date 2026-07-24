@@ -346,7 +346,6 @@ export default function AnimeKaiDetailPage({
 }) {
   return (
     <main className="min-h-screen bg-[#0a0b0c] flex flex-col">
-      <Navbar />
       <div className="flex-1">
         <Suspense fallback={<div className="pt-32 text-center text-white/30 animate-pulse">Loading…</div>}>
           <DetailContent idPromise={params} searchParamsPromise={searchParams} />

@@ -44,6 +44,16 @@ const NAV_LINKS = [
   { href: "/types", label: "Types", icon: Library },
 ];
 
+const DESKTOP_TABS: { id: string; label: string; href: string; mode?: HomeViewMode }[] = [
+  { id: "home", label: "Home", href: "/", mode: "home" },
+  { id: "browse", label: "Browse", href: "/?view=browse", mode: "browse" },
+  { id: "schedule", label: "Schedule", href: "/updates" },
+  { id: "new", label: "New", href: "/new" },
+  { id: "ongoing", label: "Ongoing", href: "/ongoing" },
+  { id: "genres", label: "Genres", href: "/genres" },
+  { id: "types", label: "Types", href: "/types" },
+];
+
 export default function NavbarClient({ user }: NavbarClientProps) {
   const { beginNavigation } = useNavigationPending();
   const router = useRouter();
@@ -57,6 +67,58 @@ export default function NavbarClient({ user }: NavbarClientProps) {
   const [isDesktopFocused, setDesktopFocused] = useState(false);
   const [isMobileFocused, setMobileFocused] = useState(false);
   const [homeView, setHomeView] = useState<HomeViewMode>("home");
+
+  const tabRefs = useRef<Record<string, HTMLAnchorElement | null>>({});
+  const [indicator, setIndicator] = useState<{ left: number; width: number; opacity: number }>({
+    left: 0,
+    width: 0,
+    opacity: 0,
+  });
+
+  const activeTabId =
+    pathname === "/"
+      ? homeView === "browse" ? "browse" : "home"
+      : pathname === "/updates"
+        ? "schedule"
+        : pathname === "/new"
+          ? "new"
+          : pathname === "/ongoing"
+            ? "ongoing"
+            : pathname.startsWith("/genres")
+              ? "genres"
+              : pathname === "/types"
+                ? "types"
+                : pathname === "/search"
+                  ? "browse"
+                  : "home";
+
+  useEffect(() => {
+    const el = tabRefs.current[activeTabId];
+    if (el) {
+      setIndicator({
+        left: el.offsetLeft,
+        width: el.offsetWidth,
+        opacity: 1,
+      });
+    } else {
+      setIndicator((prev) => ({ ...prev, opacity: 0 }));
+    }
+  }, [activeTabId, pathname, homeView]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      const el = tabRefs.current[activeTabId];
+      if (el) {
+        setIndicator({
+          left: el.offsetLeft,
+          width: el.offsetWidth,
+          opacity: 1,
+        });
+      }
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [activeTabId]);
 
   const desktopSearchRef = useRef<HTMLDivElement>(null);
   const mobileHeaderSearchRef = useRef<HTMLDivElement>(null);
@@ -187,13 +249,13 @@ export default function NavbarClient({ user }: NavbarClientProps) {
   }
 
   function handleHomeViewClick(event: React.MouseEvent<HTMLAnchorElement>, mode: HomeViewMode) {
-    if (pathname !== "/") return;
-    event.preventDefault();
-    const href = mode === "browse" ? "/?view=browse" : "/";
-    window.history.pushState(null, "", href);
-    window.dispatchEvent(new CustomEvent(HOME_VIEW_EVENT, { detail: { mode } }));
     setHomeView(mode);
     setMobileMenuOpen(false);
+    if (pathname === "/") {
+      event.preventDefault();
+      const href = mode === "browse" ? "/?view=browse" : "/";
+      router.push(href, { scroll: false });
+    }
   }
 
   const isWatchPage = pathname.includes("/watch");
@@ -349,15 +411,37 @@ export default function NavbarClient({ user }: NavbarClientProps) {
             </Link>
           </div>
 
-          {/* Pill nav tabs (desktop) — centered */}
-          <div className="hidden lg:flex items-center gap-1 bg-white/[0.06] backdrop-blur border border-white/[0.08] rounded-full px-1.5 py-1.5">
-            <Link href="/" data-home-view="home" onClick={(event) => handleHomeViewClick(event, "home")} className={`nav-pill ${pathname === "/" && homeView === "home" ? "active" : ""}`}>Home</Link>
-            <Link href="/?view=browse" data-home-view="browse" onClick={(event) => handleHomeViewClick(event, "browse")} className={`nav-pill ${pathname === "/" && homeView === "browse" ? "active" : ""}`}>Browse</Link>
-            <Link href="/updates" className={`nav-pill ${pathname === "/updates" ? "active" : ""}`}>Schedule</Link>
-            <Link href="/new" className={`nav-pill ${pathname === "/new" ? "active" : ""} !text-[#52ff7f]`}>New</Link>
-            <Link href="/ongoing" className={`nav-pill ${pathname === "/ongoing" ? "active" : ""}`}>Ongoing</Link>
-            <Link href="/genres" className={`nav-pill ${pathname.startsWith("/genres") ? "active" : ""}`}>Genres</Link>
-            <Link href="/types" className={`nav-pill ${pathname === "/types" ? "active" : ""}`}>Types</Link>
+          {/* Pill nav tabs (desktop) — centered with smooth sliding active pill */}
+          <div className="hidden lg:flex items-center gap-1 bg-white/[0.06] backdrop-blur border border-white/[0.08] rounded-full px-1.5 py-1.5 relative">
+            {/* Sliding Active Pill Background */}
+            <div
+              className="absolute top-1.5 bottom-1.5 rounded-full bg-white/15 border border-white/20 shadow-md transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] pointer-events-none"
+              style={{
+                left: `${indicator.left}px`,
+                width: `${indicator.width}px`,
+                opacity: indicator.opacity,
+              }}
+            />
+
+            {DESKTOP_TABS.map((tab) => {
+              const isActive = activeTabId === tab.id;
+              return (
+                <Link
+                  key={tab.id}
+                  ref={(el) => { tabRefs.current[tab.id] = el; }}
+                  href={tab.href}
+                  data-home-view={tab.mode}
+                  onClick={(event) => {
+                    if (tab.mode) {
+                      handleHomeViewClick(event, tab.mode);
+                    }
+                  }}
+                  className={`relative z-10 nav-pill ${isActive ? "active !bg-transparent !shadow-none text-white font-extrabold" : tab.id === "new" ? "!text-[#52ff7f]" : ""}`}
+                >
+                  {tab.label}
+                </Link>
+              );
+            })}
           </div>
 
           {/* Right: search + shuffle + user */}
