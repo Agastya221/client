@@ -147,7 +147,7 @@ export default function ContinueWatchingRail() {
               className="group relative min-w-[160px] max-w-[160px] shrink-0"
             >
               <Link
-                href={`${item.href}/watch?ep=${item.lastEpisode}&provider=${item.provider}`}
+                href={`${item.href}/watch?ep=${item.lastEpisode}`}
                 className="block"
               >
                 <div className="relative aspect-[2/3] rounded-xl overflow-hidden border border-white/8 bg-white/[0.03]">

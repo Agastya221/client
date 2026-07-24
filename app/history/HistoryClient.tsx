@@ -145,7 +145,7 @@ export default function HistoryPage() {
                   {/* Actions */}
                   <div className="flex items-center gap-2 shrink-0">
                     <Link
-                      href={`${entry.href}/watch?ep=${entry.lastEpisode}&provider=${entry.provider}`}
+                      href={`${entry.href}/watch?ep=${entry.lastEpisode}`}
                       className="w-8 h-8 rounded-full bg-[#ff5500]/15 flex items-center justify-center hover:bg-[#ff5500]/30 transition-colors"
                     >
                       <Play className="w-3.5 h-3.5 text-[#ff5500] fill-[#ff5500] ml-0.5" />

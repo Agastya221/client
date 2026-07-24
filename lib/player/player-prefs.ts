@@ -85,6 +85,7 @@ export interface SubtitleStyle {
   color: string;      // hex color, default "#ffffff"
   bgOpacity: number;  // 0–100, default 75
   fontFamily: "sans" | "serif" | "mono";
+  presentation: "hard" | "classic";
 }
 
 const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
@@ -92,6 +93,7 @@ const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
   color: "#ffffff",
   bgOpacity: 75,
   fontFamily: "sans",
+  presentation: "hard",
 };
 
 export function getSubtitleStyle(): SubtitleStyle {
@@ -104,6 +106,7 @@ export function getSubtitleStyle(): SubtitleStyle {
       color: typeof parsed.color === "string" && /^#[0-9a-fA-F]{6}$/.test(parsed.color) ? parsed.color : DEFAULT_SUBTITLE_STYLE.color,
       bgOpacity: typeof parsed.bgOpacity === "number" ? Math.max(0, Math.min(100, parsed.bgOpacity)) : DEFAULT_SUBTITLE_STYLE.bgOpacity,
       fontFamily: ["sans", "serif", "mono"].includes(parsed.fontFamily) ? parsed.fontFamily : DEFAULT_SUBTITLE_STYLE.fontFamily,
+      presentation: parsed.presentation === "classic" ? "classic" : "hard",
     };
   } catch {
     return { ...DEFAULT_SUBTITLE_STYLE };
@@ -113,6 +116,24 @@ export function getSubtitleStyle(): SubtitleStyle {
 export function setSubtitleStyle(style: Partial<SubtitleStyle>): void {
   const current = getSubtitleStyle();
   set("subtitle-style", JSON.stringify({ ...current, ...style }));
+}
+
+export function getSubtitlePresentation(): SubtitleStyle["presentation"] {
+  return getSubtitleStyle().presentation;
+}
+
+export function setSubtitlePresentation(presentation: SubtitleStyle["presentation"]): void {
+  setSubtitleStyle({ presentation });
+}
+
+// ── Preferred subtitle source ───────────────────────────────────────────────
+
+export function getPreferredSubServer(animeId: string): string | null {
+  return get(`preferred-sub-server:${animeId}`) || null;
+}
+
+export function setPreferredSubServer(animeId: string, serverId: string | null): void {
+  set(`preferred-sub-server:${animeId}`, serverId || "");
 }
 
 // ── Playback Speed ──────────────────────────────────────────────────────────

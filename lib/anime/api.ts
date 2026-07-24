@@ -977,7 +977,7 @@ export async function getAnimeKaiWatchAvailability(
       isAvailable: true,
       providerId: decoded.providerId,
       routeId,
-      watchHref: `/anime/${routeId}/watch?ep=1&provider=${decoded.provider}`,
+      watchHref: `/anime/${routeId}/watch?ep=1`,
       message: "Direct provider route available.",
       checkedTitles: [],
     };
@@ -991,7 +991,7 @@ export async function getAnimeKaiWatchAvailability(
       isAvailable: true,
       providerId: decoded.providerId,
       routeId,
-      watchHref: `/anime/${routeId}/watch?ep=1&provider=animekai`,
+      watchHref: `/anime/${routeId}/watch?ep=1`,
       message: "Direct AnimeKai route available.",
       checkedTitles: [],
     };
@@ -1006,7 +1006,7 @@ export async function getAnimeKaiWatchAvailability(
       isAvailable: true,
       providerId: availability.providerId,
       routeId: resolvedRouteId,
-      watchHref: `/anime/${resolvedRouteId}/watch?ep=1&provider=animekai`,
+      watchHref: `/anime/${resolvedRouteId}/watch?ep=1`,
       message: availability.matchedTitle
         ? `Available on AnimeKai via “${availability.matchedTitle}”.`
         : "Available on AnimeKai.",
@@ -1064,7 +1064,7 @@ export async function getAnimeKaiCatalogAvailabilityHints(
             status: record?.status || "FOUND",
             isAvailable: true,
             routeId,
-            watchHref: routeId ? `/anime/${routeId}/watch?ep=1&provider=animekai` : null,
+            watchHref: routeId ? `/anime/${routeId}/watch?ep=1` : null,
             message: "Watch ready",
           }
         : hasFreshNotFound
@@ -2342,7 +2342,7 @@ export const resolveAnimeKaiWatchHref = cache(async function resolveAnimeKaiWatc
   const decoded = decodeAnimeId(routeId);
 
   if (decoded.provider !== "animekai" || !decoded.providerId.startsWith("anilist:")) {
-    return `/anime/${routeId}/watch?ep=1&provider=animekai`;
+    return `/anime/${routeId}/watch?ep=1`;
   }
 
   try {

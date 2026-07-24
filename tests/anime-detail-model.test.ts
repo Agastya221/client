@@ -400,7 +400,7 @@ test("resolveAnimeKaiWatchHref upgrades AniList banner links to direct animekai 
 
   try {
     const href = await resolveAnimeKaiWatchHref("anilist~151807", "Solo Leveling");
-    assert.equal(href, "/anime/animekai~solo-leveling-93rg/watch?ep=1&provider=animekai");
+    assert.equal(href, "/anime/animekai~solo-leveling-93rg/watch?ep=1");
     assert.ok(calls.some((url) => url.endsWith("/api/search?keyword=Solo%20Leveling")));
   } finally {
     globalThis.fetch = originalFetch;

@@ -46,6 +46,26 @@ export default function SubtitleMenu({
         <div className="player-menu-divider" />
 
         <div className="subtitle-settings">
+          <label className="subtitle-presentation-setting">
+            <span>Subtitle look</span>
+            <span className="subtitle-presentation-options">
+              <button
+                type="button"
+                className={subtitleStyle.presentation === "hard" ? "active" : ""}
+                onClick={() => onStyleChange({ presentation: "hard" })}
+              >
+                Anime
+              </button>
+              <button
+                type="button"
+                className={subtitleStyle.presentation === "classic" ? "active" : ""}
+                onClick={() => onStyleChange({ presentation: "classic" })}
+              >
+                Classic
+              </button>
+            </span>
+          </label>
+
           {/* Font size */}
           <label>
             <span>Size ({subtitleStyle.fontSize}%)</span>

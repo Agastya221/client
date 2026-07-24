@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useRef, useMemo } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import type { SubtitleTrack } from "@/lib/anime/types";
 import type { SubtitleStyle } from "@/lib/player/player-prefs";
 import { fetchAndParseVtt, getActiveCues, type VttCue } from "@/lib/player/subtitle-utils";
@@ -26,8 +26,10 @@ export default function SubtitleRenderer({
   style,
   controlsVisible,
 }: SubtitleRendererProps) {
-  const [cues, setCues] = useState<VttCue[]>([]);
-  const loadedUrlRef = useRef<string | null>(null);
+  const [loadedTrack, setLoadedTrack] = useState<{
+    url: string | null;
+    cues: VttCue[];
+  }>({ url: null, cues: [] });
 
   // Find active track URL
   const activeUrl = useMemo(() => {
@@ -38,20 +40,14 @@ export default function SubtitleRenderer({
 
   // Load and parse VTT when track changes
   useEffect(() => {
-    if (!activeUrl) {
-      setCues([]);
-      loadedUrlRef.current = null;
-      return;
-    }
-
-    // Don't re-fetch same URL
-    if (loadedUrlRef.current === activeUrl) return;
+    if (!activeUrl) return;
 
     let cancelled = false;
-    loadedUrlRef.current = activeUrl;
 
     fetchAndParseVtt(activeUrl).then((parsed) => {
-      if (!cancelled) setCues(parsed);
+      if (!cancelled) {
+        setLoadedTrack({ url: activeUrl, cues: parsed });
+      }
     });
 
     return () => {
@@ -61,14 +57,23 @@ export default function SubtitleRenderer({
 
   // Find active cues at current time
   const activeCues = useMemo(() => {
-    if (cues.length === 0 || !activeTrack) return [];
-    return getActiveCues(cues, currentTime);
-  }, [cues, currentTime, activeTrack]);
+    if (
+      loadedTrack.cues.length === 0 ||
+      !activeTrack ||
+      loadedTrack.url !== activeUrl
+    ) {
+      return [];
+    }
+    return getActiveCues(loadedTrack.cues, currentTime);
+  }, [activeTrack, activeUrl, currentTime, loadedTrack]);
 
   if (activeCues.length === 0) return null;
 
   const fontSize = Math.max(12, Math.round(18 * (style.fontSize / 100)));
-  const bgColor = `rgba(0, 0, 0, ${style.bgOpacity / 100})`;
+  const hardSubLook = style.presentation === "hard";
+  const bgColor = hardSubLook
+    ? "transparent"
+    : `rgba(0, 0, 0, ${style.bgOpacity / 100})`;
   const fontFamily = FONT_MAP[style.fontFamily];
 
   return (
@@ -76,7 +81,7 @@ export default function SubtitleRenderer({
       {activeCues.map((cue) => (
         <div
           key={cue.id}
-          className="subtitle-cue"
+          className={`subtitle-cue${hardSubLook ? " hard-sub-look" : ""}`}
           style={{
             fontSize: `${fontSize}px`,
             color: style.color,

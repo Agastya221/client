@@ -86,16 +86,14 @@ function SeasonRail({ seasons, activeHref }: { seasons: AnimeSeasonEntry[]; acti
 
 function EpisodeCard({
   id,
-  activeProvider,
   episode,
 }: {
   id: string;
-  activeProvider: ProviderId;
   episode: EpisodeModel;
 }) {
   return (
     <Link
-      href={`/anime/${id}/watch?ep=${episode.number}&provider=${activeProvider}`}
+      href={`/anime/${id}/watch?ep=${episode.number}`}
       prefetch
       className="group rounded-[1.35rem] border border-white/8 bg-[linear-gradient(160deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-4 transition-all hover:-translate-y-0.5 hover:border-[#ff5500]/35 hover:bg-white/[0.07]"
     >
@@ -153,7 +151,7 @@ async function EpisodesSection({ id, activeProvider, providerId }: { id: string;
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {episodes.map((episode) => (
-          <EpisodeCard key={episode.number} id={id} activeProvider={activeProvider} episode={episode} />
+          <EpisodeCard key={episode.number} id={id} episode={episode} />
         ))}
       </div>
     </div>
@@ -231,7 +229,7 @@ async function DetailContent({ idPromise, searchParamsPromise }: { idPromise: Pr
 
               <div className="flex flex-wrap gap-3">
                 <Link
-                  href={`/anime/${id}/watch?ep=1&provider=${detail.activeProvider}`}
+                  href={`/anime/${id}/watch?ep=1`}
                   prefetch
                   className="inline-flex items-center gap-2.5 rounded-full border px-6 py-3 text-sm font-black shadow-lg backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 hover:brightness-125"
                   style={{

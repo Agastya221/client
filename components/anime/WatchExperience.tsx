@@ -1680,11 +1680,12 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     url.searchParams.set("ep", String(session.episode.number));
     if (session.dubbed) url.searchParams.set("dub", "1");
     else url.searchParams.delete("dub");
-    if (session.provider) url.searchParams.set("provider", session.provider);
-    if (session.activeServerId) url.searchParams.set("server", session.activeServerId);
-    else url.searchParams.delete("server");
+    // Provider and server selection are internal playback details. Keep the
+    // shareable address stable and avoid exposing implementation names there.
+    url.searchParams.delete("provider");
+    url.searchParams.delete("server");
     window.history.replaceState(window.history.state, "", url);
-  }, [session.activeServerId, session.dubbed, session.episode.number, session.provider]);
+  }, [session.dubbed, session.episode.number]);
 
   const stageOrCommitSession = (nextSession: WatchSessionModel) => {
     if (
@@ -2009,7 +2010,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
         episodeNumber,
         provider: session.provider,
         dubbed: session.dubbed,
-        server: null,
+        server: session.activeServerId,
       });
     }, 220);
   };
@@ -2042,7 +2043,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
       episodeNumber: nextEpisodeNumber,
       provider: session.provider,
       dubbed: session.dubbed,
-      server: null,
+      server: session.activeServerId,
     });
   }, [
     activeEmbedLoaded,
@@ -2051,6 +2052,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     session.anime.id,
     session.dubbed,
     session.provider,
+    session.activeServerId,
   ]);
 
   /* ── Near-end playback prefetch ────────────────────
@@ -2077,7 +2079,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
         episodeNumber: nextEpisodeNumber,
         provider: session.provider,
         dubbed: session.dubbed,
-        server: null,
+        server: session.activeServerId,
       });
     };
 
@@ -2089,6 +2091,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     session.episode.number,
     session.dubbed,
     session.provider,
+    session.activeServerId,
   ]);
 
   // Reset near-end tracking when episode changes
@@ -2340,7 +2343,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
       episodeNumber: num,
       provider: session.provider,
       dubbed: session.dubbed,
-      server: null,
+      server: effectiveActiveServerId || session.activeServerId,
     });
   };
 
@@ -2382,12 +2385,17 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                     ? effectiveProvider === "desidub"
                     : Boolean(options.dubbed) === Boolean(effectiveDubbed) && (!options.dubbed || effectiveProvider !== "desidub"))
                 )}
-                onClick={() => queueSession({
-                  episodeNumber: session.episode.number,
-                  provider: options.provider || entry.provider,
-                  server: entry.id,
-                  dubbed: Boolean(options.dubbed),
-                })}
+                onClick={() => {
+                  if (!options.dubbed && options.provider !== "desidub") {
+                    playerPrefs.setPreferredSubServer(session.anime.id, entry.id);
+                  }
+                  queueSession({
+                    episodeNumber: session.episode.number,
+                    provider: options.provider || entry.provider,
+                    server: entry.id,
+                    dubbed: Boolean(options.dubbed),
+                  });
+                }}
               />
             );
           }) : (
@@ -2791,7 +2799,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                       episodeNumber: nextEpisode.number,
                       provider: session.provider,
                       dubbed: session.dubbed,
-                      server: null,
+                      server: effectiveActiveServerId || session.activeServerId,
                     });
                   }
                 }}
@@ -3039,7 +3047,12 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
               onClick={() => {
                 if ((effectiveDubbed || effectiveProvider === "desidub") && hasSub) {
                   const targetEpNum = getFallbackEpisodeForLanguage(false, session.episode.number);
-                  queueSession({ episodeNumber: targetEpNum, provider: effectiveProvider === "desidub" ? mainFallback : effectiveProvider, server: null, dubbed: false });
+                  queueSession({
+                    episodeNumber: targetEpNum,
+                    provider: effectiveProvider === "desidub" ? mainFallback : effectiveProvider,
+                    server: playerPrefs.getPreferredSubServer(session.anime.id),
+                    dubbed: false,
+                  });
                 }
               }}
               className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 transition-colors ${
@@ -3061,6 +3074,9 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
               onClick={() => {
                 if ((!effectiveDubbed || effectiveProvider === "desidub") && hasDub) {
                   const targetEpNum = getFallbackEpisodeForLanguage(true, session.episode.number);
+                  if (!effectiveDubbed && effectiveActiveServerId) {
+                    playerPrefs.setPreferredSubServer(session.anime.id, effectiveActiveServerId);
+                  }
                   queueSession({ episodeNumber: targetEpNum, provider: effectiveProvider === "desidub" ? mainFallback : effectiveProvider, server: null, dubbed: true });
                 }
               }}

@@ -5,19 +5,26 @@ import Hls from "hls.js";
 import {
   MediaPlayer,
   MediaProvider,
+  SeekButton,
   isHLSProvider,
   isVideoProvider,
   type MediaPlayerInstance,
   type MediaProviderAdapter,
 } from "@vidstack/react";
-import { defaultLayoutIcons, DefaultVideoLayout } from "@vidstack/react/player/layouts/default";
+import {
+  defaultLayoutIcons,
+  DefaultMenuCheckbox,
+  DefaultMenuItem,
+  DefaultVideoLayout,
+} from "@vidstack/react/player/layouts/default";
 import "@vidstack/react/player/styles/default/theme.css";
 import "@vidstack/react/player/styles/default/layouts/video.css";
 
 import SkipButton from "./SkipButton";
 import { fetchSkipTimes, type SkipTimes } from "@/lib/player/aniskip";
 import type { SubtitleTrack, StreamSource } from "@/lib/anime/types";
-import { Play, Pause } from "lucide-react";
+import { Play, Pause, RotateCcw, RotateCw } from "lucide-react";
+import * as prefs from "@/lib/player/player-prefs";
 import "./player.css";
 
 interface VidstackPlayerProps {
@@ -65,27 +72,39 @@ export default function VidstackPlayer({
   const glowCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const playbackStartedRef = useRef(false);
   const startupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const playbackOverlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resumeAppliedRef = useRef(false);
   const [glowDataUrl, setGlowDataUrl] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [subtitlePresentation, setSubtitlePresentation] = useState(
+    () => prefs.getSubtitlePresentation(),
+  );
 
   // Play/Pause Overlay Animation
   const [showPlayOverlay, setShowPlayOverlay] = useState(false);
   const [overlayIcon, setOverlayIcon] = useState<"play" | "pause" | null>(null);
-  const isFirstRender = useRef(true);
+
+  const showPlaybackOverlay = useCallback((icon: "play" | "pause") => {
+    if (playbackOverlayTimerRef.current) {
+      clearTimeout(playbackOverlayTimerRef.current);
+    }
+    setOverlayIcon(icon);
+    setShowPlayOverlay(true);
+    playbackOverlayTimerRef.current = setTimeout(() => {
+      playbackOverlayTimerRef.current = null;
+      setShowPlayOverlay(false);
+    }, 500);
+  }, []);
 
   useEffect(() => {
-    if (isFirstRender.current) {
-      isFirstRender.current = false;
-      return;
-    }
-    setOverlayIcon(playing ? "play" : "pause");
-    setShowPlayOverlay(true);
-    const t = setTimeout(() => setShowPlayOverlay(false), 500);
-    return () => clearTimeout(t);
-  }, [playing]);
+    return () => {
+      if (playbackOverlayTimerRef.current) {
+        clearTimeout(playbackOverlayTimerRef.current);
+      }
+    };
+  }, []);
 
   // Skip times
   const [skipTimes, setSkipTimes] = useState<SkipTimes | null>(null);
@@ -267,7 +286,9 @@ export default function VidstackPlayer({
 
       <MediaPlayer
         ref={playerRef}
-        className="w-full h-full aspect-video rounded-lg overflow-hidden border border-white/10 shadow-[0_0_30px_rgba(0,0,0,0.8)] bg-black"
+        className={`h-full w-full aspect-video overflow-hidden rounded-lg border border-white/10 bg-black shadow-[0_0_30px_rgba(0,0,0,0.8)] ${
+          subtitlePresentation === "hard" ? "vds-hard-sub-look" : "vds-classic-sub-look"
+        }`}
         src={streamUrl ? { src: streamUrl, type: streamType } : undefined}
         onTimeUpdate={(event) => {
           const time = event.currentTime;
@@ -284,10 +305,12 @@ export default function VidstackPlayer({
             startupTimerRef.current = null;
           }
           setPlaying(true);
+          showPlaybackOverlay("play");
           onPlay?.(playerRef.current?.currentTime || 0);
         }}
         onPause={() => {
           setPlaying(false);
+          showPlaybackOverlay("pause");
           onPause?.(playerRef.current?.currentTime || 0);
         }}
         onSeeking={() => {
@@ -334,7 +357,47 @@ export default function VidstackPlayer({
             />
           ))}
         </MediaProvider>
-        <DefaultVideoLayout icons={defaultLayoutIcons} />
+        <DefaultVideoLayout
+          icons={defaultLayoutIcons}
+          seekStep={10}
+          slots={{
+            captionsMenuItemsStart: (
+              <DefaultMenuItem label="Hard-sub look">
+                <DefaultMenuCheckbox
+                  label="Hard-sub look"
+                  checked={subtitlePresentation === "hard"}
+                  onChange={(checked) => {
+                    const next = checked ? "hard" : "classic";
+                    setSubtitlePresentation(next);
+                    prefs.setSubtitlePresentation(next);
+                  }}
+                />
+              </DefaultMenuItem>
+            ),
+            afterChapterTitle: (
+              <div className="anime-seek-controls" aria-label="Seek controls">
+                <SeekButton
+                  seconds={-10}
+                  className="vds-button anime-seek-button"
+                  aria-label="Seek backward 10 seconds"
+                  title="Back 10 seconds"
+                >
+                  <RotateCcw className="vds-icon" aria-hidden="true" />
+                  <span className="anime-seek-seconds" aria-hidden="true">10</span>
+                </SeekButton>
+                <SeekButton
+                  seconds={10}
+                  className="vds-button anime-seek-button"
+                  aria-label="Seek forward 10 seconds"
+                  title="Forward 10 seconds"
+                >
+                  <RotateCw className="vds-icon" aria-hidden="true" />
+                  <span className="anime-seek-seconds" aria-hidden="true">10</span>
+                </SeekButton>
+              </div>
+            ),
+          }}
+        />
 
         {/* Skip intro/outro button overlay */}
         <SkipButton

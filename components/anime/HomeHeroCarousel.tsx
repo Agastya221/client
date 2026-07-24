@@ -90,7 +90,7 @@ export default function HomeHeroCarousel({ slides }: HomeHeroCarouselProps) {
           {/* Action Buttons */}
           <div className="flex items-center gap-4">
             <Link
-              href={`${activeSlide.href}/watch?ep=1&provider=${activeSlide.provider}`}
+              href={`${activeSlide.href}/watch?ep=1`}
               prefetch
               className="flex items-center justify-center gap-2 bg-[#ff5500] hover:bg-[#ff6600] text-black font-black uppercase tracking-wider px-8 py-3.5 rounded-lg transition-transform hover:scale-105 active:scale-95"
             >

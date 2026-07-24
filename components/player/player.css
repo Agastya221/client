@@ -457,6 +457,139 @@
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8), 0 0 2px rgba(0, 0, 0, 0.6);
 }
 
+.subtitle-cue.hard-sub-look {
+  padding: 0 3px;
+  border-radius: 0;
+  font-weight: 800;
+  line-height: 1.3;
+  letter-spacing: 0.01em;
+  -webkit-text-stroke: 1px rgba(0, 0, 0, 0.92);
+  paint-order: stroke fill;
+  text-shadow:
+    -2px -2px 1px rgba(0, 0, 0, 0.95),
+    2px -2px 1px rgba(0, 0, 0, 0.95),
+    -2px 2px 1px rgba(0, 0, 0, 0.95),
+    2px 2px 1px rgba(0, 0, 0, 0.95),
+    0 3px 5px rgba(0, 0, 0, 0.9);
+}
+
+/* Vidstack soft captions styled like authored/burnt-in anime subtitles. */
+.vds-hard-sub-look {
+  --media-user-text-bg: transparent;
+  --media-user-display-bg: transparent;
+  --media-cue-bg: transparent;
+  --media-cue-display-bg: transparent;
+  --media-cue-padding-x: 0.12em;
+  --media-cue-padding-y: 0;
+  --media-cue-border-radius: 0;
+  --media-cue-backdrop: none;
+  --media-cue-font-size: clamp(18px, 3.15vw, 34px);
+  --media-cue-line-height: 1.28;
+}
+
+.vds-hard-sub-look .vds-captions [data-part="cue"] {
+  background: transparent !important;
+  padding-block: 0 !important;
+  border-radius: 0 !important;
+  backdrop-filter: none !important;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  -webkit-text-stroke: clamp(0.7px, 0.1vw, 1.25px) rgba(0, 0, 0, 0.96);
+  paint-order: stroke fill;
+  text-shadow:
+    -2px -2px 1px rgba(0, 0, 0, 0.96),
+    2px -2px 1px rgba(0, 0, 0, 0.96),
+    -2px 2px 1px rgba(0, 0, 0, 0.96),
+    2px 2px 1px rgba(0, 0, 0, 0.96),
+    0 3px 5px rgba(0, 0, 0, 0.9) !important;
+}
+
+.vds-hard-sub-look .vds-captions [data-part="cue-display"] {
+  background: transparent !important;
+  padding: 0 !important;
+}
+
+.vds-captions-menu .vds-menu-item {
+  min-height: 38px;
+}
+
+.vds-captions-menu .vds-menu-item-label,
+.vds-captions-menu .vds-radio-label {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  line-height: 1.2;
+}
+
+.vds-captions-menu .vds-menu-checkbox {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.anime-seek-controls {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+
+.anime-seek-button {
+  position: relative;
+  width: 36px;
+  height: 36px;
+}
+
+.anime-seek-button .vds-icon {
+  width: 23px;
+  height: 23px;
+}
+
+.anime-seek-seconds {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding-top: 1px;
+  font-size: 8px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+@media (max-width: 640px) {
+  .anime-seek-button {
+    width: 32px;
+    height: 32px;
+  }
+
+  .anime-seek-button .vds-icon {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+.subtitle-presentation-options {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.subtitle-presentation-options button {
+  padding: 4px 7px;
+  border: 0;
+  color: rgba(255, 255, 255, 0.55);
+  background: transparent;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.subtitle-presentation-options button.active {
+  color: #fff;
+  background: rgba(224, 64, 251, 0.55);
+}
+
 /* ── Loading spinner ──────────────────────────────────────────── */
 .player-loading {
   position: absolute;
