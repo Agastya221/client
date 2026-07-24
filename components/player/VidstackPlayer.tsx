@@ -200,8 +200,8 @@ export default function VidstackPlayer({
     };
     let cancelled = false;
 
-    if (malId && malId > 0) {
-      fetchSkipTimes(malId, episodeNumber, duration || undefined).then((aniskipData) => {
+    if (malId && malId > 0 && duration >= 60) {
+      fetchSkipTimes(malId, episodeNumber, duration).then((aniskipData) => {
         if (cancelled) return;
         setSkipTimes({
           op: aniskipData.op || serverSkips.op,

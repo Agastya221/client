@@ -31,6 +31,10 @@ export interface CatalogAnime {
   subCount?: number | null;
   dubCount?: number | null;
   episodeCount?: number | null;
+  nextAiringEpisode?: {
+    episode: number;
+    airingAt: number;
+  } | null;
   anilistId?: number | null;
   malId?: number | null;
   color?: string | null;

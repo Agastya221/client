@@ -28,6 +28,11 @@ import {
   resolveEpisodeLanguageAvailability,
   type EpisodeDisplayMetadata,
 } from "@/lib/anime/episode-metadata";
+import {
+  formatAiringCountdown,
+  resolveNextAiringEpisode,
+  type NextAiringEpisode,
+} from "@/lib/anime/airing";
 import { prefetchClientStream, resolveClientStream } from "@/lib/anime/client-stream-resolver";
 import type { AnilistMedia, AnilistSeasonEntry } from "@/lib/anilist/api";
 import * as playerPrefs from "@/lib/player/player-prefs";
@@ -40,8 +45,10 @@ import {
 } from "@/lib/anime/watch-history";
 import {
   AlertTriangle,
+  Bell,
   Bookmark,
   BookmarkCheck,
+  CalendarDays,
   Captions,
   ChevronDown,
   ChevronLeft,
@@ -68,6 +75,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const WatchPartyModal = dynamic(() => import("@/components/anime/WatchPartyModal"), { ssr: false });
 const WatchPartyPanel = dynamic(() => import("@/components/anime/WatchParty"), { ssr: false });
+const BugReportModal = dynamic(() => import("@/components/anime/watch/BugReportModal"), { ssr: false });
 
 const VideoPlayer = dynamic(
   () => import("@/components/anime/watch/VideoPlayer"),
@@ -268,6 +276,91 @@ function isEmbedServerOption(serverId: string): boolean {
 
 function isKnownBrokenServerOption(serverId: string | null | undefined): boolean {
   return Boolean(serverId && /^anivexa2?-(?:anibd|reanime|senshi|anizone)-/.test(serverId));
+}
+
+const AIRING_DAY_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+});
+const AIRING_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: true,
+});
+
+function NextAiringCard({
+  nextAiringEpisode,
+  accentColor,
+  accentBackground,
+  accentBorder,
+}: {
+  nextAiringEpisode: NextAiringEpisode;
+  accentColor: string;
+  accentBackground: string;
+  accentBorder: string;
+}) {
+  const [nowMs, setNowMs] = useState(0);
+
+  useEffect(() => {
+    const updateClock = () => setNowMs(Date.now());
+    const initialTick = window.setTimeout(updateClock, 0);
+    const interval = window.setInterval(updateClock, 60_000);
+    return () => {
+      window.clearTimeout(initialTick);
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  const airDate = new Date(nextAiringEpisode.airingAt * 1000);
+  const countdown = nowMs > 0
+    ? formatAiringCountdown(nextAiringEpisode.airingAt, nowMs)
+    : null;
+
+  return (
+    <div
+      className="w-full rounded-xl border px-3 py-2.5"
+      style={{ background: accentBackground, borderColor: accentBorder }}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div
+          className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest"
+          style={{ color: accentColor }}
+        >
+          <Bell className="h-3.5 w-3.5" aria-hidden="true" />
+          Next episode
+        </div>
+        <span
+          className={`inline-flex min-w-[82px] items-center justify-center rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-[0.08em] transition-opacity ${
+            countdown ? "opacity-100" : "opacity-0"
+          }`}
+          style={{
+            color: accentColor,
+            background: accentBackground,
+            borderColor: accentBorder,
+          }}
+          aria-live="polite"
+        >
+          {countdown ? `${countdown} left` : "0d 0h left"}
+        </span>
+      </div>
+      <div className="mt-1.5 flex items-end justify-between gap-3">
+        <p className="text-[15px] font-extrabold leading-none text-white">
+          Episode {nextAiringEpisode.episode}
+        </p>
+        <time
+          className="flex shrink-0 items-center gap-1.5 text-[10px] font-medium leading-none text-white/48"
+          dateTime={airDate.toISOString()}
+          suppressHydrationWarning
+        >
+          <CalendarDays className="h-3 w-3 text-white/30" aria-hidden="true" />
+          <span>{AIRING_DAY_FORMATTER.format(airDate)}</span>
+          <span className="text-white/20">·</span>
+          <span>{AIRING_TIME_FORMATTER.format(airDate)}</span>
+        </time>
+      </div>
+    </div>
+  );
 }
 
 function watchDebug(event: string, details: Record<string, unknown> = {}): void {
@@ -879,6 +972,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [bookmarkChecked, setBookmarkChecked] = useState(false);
   const [reportStatus, setReportStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [reportModalOpen, setReportModalOpen] = useState(false);
   const [shareStatus, setShareStatus] = useState<"idle" | "shared" | "copied" | "error">("idle");
 
   // ── Watch Party ────────────────────────────────────────────────────
@@ -1928,6 +2022,11 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
       ? languageFilteredEpisodes[currentEpisodeIndex + 1]
       : null;
   const nextEpisodeNumber = nextEpisode?.number ?? null;
+  const nextAiringEpisode = resolveNextAiringEpisode(
+    deferredDetail?.status || session.anime.status,
+    session.anime.nextAiringEpisode,
+    deferredDetail?.nextAiringEpisode,
+  );
 
   /* ── Intent-based next-episode prefetch ────────────
      Fires once the current embed has loaded (user is watching).
@@ -2326,7 +2425,14 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
           </span>
         </div>
 
-        {nextEpisode ? (
+        {nextAiringEpisode ? (
+          <NextAiringCard
+            nextAiringEpisode={nextAiringEpisode}
+            accentColor={accentColor}
+            accentBackground={accentStyle(0.1)}
+            accentBorder={accentStyle(0.28)}
+          />
+        ) : nextEpisode ? (
           <button
             type="button"
             onClick={() => goToEpisode(nextEpisode.number)}
@@ -3106,25 +3212,11 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
             <button
               id="report-stream-btn"
               type="button"
-              disabled={reportStatus === "sending" || reportStatus === "sent" || !session.anime.anilistId}
-              onClick={async () => {
-                if (reportStatus !== "idle" && reportStatus !== "error") return;
-                setReportStatus("sending");
-                try {
-                  const res = await fetch("/api/watch/report", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      anilistId: session.anime.anilistId,
-                      episodeNumber: session.episode.number,
-                      dubbed: session.dubbed,
-                    }),
-                  });
-                  setReportStatus(res.ok ? "sent" : "error");
-                  if (res.ok) window.setTimeout(() => setReportStatus("idle"), 8000);
-                } catch {
-                  setReportStatus("error");
-                }
+              disabled={reportStatus === "sending"}
+              onClick={() => {
+                if (reportStatus === "sending") return;
+                setReportStatus("idle");
+                setReportModalOpen(true);
               }}
               className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-[10px] font-bold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40 ${
                 reportStatus === "sent"
@@ -3260,6 +3352,27 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
         }}
       />
     )}
+    {reportModalOpen ? (
+      <BugReportModal
+        animeId={session.anime.id}
+        anilistId={session.anime.anilistId}
+        animeTitle={session.anime.title}
+        episodeNumber={session.episode.number}
+        dubbed={session.dubbed}
+        provider={session.provider}
+        serverId={session.activeServerId}
+        accentColor={accentColor}
+        onClose={() => {
+          if (reportStatus !== "sending") setReportModalOpen(false);
+        }}
+        onSubmitted={() => {
+          setReportStatus("sent");
+          setReportModalOpen(false);
+          window.setTimeout(() => setReportStatus("idle"), 8000);
+        }}
+        onError={() => setReportStatus("error")}
+      />
+    ) : null}
     </>
   );
 }

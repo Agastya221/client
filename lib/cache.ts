@@ -89,7 +89,7 @@ function storeValue<T>(
     staleMs: number;
     expireMs: number;
   },
-): void {
+): Promise<void> {
   const storedAt = Date.now();
   const envelope = createEnvelope(
     data,
@@ -103,7 +103,7 @@ function storeValue<T>(
 
   // The response is already safe in L1. Persist to KV without adding a
   // Cloudflare REST round trip to the user's request latency.
-  void kvSet(key, envelope, ttlSeconds);
+  return kvSet(key, envelope, ttlSeconds);
 }
 
 async function fetchAndMaybeStore<T>(
@@ -131,7 +131,7 @@ async function fetchAndMaybeStore<T>(
       return data;
     }
 
-    storeValue(
+    void storeValue(
       key,
       data,
       {
@@ -284,7 +284,7 @@ export function cacheStore<T>(
     return;
   }
 
-  storeValue(key, data, {
+  void storeValue(key, data, {
     freshMs: options?.freshMs ?? DEFAULT_FRESH_MS,
     staleMs: options?.staleMs ?? DEFAULT_STALE_MS,
     expireMs: options?.expireMs ?? DEFAULT_EXPIRE_MS,
@@ -292,6 +292,33 @@ export function cacheStore<T>(
   recordCounter("cache.store", 1, {
     namespace: cacheNamespace(key),
     source: "manual",
+    target: isKvConfigured() ? "memory+cloudflare-kv" : "memory",
+  });
+}
+
+/**
+ * Write a known value to memory and wait for the configured KV write.
+ * Use this for user-created records where the response should not finish
+ * before persistent storage has had a chance to accept the value.
+ */
+export async function cacheStorePersistent<T>(
+  key: string,
+  data: T,
+  options?: CacheOptions,
+): Promise<void> {
+  if (!canStore(data, options?.shouldCache)) {
+    cacheInvalidate(key);
+    return;
+  }
+
+  await storeValue(key, data, {
+    freshMs: options?.freshMs ?? DEFAULT_FRESH_MS,
+    staleMs: options?.staleMs ?? DEFAULT_STALE_MS,
+    expireMs: options?.expireMs ?? DEFAULT_EXPIRE_MS,
+  });
+  recordCounter("cache.store", 1, {
+    namespace: cacheNamespace(key),
+    source: "manual-persistent",
     target: isKvConfigured() ? "memory+cloudflare-kv" : "memory",
   });
 }

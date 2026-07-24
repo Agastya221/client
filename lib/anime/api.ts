@@ -268,6 +268,10 @@ function normalizeBaseAnime(input: {
   subCount?: number | null;
   dubCount?: number | null;
   episodeCount?: number | null;
+  nextAiringEpisode?: {
+    episode: number;
+    airingAt: number;
+  } | null;
   anilistId?: number | null;
   malId?: number | null;
   color?: string | null;
@@ -296,6 +300,7 @@ function normalizeBaseAnime(input: {
     subCount: input.subCount ?? null,
     dubCount: input.dubCount ?? null,
     episodeCount: input.episodeCount ?? null,
+    nextAiringEpisode: input.nextAiringEpisode ?? null,
     anilistId: input.anilistId ?? null,
     malId: input.malId ?? null,
     color: input.color ?? null,
@@ -848,6 +853,12 @@ const getAnilistSeedAnime = cache(async function getAnilistSeedAnime(anilistId: 
         subCount: airedEpisodeCount ?? null,
         dubCount: null,
         episodeCount: media.episodes ?? null,
+        nextAiringEpisode: media.nextAiringEpisode
+          ? {
+              episode: media.nextAiringEpisode.episode,
+              airingAt: media.nextAiringEpisode.airingAt,
+            }
+          : null,
         anilistId: media.id,
         malId: media.idMal,
         color: media.coverImage.color,

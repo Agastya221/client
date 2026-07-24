@@ -293,8 +293,11 @@ export default function HlsPlayer({
       recap: null,
     };
 
-    if (malId && malId > 0) {
-      fetchSkipTimes(malId, episodeNumber, duration || undefined).then((aniskipData) => {
+    let cancelled = false;
+
+    if (malId && malId > 0 && duration >= 60) {
+      fetchSkipTimes(malId, episodeNumber, duration).then((aniskipData) => {
+        if (cancelled) return;
         setSkipTimes({
           op: aniskipData.op || serverSkips.op,
           ed: aniskipData.ed || serverSkips.ed,
@@ -304,6 +307,9 @@ export default function HlsPlayer({
     } else {
       setSkipTimes(serverSkips);
     }
+    return () => {
+      cancelled = true;
+    };
   }, [malId, episodeNumber, duration, intro, outro]);
 
   // ── Video event handlers ───────────────────────────────────────

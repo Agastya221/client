@@ -1,4 +1,10 @@
 import { NextResponse } from "next/server";
+import { cacheInvalidatePrefix, cacheStorePersistent } from "@/lib/cache";
+import {
+  affectsPlaybackCache,
+  isWatchReportIssue,
+  type WatchReportIssue,
+} from "@/lib/anime/watch-report";
 import { recordLog } from "@/lib/observability";
 
 export const dynamic = "force-dynamic";
@@ -6,66 +12,105 @@ export const dynamic = "force-dynamic";
 /**
  * POST /api/watch/report
  *
- * Reports a broken or stale stream for a specific anime episode.
- * Proxies to the Flask backend's /api/watch/report endpoint which:
- *   1. Marks matching EpisodeStream records as isStale = true
- *   2. Sets SeedingState for the anime to PENDING with priority=100
- *
- * Body: { anilistId: number, episodeNumber?: number, dubbed?: boolean }
- *
- * Returns: { success: true, message: string, markedStale: number }
+ * Accepts playback and metadata reports without depending on the retired
+ * Python/Railway backend. Reports are retained in the existing memory + KV
+ * storage layer and playback-related reports invalidate the affected source
+ * caches immediately.
  */
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
-    const { anilistId, episodeNumber, dubbed } = body as {
-      anilistId?: number;
-      episodeNumber?: number;
-      dubbed?: boolean;
-    };
-
-    if (!anilistId) {
-      return NextResponse.json({ error: "anilistId is required" }, { status: 400 });
-    }
-
-    const backendUrl = process.env.ANIME_API_BASE_URL || "http://localhost:5000";
-
-    const resp = await fetch(`${backendUrl}/api/watch/report`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        anilistId,
-        episodeNumber: episodeNumber ?? null,
-        dubbed: dubbed ?? false,
-      }),
-      signal: AbortSignal.timeout(10_000),
-    });
-
-    if (!resp.ok) {
-      const errorData = await resp.json().catch(() => ({ error: "Backend request failed" }));
-      recordLog("warn", "watch.report.backend_error", { anilistId, episodeNumber }, errorData.error);
-      return NextResponse.json(
-        { error: errorData.error || "Failed to report stream" },
-        { status: resp.status }
-      );
-    }
-
-    const data = await resp.json();
-
-    recordLog("info", "watch.report.success", {
+    const {
+      animeId,
       anilistId,
+      animeTitle,
       episodeNumber,
       dubbed,
-      markedStale: data.markedStale,
+      provider,
+      serverId,
+      issues,
+      notes,
+      pageUrl,
+    } = body as {
+      animeId?: string;
+      anilistId?: number;
+      animeTitle?: string;
+      episodeNumber?: number;
+      dubbed?: boolean;
+      provider?: string;
+      serverId?: string | null;
+      issues?: unknown[];
+      notes?: string;
+      pageUrl?: string;
+    };
+
+    const normalizedAnimeId = String(animeId || "").trim().slice(0, 240);
+    const normalizedEpisode = Number(episodeNumber);
+    const normalizedIssues = Array.isArray(issues)
+      ? Array.from(new Set(issues.filter(isWatchReportIssue)))
+      : [];
+    const normalizedNotes = String(notes || "").trim().slice(0, 500);
+
+    if (!normalizedAnimeId) {
+      return NextResponse.json({ error: "Anime information is missing." }, { status: 400 });
+    }
+    if (!Number.isInteger(normalizedEpisode) || normalizedEpisode <= 0) {
+      return NextResponse.json({ error: "A valid episode number is required." }, { status: 400 });
+    }
+    if (normalizedIssues.length === 0) {
+      return NextResponse.json({ error: "Choose at least one issue." }, { status: 400 });
+    }
+
+    const createdAt = new Date().toISOString();
+    const reportId = crypto.randomUUID();
+    const report = {
+      id: reportId,
+      createdAt,
+      animeId: normalizedAnimeId,
+      anilistId: Number.isInteger(Number(anilistId)) && Number(anilistId) > 0
+        ? Number(anilistId)
+        : null,
+      animeTitle: String(animeTitle || "").trim().slice(0, 240),
+      episodeNumber: normalizedEpisode,
+      dubbed: Boolean(dubbed),
+      provider: String(provider || "").trim().slice(0, 80),
+      serverId: String(serverId || "").trim().slice(0, 160) || null,
+      issues: normalizedIssues as WatchReportIssue[],
+      notes: normalizedNotes,
+      pageUrl: String(pageUrl || request.headers.get("referer") || "").slice(0, 500),
+      userAgent: String(request.headers.get("user-agent") || "").slice(0, 300),
+    };
+
+    const retentionMs = 90 * 24 * 60 * 60 * 1000;
+    await cacheStorePersistent(`watch-report:${Date.now()}:${reportId}`, report, {
+      freshMs: retentionMs,
+      staleMs: retentionMs,
+      expireMs: retentionMs,
+    });
+
+    const playbackCacheInvalidated = affectsPlaybackCache(normalizedIssues as WatchReportIssue[]);
+    if (playbackCacheInvalidated) {
+      cacheInvalidatePrefix(`watch-session:${normalizedAnimeId}`);
+      cacheInvalidatePrefix(`stream:${normalizedAnimeId}`);
+    }
+
+    recordLog("info", "watch.report.success", {
+      reportId,
+      animeId: normalizedAnimeId,
+      anilistId: report.anilistId,
+      episodeNumber: normalizedEpisode,
+      dubbed: Boolean(dubbed),
+      provider: report.provider,
+      issues: normalizedIssues.join(","),
+      cacheInvalidated: playbackCacheInvalidated,
     });
 
     return NextResponse.json({
       success: true,
-      anilistId,
-      episodeNumber,
-      markedStale: data.markedStale ?? 0,
-      message: data.message ?? "Stream reported — will refresh in background shortly",
-    });
+      reportId,
+      cacheInvalidated: playbackCacheInvalidated,
+      message: "Report received. Thank you for helping us improve playback.",
+    }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     recordLog("error", "watch.report.error", {}, message);

@@ -1,5 +1,4 @@
 import WatchExperience from "@/components/anime/WatchExperience";
-import Navbar from "@/components/ui/Navbar";
 import SiteFooter from "@/components/ui/SiteFooter";
 import {
   getAniZipEpisodeMetadata,

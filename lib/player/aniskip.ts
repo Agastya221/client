@@ -14,23 +14,11 @@ export interface SkipTimes {
   recap: SkipInterval | null;
 }
 
-interface AniSkipResult {
-  interval: { startTime: number; endTime: number };
-  skipType: "op" | "ed" | "mixed-op" | "mixed-ed" | "recap";
-  skipId: string;
-  episodeLength: number;
-}
-
-interface AniSkipResponse {
-  found: boolean;
-  results?: AniSkipResult[];
-  statusCode: number;
-}
-
-// Module-scope cache: `malId:episode` → SkipTimes
+// Module-scope cache and in-flight map avoid duplicate requests when React
+// effects re-run or the player surface changes.
 const skipCache = new Map<string, SkipTimes>();
-
-const ANISKIP_BASE = "https://api.aniskip.com/v2";
+const skipRequests = new Map<string, Promise<SkipTimes>>();
+const EMPTY_SKIP_TIMES: SkipTimes = { op: null, ed: null, recap: null };
 
 /**
  * Fetch intro/outro/recap timestamps for a given episode.
@@ -38,72 +26,52 @@ const ANISKIP_BASE = "https://api.aniskip.com/v2";
  *
  * @param malId    MyAnimeList numeric ID
  * @param episode  Episode number (1-based)
- * @param episodeLength  Total episode duration in seconds (improves accuracy)
+ * @param episodeLength  Total episode duration in seconds (required by AniSkip)
  */
 export async function fetchSkipTimes(
   malId: number,
   episode: number,
-  episodeLength?: number,
+  episodeLength: number,
 ): Promise<SkipTimes> {
-  const cacheKey = `${malId}:${episode}`;
+  if (
+    !Number.isInteger(malId) ||
+    malId <= 0 ||
+    !Number.isInteger(episode) ||
+    episode <= 0 ||
+    !Number.isFinite(episodeLength) ||
+    episodeLength < 60
+  ) {
+    // Duration is initially unknown. Do not request or cache an invalid lookup;
+    // the player effect runs again as soon as loaded metadata supplies it.
+    return { ...EMPTY_SKIP_TIMES };
+  }
+
+  const duration = Math.round(episodeLength / 10) * 10;
+  const cacheKey = `${malId}:${episode}:${duration}`;
   const cached = skipCache.get(cacheKey);
   if (cached) return cached;
+  const pending = skipRequests.get(cacheKey);
+  if (pending) return pending;
 
   const params = new URLSearchParams({
-    "types[]": "op",
+    malId: String(malId),
+    episode: String(episode),
+    duration: String(duration),
   });
-  // URLSearchParams doesn't support duplicate keys via constructor — add manually
-  params.append("types[]", "ed");
-  params.append("types[]", "mixed-op");
-  params.append("types[]", "mixed-ed");
-  params.append("types[]", "recap");
+  const request = fetch(`/api/player/skip-times?${params.toString()}`, {
+    cache: "force-cache",
+  })
+    .then(async (response): Promise<SkipTimes> => {
+      if (!response.ok) return { ...EMPTY_SKIP_TIMES };
+      const result = await response.json() as SkipTimes;
+      skipCache.set(cacheKey, result);
+      return result;
+    })
+    .catch(() => ({ ...EMPTY_SKIP_TIMES }))
+    .finally(() => skipRequests.delete(cacheKey));
 
-  if (episodeLength && episodeLength > 0) {
-    params.set("episodeLength", String(Math.round(episodeLength)));
-  }
-
-  try {
-    const response = await fetch(
-      `${ANISKIP_BASE}/skip-times/${malId}/${episode}?${params.toString()}`,
-      {
-        cache: "force-cache",
-        next: { revalidate: 86400 }, // 24h
-      } as RequestInit,
-    );
-
-    if (!response.ok) {
-      const empty: SkipTimes = { op: null, ed: null, recap: null };
-      skipCache.set(cacheKey, empty);
-      return empty;
-    }
-
-    const data: AniSkipResponse = await response.json();
-    const result: SkipTimes = { op: null, ed: null, recap: null };
-
-    if (data.found && data.results) {
-      for (const entry of data.results) {
-        const interval: SkipInterval = {
-          start: entry.interval.startTime,
-          end: entry.interval.endTime,
-        };
-
-        if (entry.skipType === "op" || entry.skipType === "mixed-op") {
-          result.op = interval;
-        } else if (entry.skipType === "ed" || entry.skipType === "mixed-ed") {
-          result.ed = interval;
-        } else if (entry.skipType === "recap") {
-          result.recap = interval;
-        }
-      }
-    }
-
-    skipCache.set(cacheKey, result);
-    return result;
-  } catch {
-    const empty: SkipTimes = { op: null, ed: null, recap: null };
-    skipCache.set(cacheKey, empty);
-    return empty;
-  }
+  skipRequests.set(cacheKey, request);
+  return request;
 }
 
 /**
