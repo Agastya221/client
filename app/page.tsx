@@ -401,7 +401,7 @@ export default async function Home({
           </div>
 
           {/* Right Sidebar */}
-          <aside className="flex flex-col gap-6 xl:sticky xl:top-24 xl:self-start">
+          <aside className="flex flex-col gap-6">
             <AiringSchedulePanel days={airingScheduleDays} />
 
             <SidebarMediaPanel
