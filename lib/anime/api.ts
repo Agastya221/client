@@ -76,10 +76,10 @@ const ANIVEXA_WORKER_PROVIDERS: AnivexaWorkerProvider[] = [
 // anibd/Nova currently resolves to a Google access-denied iframe. Do not race,
 // advertise, or automatically fall back to a source that is known to be
 // unplayable for viewers.
-const ANIVEXA_AUTO_SUB_PROVIDERS: AnivexaWorkerProvider[] = ["anikoto", "senshi", "anineko", "animegg"];
-const ANIVEXA_AUTO_DUB_PROVIDERS: AnivexaWorkerProvider[] = ["senshi", "anineko", "anikoto"];
+const ANIVEXA_AUTO_SUB_PROVIDERS: AnivexaWorkerProvider[] = ["anikoto", "anineko", "animegg"];
+const ANIVEXA_AUTO_DUB_PROVIDERS: AnivexaWorkerProvider[] = ["anikoto", "anineko"];
 const ANIVEXA_AVAILABILITY_PROVIDERS: AnivexaWorkerProvider[] = [
-  "anikoto", "anineko", "senshi",
+  "anikoto", "anineko",
 ];
 const ANIVEXA_WORKER_WATCH_ALIAS: Partial<Record<AnivexaWorkerProvider, AnivexaWorkerProvider>> = {
   anikoto: "anikoto",
@@ -99,7 +99,8 @@ const ANIVEXA_DISPLAY_NAMES: Record<AnivexaWorkerProvider, string> = {
   senshi: "Kage",
 };
 const ANIVEXA_HARD_SUB_PROVIDERS = new Set<AnivexaWorkerProvider>(["animegg", "allmanga"]);
-const ANIVEXA_HLS_ONLY_PROVIDERS = new Set<AnivexaWorkerProvider>(["anikoto"]);
+const ANIVEXA_HLS_ONLY_PROVIDERS = new Set<AnivexaWorkerProvider>(["anikoto", "anizone"]);
+const ANIVEXA_DISABLED_PROVIDERS = new Set<AnivexaWorkerProvider>(["reanime", "senshi", "anibd", "anizone"]);
 const ANIVEXA_TRANSPORT_PRIORITY: Record<NonNullable<ServerOption["transport"]>, number> = {
   hls: 0,
   mp4: 1,
@@ -4738,14 +4739,18 @@ function requestedAnivexaAggregateProvider(server: string | null | undefined): A
   if (!server) return null;
   if (server.startsWith("anivexa2-")) {
     const [, provider] = server.match(/^anivexa2-([a-z0-9]+)-/) || [];
-    return ANIVEXA_WORKER_PROVIDERS.includes(provider as AnivexaWorkerProvider)
-      ? provider as AnivexaWorkerProvider
+    const workerProvider = provider as AnivexaWorkerProvider;
+    return ANIVEXA_WORKER_PROVIDERS.includes(workerProvider) &&
+      !ANIVEXA_DISABLED_PROVIDERS.has(workerProvider)
+      ? workerProvider
       : null;
   }
   if (server.startsWith("anivexa-")) {
     const [, provider] = server.match(/^anivexa-([a-z0-9]+)-/) || [];
-    return ANIVEXA_WORKER_PROVIDERS.includes(provider as AnivexaWorkerProvider)
-      ? provider as AnivexaWorkerProvider
+    const workerProvider = provider as AnivexaWorkerProvider;
+    return ANIVEXA_WORKER_PROVIDERS.includes(workerProvider) &&
+      !ANIVEXA_DISABLED_PROVIDERS.has(workerProvider)
+      ? workerProvider
       : null;
   }
   return null;
@@ -4988,9 +4993,14 @@ function appendCustomEmbedServers(
     if (!routeAnilistId) return serverOptions;
   }
 
-  const hasConfirmedDub =
-    (anime.dubCount != null && anime.dubCount > 0) ||
-    serverOptions.some((option) => option.category === "dub");
+  // Series-level dub counts are not proof that this exact episode has a
+  // playable dub. Only a dub option resolved for the current watch request can
+  // unlock the Dub tab and its generic embed fallbacks.
+  const hasConfirmedDub = serverOptions.some((option) =>
+    option.category === "dub" &&
+    !(CUSTOM_SERVERS as readonly string[]).includes(option.id) &&
+    option.id !== "anivexa2-auto-hls-dub"
+  );
   const customOptions: ServerOption[] = [
     {
       id: "megaplay-sub",
@@ -5057,8 +5067,8 @@ function appendCustomEmbedServers(
     }
 
     const DUB_GATEWAYS = hasConfirmedDub ? [
-      { provider: "anineko" as AnivexaWorkerProvider, transport: "hls" as const },
       { provider: "anikoto" as AnivexaWorkerProvider, transport: "hls" as const },
+      { provider: "anineko" as AnivexaWorkerProvider, transport: "hls" as const },
     ] : [];
     for (const gw of DUB_GATEWAYS) {
       const alreadyPresent = serverOptions.some((opt) =>

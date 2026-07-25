@@ -154,7 +154,7 @@ async function AnilistDetailContent({
         <div className="relative z-10 mx-auto max-w-7xl px-6 pt-28 pb-16">
           <div className="grid gap-10 lg:grid-cols-[280px_1fr] items-start">
             {/* Poster */}
-            <div className="hidden lg:block">
+            <div className="flex justify-center lg:block">
               <div className="relative">
                 <div
                   className="absolute -inset-3 rounded-2xl blur-2xl opacity-30"
@@ -167,7 +167,7 @@ async function AnilistDetailContent({
                   height={420}
                   priority
                   quality={80}
-                  className="relative w-full rounded-2xl shadow-2xl border border-white/10 object-cover"
+                  className="relative w-48 sm:w-60 lg:w-full rounded-2xl shadow-2xl border border-white/10 object-cover"
                 />
               </div>
             </div>
@@ -238,12 +238,12 @@ async function AnilistDetailContent({
               )}
 
               {/* CTAs */}
-              <div className="flex flex-wrap items-center gap-3 pt-2">
+              <div className="grid grid-cols-2 gap-3 pt-2 w-full max-w-md sm:flex sm:w-auto">
                 <WatchIntentLink
                   href={watchHref}
                   animeId={routeId}
                   episodeNumber={fromAiring ? latestEpisode : 1}
-                  className="flex items-center gap-2.5 rounded-full border px-6 py-3 text-sm font-black shadow-lg backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 hover:brightness-125"
+                  className="flex h-12 items-center justify-center gap-2 rounded-full border px-3 sm:px-6 text-xs sm:text-sm font-black shadow-lg backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 hover:brightness-125 w-full sm:w-auto text-center whitespace-nowrap"
                   style={{
                     backgroundColor: `${accentColor}22`,
                     borderColor: `${accentColor}80`,
@@ -251,17 +251,19 @@ async function AnilistDetailContent({
                     boxShadow: `inset 0 1px 0 rgba(255,255,255,0.12), 0 10px 30px ${accentColor}24`,
                   }}
                 >
-                  <Play className="w-4 h-4 fill-current" />
-                  WATCH NOW
+                  <Play className="w-4 h-4 fill-current shrink-0" />
+                  <span>WATCH NOW</span>
                 </WatchIntentLink>
-                <AddToListButton
-                  animeId={`anilist~${anilistId}`}
-                  title={title}
-                  poster={media.coverImage.extraLarge || media.coverImage.large}
-                  href={selfHref}
-                  totalEpisodes={media.episodes}
-                  rawMediaId={anilistId}
-                />
+                <div className="w-full sm:w-auto min-w-0">
+                  <AddToListButton
+                    animeId={`anilist~${anilistId}`}
+                    title={title}
+                    poster={media.coverImage.extraLarge || media.coverImage.large}
+                    href={selfHref}
+                    totalEpisodes={media.episodes}
+                    rawMediaId={anilistId}
+                  />
+                </div>
               </div>
 
             </div>

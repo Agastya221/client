@@ -289,7 +289,11 @@ export default function NavbarClient({ user }: NavbarClientProps) {
           box-shadow: 0 0 0 1px rgba(255,255,255,0.12);
         }
       `}</style>
-      <nav className="fixed top-0 z-50 w-full" style={{ viewTransitionName: "persistent-nav" }}>
+      <nav
+        className="fixed top-0 z-50 w-full"
+        style={{ viewTransitionName: "persistent-nav" }}
+        data-menu-open={mobileMenuOpen || mobileSearchActive || isDesktopFocused || isMobileFocused ? "true" : "false"}
+      >
         {/* Mobile Search Active Panel */}
         {mobileSearchActive && (
           <div className="flex h-16 w-full items-center px-4 gap-3 lg:hidden animate-slide-down bg-[#0a0b0c]/95 backdrop-blur-xl border-b border-white/5">

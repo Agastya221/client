@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useSession } from "next-auth/react";
 import {
   Bookmark,
@@ -361,7 +362,7 @@ export default function AddToListButton({
       <button
         type="button"
         disabled
-        className="flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-5 py-3 text-sm font-bold text-white/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md"
+        className="flex h-12 w-full sm:w-auto items-center justify-center gap-2 rounded-full border border-white/20 bg-white/10 px-6 text-sm font-bold text-white/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md"
       >
         <Loader2 className="w-4 h-4 animate-spin" />
         Loading...
@@ -397,7 +398,7 @@ export default function AddToListButton({
           type="button"
           onClick={handleQuickToggle}
           disabled={loading}
-          className={`flex items-center gap-2 rounded-full border px-5 py-3 text-sm font-bold shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 active:scale-95 ${
+          className={`flex h-12 w-full sm:w-auto items-center justify-center gap-1.5 sm:gap-2 rounded-full border px-3 sm:px-6 text-xs sm:text-sm font-bold shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 active:scale-95 whitespace-nowrap ${
             isBookmarked
               ? "border-white/25 bg-white/12 text-white hover:bg-white/16"
               : "border-white/20 bg-white/10 text-white/85 hover:bg-white/16 hover:text-white"
@@ -407,27 +408,27 @@ export default function AddToListButton({
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : isBookmarked ? (
             <>
-              <BookmarkCheck className="w-4 h-4 text-amber-400 fill-current" />
+              <BookmarkCheck className="w-4 h-4 text-amber-400 fill-current shrink-0" />
               <span>In My List</span>
               <span
-                className={`px-2 py-0.5 rounded-md border text-[10px] uppercase font-black tracking-wider ${currentStatusObj.color}`}
+                className={`hidden sm:inline-block px-2 py-0.5 rounded-md border text-[10px] uppercase font-black tracking-wider ${currentStatusObj.color}`}
               >
                 {currentStatusObj.label}
               </span>
-              <ChevronDown className="w-3.5 h-3.5 text-white/50 ml-0.5" />
+              <ChevronDown className="w-3.5 h-3.5 text-white/50 ml-0.5 shrink-0" />
             </>
           ) : (
             <>
-              <Bookmark className="w-4 h-4" />
+              <Bookmark className="w-4 h-4 shrink-0" />
               <span>Add to List</span>
             </>
           )}
         </button>
       )}
 
-      {/* Unified Manage Modal Popover - FIXED overlay to guarantee zero cut-off */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
+      {/* Unified Manage Modal Popover - Teleported to Body via Portal to prevent overflow clipping */}
+      {isModalOpen && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
           {/* Backdrop Click */}
           <div
             className="fixed inset-0"
@@ -436,7 +437,7 @@ export default function AddToListButton({
           />
 
           {/* Modal Card */}
-          <div className="relative w-full max-w-md rounded-3xl bg-[#0f1117] border border-white/15 p-6 shadow-[0_24px_48px_rgba(0,0,0,0.8)] z-[101] animate-in zoom-in-95 duration-150 text-white overflow-hidden">
+          <div className="relative w-full max-w-md rounded-3xl bg-[#0f1117] border border-white/15 p-6 shadow-[0_24px_48px_rgba(0,0,0,0.95)] z-[100000] animate-in zoom-in-95 duration-150 text-white overflow-hidden">
             {/* Header */}
             <div className="flex items-center justify-between pb-4 mb-5 border-b border-white/10">
               <div className="flex items-center gap-2.5">
@@ -563,7 +564,8 @@ export default function AddToListButton({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );

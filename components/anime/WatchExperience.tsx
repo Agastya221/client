@@ -267,7 +267,7 @@ function isEmbedServerOption(serverId: string): boolean {
 }
 
 function isKnownBrokenServerOption(serverId: string | null | undefined): boolean {
-  return Boolean(serverId && /^anivexa2?-anibd-/.test(serverId));
+  return Boolean(serverId && /^anivexa2?-(?:anibd|reanime|senshi|anizone)-/.test(serverId));
 }
 
 function watchDebug(event: string, details: Record<string, unknown> = {}): void {
@@ -1229,13 +1229,12 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   const hasLanguageInfo = hasDubEpisode || hasSubEpisode;
   const hasDubServer = session.serverOptions.some((entry) => entry.category === "dub");
   const hasSubServer = session.serverOptions.some((entry) => entry.category === "sub" || !entry.category);
-  // A language is available when a provider count, episode flag, or successfully
-  // probed server confirms it. A zero/unknown catalog count must not override a
-  // real working server (long-running shows such as One Piece hit this case).
+  // The Dub control is for the current episode, so a series-wide count or a dub
+  // flag on some other episode is not sufficient. Exact server discovery is
+  // the source of truth; an already-playing dub session is also valid evidence.
   const hasDub =
-    (dubCount != null && dubCount > 0) ||
-    hasDubEpisode ||
-    hasDubServer;
+    hasDubServer ||
+    (session.dubbed && Boolean(session.source));
   const hasSub =
     canUseEmbed ||
     hasSubEpisode ||
