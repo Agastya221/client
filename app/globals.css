@@ -180,6 +180,47 @@ h1, h2, h3 {
     var(--duration-move) ease-in-out both slide reverse;
 }
 
+/*
+ * Hero artwork changes overlap instead of waiting for the outgoing image to
+ * disappear. The short drift communicates carousel direction while preserving
+ * a sharp, stable full-bleed image throughout the transition.
+ */
+@keyframes carousel-artwork-from-right {
+  from { opacity: 0; transform: translateX(22px) scale(1.012); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+@keyframes carousel-artwork-to-left {
+  from { opacity: 1; transform: translateX(0) scale(1); }
+  to { opacity: 0; transform: translateX(-14px) scale(1.006); }
+}
+
+@keyframes carousel-artwork-from-left {
+  from { opacity: 0; transform: translateX(-22px) scale(1.012); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+@keyframes carousel-artwork-to-right {
+  from { opacity: 1; transform: translateX(0) scale(1); }
+  to { opacity: 0; transform: translateX(14px) scale(1.006); }
+}
+
+::view-transition-new(.carousel-artwork-from-right) {
+  animation: 520ms cubic-bezier(0.22, 1, 0.36, 1) both carousel-artwork-from-right;
+}
+
+::view-transition-old(.carousel-artwork-to-left) {
+  animation: 520ms cubic-bezier(0.22, 1, 0.36, 1) both carousel-artwork-to-left;
+}
+
+::view-transition-new(.carousel-artwork-from-left) {
+  animation: 520ms cubic-bezier(0.22, 1, 0.36, 1) both carousel-artwork-from-left;
+}
+
+::view-transition-old(.carousel-artwork-to-right) {
+  animation: 520ms cubic-bezier(0.22, 1, 0.36, 1) both carousel-artwork-to-right;
+}
+
 ::view-transition-old(.nav-forward) {
   --slide-offset: -60px;
   animation:

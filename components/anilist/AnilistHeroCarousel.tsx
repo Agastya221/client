@@ -9,7 +9,16 @@ import { Play, Bookmark, BookmarkCheck, ChevronLeft, ChevronRight, Star, Calenda
 import Link from "next/link";
 import { getImageProps } from "next/image";
 import { preload } from "react-dom";
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import {
+  ViewTransition,
+  addTransitionType,
+  startTransition,
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
 
 const carouselEnterTransition = {
   "carousel-next": "slide-from-right",
@@ -20,6 +29,18 @@ const carouselEnterTransition = {
 const carouselExitTransition = {
   "carousel-next": "slide-to-left",
   "carousel-prev": "slide-to-right",
+  default: "fade-out",
+} as const;
+
+const carouselArtworkEnterTransition = {
+  "carousel-next": "carousel-artwork-from-right",
+  "carousel-prev": "carousel-artwork-from-left",
+  default: "fade-in",
+} as const;
+
+const carouselArtworkExitTransition = {
+  "carousel-next": "carousel-artwork-to-left",
+  "carousel-prev": "carousel-artwork-to-right",
   default: "fade-out",
 } as const;
 
@@ -52,7 +73,16 @@ export default function AnilistHeroCarousel({
     if (deck.length === 0) return;
     const nextIndex = (index + deck.length) % deck.length;
     if (nextIndex === activeIndex) return;
-    setActiveIndex(nextIndex);
+
+    const forwardDistance = (nextIndex - activeIndex + deck.length) % deck.length;
+    const backwardDistance = (activeIndex - nextIndex + deck.length) % deck.length;
+
+    startTransition(() => {
+      addTransitionType(
+        forwardDistance <= backwardDistance ? "carousel-next" : "carousel-prev",
+      );
+      setActiveIndex(nextIndex);
+    });
   }, [activeIndex, deck.length]);
 
   const goPrev = useCallback(() => {
@@ -266,31 +296,44 @@ export default function AnilistHeroCarousel({
       onTouchEnd={handleTouchEnd}
     >
       {/* ── Full-viewport background image ─────────────────────────────────── */}
-      <div key={`backdrop-${slide.id}`} className="absolute inset-0 z-0 transition-opacity duration-700">
-        <picture className="absolute inset-0">
-          <source media="(max-width: 767px)" srcSet={mobileBackdrop.srcSet} sizes={mobileBackdrop.sizes} />
-          <source media="(min-width: 768px)" srcSet={desktopBackdrop.srcSet} sizes={desktopBackdrop.sizes} />
-          <img
-            {...desktopBackdrop}
-            alt={title}
-            className="hero-carousel-artwork absolute inset-0 h-full w-full object-cover object-center"
-          />
-        </picture>
+      <ViewTransition
+        key={`backdrop-${slide.id}`}
+        enter={carouselArtworkEnterTransition}
+        exit={carouselArtworkExitTransition}
+        default="none"
+      >
+        <div className="absolute inset-0 z-0">
+          <picture className="absolute inset-0">
+            <source media="(max-width: 767px)" srcSet={mobileBackdrop.srcSet} sizes={mobileBackdrop.sizes} />
+            <source media="(min-width: 768px)" srcSet={desktopBackdrop.srcSet} sizes={desktopBackdrop.sizes} />
+            <img
+              {...desktopBackdrop}
+              alt={title}
+              className="hero-carousel-artwork absolute inset-0 h-full w-full object-cover object-center"
+            />
+          </picture>
 
-        {/* Cinematic readability layers; the accent wash changes with every anime. */}
-        <div
-          className="absolute inset-y-0 left-0 hidden w-[48%] opacity-25 lg:block"
-          style={{ background: `radial-gradient(circle at 12% 58%, ${accentColor} 0%, transparent 68%)` }}
-        />
-        <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-[#080809]/75 via-[#080809]/25 to-transparent" />
-        <div className="absolute inset-y-0 left-0 hidden w-[56%] bg-gradient-to-r from-[#080809]/95 via-[#080809]/72 to-transparent lg:block" />
-        <div className="absolute inset-x-0 bottom-0 hidden h-56 bg-gradient-to-t from-[#080809] via-[#080809]/62 to-transparent lg:block" />
-        <div className="absolute inset-x-0 bottom-0 h-[62%] bg-gradient-to-t from-[#080809] via-[#080809]/60 to-transparent lg:hidden" />
-      </div>
+          {/* Cinematic readability layers; the accent wash changes with every anime. */}
+          <div
+            className="absolute inset-y-0 left-0 hidden w-[48%] opacity-25 lg:block"
+            style={{ background: `radial-gradient(circle at 12% 58%, ${accentColor} 0%, transparent 68%)` }}
+          />
+          <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-[#080809]/75 via-[#080809]/25 to-transparent" />
+          <div className="absolute inset-y-0 left-0 hidden w-[56%] bg-gradient-to-r from-[#080809]/95 via-[#080809]/72 to-transparent lg:block" />
+          <div className="absolute inset-x-0 bottom-0 hidden h-56 bg-gradient-to-t from-[#080809] via-[#080809]/62 to-transparent lg:block" />
+          <div className="absolute inset-x-0 bottom-0 h-[62%] bg-gradient-to-t from-[#080809] via-[#080809]/60 to-transparent lg:hidden" />
+        </div>
+      </ViewTransition>
 
       {/* ── DESKTOP LAYOUT (lg+): same compact cinematic rhythm as the reference ── */}
       <div className="absolute inset-0 z-10 hidden flex-col justify-end px-14 pb-[120px] lg:flex xl:px-20">
-        <div key={`desktop-copy-${slide.id}`} className="max-w-[520px] transition-all duration-500">
+        <ViewTransition
+          key={`desktop-copy-${slide.id}`}
+          enter={carouselEnterTransition}
+          exit={carouselExitTransition}
+          default="none"
+        >
+          <div className="max-w-[520px]">
             <div className="mb-4 flex h-[116px] max-w-[380px] items-start justify-start">
               {titleLogoState ? (
                 <img
@@ -442,6 +485,7 @@ export default function AnilistHeroCarousel({
               </p>
             )}
           </div>
+        </ViewTransition>
         </div>
 
       <div className="absolute bottom-10 left-14 z-20 hidden items-center lg:flex xl:left-20">
@@ -464,7 +508,13 @@ export default function AnilistHeroCarousel({
 
       {/* ── MOBILE: the same desktop design, fitted to a portrait stage ────── */}
       <div className="absolute inset-0 z-10 flex flex-col justify-end px-6 pb-6 lg:hidden">
-        <div key={`mobile-copy-${slide.id}`} className="w-full transition-all duration-500">
+        <ViewTransition
+          key={`mobile-copy-${slide.id}`}
+          enter={carouselEnterTransition}
+          exit={carouselExitTransition}
+          default="none"
+        >
+          <div className="w-full">
 
           <div className="mb-3 flex h-20 max-w-full items-end justify-start">
             {titleLogoState === undefined ? (
@@ -606,7 +656,8 @@ export default function AnilistHeroCarousel({
               }
             </button>
           </div>
-        </div>
+          </div>
+        </ViewTransition>
 
         <div className="mt-4 flex items-center justify-between">
           <NavButtons deck={deck} activeIndex={activeIndex} goTo={goTo} accentColor={accentColor} />
