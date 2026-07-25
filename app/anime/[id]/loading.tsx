@@ -1,16 +1,10 @@
-import { Loader2 } from "lucide-react";
-import Navbar from "@/components/ui/Navbar";
-import SiteFooter from "@/components/ui/SiteFooter";
-
 export default function AnimeDetailLoading() {
   return (
-    <main className="min-h-screen bg-[#121212] flex flex-col">
-      <Navbar />
-
-      <div className="flex-1 animate-pulse">
+    <main className="min-h-screen bg-[#0a0b0c] text-white pt-16" aria-label="Loading anime details">
+      <div className="animate-pulse">
         {/* Hero Section Skeleton */}
-        <section className="relative overflow-hidden pb-14 pt-24">
-          <div className="absolute inset-0 bg-gradient-to-b from-[#1a1a1a] to-[#121212]" />
+        <section className="relative overflow-hidden pb-14 pt-12 sm:pt-20">
+          <div className="absolute inset-0 bg-gradient-to-b from-[#131518] to-[#0a0b0c]" />
           <div className="relative mx-auto max-w-7xl px-6">
             <div className="grid gap-10 lg:grid-cols-[18rem_minmax(0,1fr)] lg:items-end">
               {/* Poster Skeleton */}
@@ -39,9 +33,7 @@ export default function AnimeDetailLoading() {
 
                 {/* Action Buttons */}
                 <div className="flex gap-4 pt-4">
-                  <div className="h-12 w-40 rounded-full bg-[#ff5500]/20 flex items-center justify-center border border-[#ff5500]/50">
-                    <Loader2 className="w-5 h-5 text-[#ff5500] animate-spin" />
-                  </div>
+                  <div className="h-12 w-40 rounded-full border border-white/10 bg-white/[0.07]" />
                   <div className="h-12 w-48 rounded-full bg-white/10" />
                 </div>
 
@@ -57,7 +49,7 @@ export default function AnimeDetailLoading() {
         </section>
 
         {/* Content Section Skeleton */}
-        <section className="px-6 py-10 bg-[#121212]">
+        <section className="bg-[#0a0b0c] px-6 py-10">
           <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[minmax(0,1fr)_22rem]">
             <div className="space-y-8">
               {/* Metadata Cards */}
@@ -123,8 +115,6 @@ export default function AnimeDetailLoading() {
           </div>
         </section>
       </div>
-
-      <SiteFooter />
     </main>
   );
 }

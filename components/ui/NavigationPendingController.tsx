@@ -48,12 +48,10 @@ function SearchCommitObserver({ onCommit }: { onCommit: () => void }) {
 
 export default function NavigationPendingController({
   children,
-  rootLoader,
   detailLoader,
   watchLoader,
 }: {
   children: ReactNode;
-  rootLoader: ReactNode;
   detailLoader: ReactNode;
   watchLoader: ReactNode;
 }) {
@@ -137,7 +135,7 @@ export default function NavigationPendingController({
       </Suspense>
       {children}
       {pending && activeLoader ? (
-        <div className="fixed inset-0 z-[200] overflow-y-auto bg-[#0a0b0c]" aria-busy="true">
+        <div className="fixed inset-0 z-40 overflow-y-auto bg-[#0a0b0c]" aria-busy="true">
           {activeLoader}
         </div>
       ) : null}

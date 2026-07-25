@@ -1,82 +1,80 @@
-import Navbar from "@/components/ui/Navbar";
-import SiteFooter from "@/components/ui/SiteFooter";
-
 export default function WatchPageLoading() {
   return (
-    <main className="min-h-screen bg-surface text-on-surface flex flex-col">
-      <Navbar />
-
-      <section className="relative overflow-hidden px-4 pb-12 pt-10 sm:px-6 flex-1">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,94,94,0.18),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.04),transparent_22%)] border-t border-white/5" />
-        <div className="relative mx-auto max-w-[96rem] animate-pulse">
-          <div className="mb-6 flex items-center gap-2">
-            <div className="h-4 w-12 rounded bg-white/10" />
-            <div className="h-3 w-3 rounded bg-white/5" />
-            <div className="h-4 w-40 rounded bg-white/10" />
-            <div className="h-3 w-3 rounded bg-white/5" />
-            <div className="h-6 w-24 rounded-full bg-[#ff5500]/10 border border-[#ff5500]/25" />
-          </div>
-
-          <div className="flex flex-col lg:flex-row gap-6">
-            <div className="flex-1 space-y-6">
-              <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-white/10 bg-[#161616] shadow-2xl">
-                <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.06),transparent_45%)]" />
-                <div className="absolute inset-0 bg-[linear-gradient(115deg,rgba(255,255,255,0.03),transparent_35%,rgba(255,255,255,0.03)_65%,transparent)] animate-pulse" />
-                <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/80 to-transparent" />
-                <div className="absolute left-5 bottom-5 space-y-3">
-                  <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/35 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.24em] text-white/65">
-                    <span className="h-2 w-2 rounded-full bg-[#ff5500] animate-pulse" />
-                    Opening Player
-                  </div>
-                  <div className="space-y-2">
-                    <div className="h-4 w-44 rounded bg-white/10" />
-                    <div className="h-3 w-64 rounded bg-white/5" />
-                  </div>
-                </div>
-                <div className="absolute right-5 bottom-5 hidden md:block">
-                  <div className="h-2 w-24 overflow-hidden rounded-full bg-white/10">
-                    <div className="h-full w-full animate-[bufferBar_1.8s_ease-in-out_infinite] bg-gradient-to-r from-[#ff5500] via-[#ff7733] to-[#ff5500]" />
-                  </div>
-                </div>
+    <main
+      className="min-h-screen bg-[#0a0b0c] px-3 pb-12 pt-[76px] text-white sm:px-6"
+      aria-label="Loading watch page"
+    >
+      <section className="mx-auto max-w-[112rem] animate-pulse">
+        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
+          <div className="space-y-3">
+            <div className="relative aspect-video overflow-hidden rounded-2xl border border-white/[0.08] bg-[#101216]">
+              <div className="absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-black/65 to-transparent" />
+              <div className="absolute bottom-5 left-5 space-y-2">
+                <div className="h-4 w-48 rounded bg-white/10" />
+                <div className="h-3 w-28 rounded bg-white/[0.06]" />
               </div>
-
-              <div className="rounded-xl bg-[#161618] border border-white/10 p-4">
-                <div className="flex gap-3">
-                  {Array.from({ length: 4 }).map((_, index) => (
-                    <div key={index} className="h-9 w-24 rounded-full bg-white/10" />
-                  ))}
-                </div>
-              </div>
+              <div className="absolute left-1/2 top-1/2 h-12 w-12 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/10" />
             </div>
 
-            <aside className="w-full lg:w-[24rem] space-y-5">
-              <div className="rounded-[1.75rem] bg-[#161616] border border-white/10 p-5">
-                <div className="flex gap-4">
-                  <div className="h-24 w-16 shrink-0 rounded-lg bg-white/10" />
-                  <div className="flex-1 space-y-2">
-                    <div className="h-5 w-3/4 rounded bg-white/10" />
-                    <div className="h-3 w-1/2 rounded bg-white/5" />
-                    <div className="h-3 w-2/3 rounded bg-white/5" />
+            <div className="flex min-h-12 items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-[#101216] px-4">
+              <div className="flex gap-4">
+                <div className="h-4 w-16 rounded bg-white/[0.08]" />
+                <div className="h-4 w-16 rounded bg-white/[0.08]" />
+                <div className="h-4 w-16 rounded bg-white/[0.08]" />
+              </div>
+              <div className="h-4 w-24 rounded bg-white/[0.06]" />
+            </div>
+
+            <div className="rounded-2xl border border-white/[0.08] bg-[#101216] p-4 sm:p-5">
+              <div className="mb-4 flex gap-3">
+                <div className="h-10 w-28 rounded-xl bg-white/10" />
+                <div className="h-10 w-28 rounded-xl bg-white/[0.06]" />
+              </div>
+              <div className="space-y-4">
+                {Array.from({ length: 3 }).map((_, groupIndex) => (
+                  <div
+                    key={groupIndex}
+                    className="rounded-xl border border-white/[0.06] bg-white/[0.025] p-3"
+                  >
+                    <div className="mb-3 h-3 w-20 rounded bg-white/[0.07]" />
+                    <div className="flex flex-wrap gap-2">
+                      {Array.from({ length: groupIndex === 0 ? 3 : 2 }).map((__, index) => (
+                        <div key={index} className="h-9 w-24 rounded-xl bg-white/[0.07]" />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <aside className="rounded-2xl border border-white/[0.08] bg-[#101216] p-3">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="h-5 w-20 rounded bg-white/10" />
+              <div className="h-5 w-8 rounded-full bg-white/[0.06]" />
+            </div>
+            <div className="mb-3 flex gap-2">
+              <div className="h-10 flex-1 rounded-xl bg-white/[0.07]" />
+              <div className="h-10 w-10 rounded-xl bg-white/[0.07]" />
+            </div>
+            <div className="space-y-2">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <div
+                  key={index}
+                  className="flex h-[74px] items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.025] p-2"
+                >
+                  <div className="h-full w-28 shrink-0 rounded-lg bg-white/[0.07]" />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="h-3 w-4/5 rounded bg-white/[0.09]" />
+                    <div className="h-3 w-full rounded bg-white/[0.05]" />
+                    <div className="h-3 w-2/3 rounded bg-white/[0.05]" />
                   </div>
                 </div>
-              </div>
-              <div className="rounded-[1.75rem] bg-[#161616] border border-white/10 p-5">
-                <div className="h-3 w-20 rounded bg-white/10 mb-4" />
-                <div className="space-y-3">
-                  {Array.from({ length: 8 }).map((_, index) => (
-                    <div key={index} className="flex items-center gap-3 rounded-lg border border-white/5 bg-[#222] p-3">
-                      <div className="h-5 w-16 rounded bg-white/10" />
-                      <div className="h-4 flex-1 rounded bg-white/5" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </aside>
-          </div>
+              ))}
+            </div>
+          </aside>
         </div>
       </section>
-
-      <SiteFooter />
     </main>
   );
 }

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { kvGet, kvSet } from "@/lib/cache/kv";
+import { cacheFetch } from "@/lib/cache";
 import { getAnilistListEntry } from "@/lib/anilist/user";
 import { fromAnilistListStatus } from "@/lib/anilist/list-status";
 import {
@@ -38,25 +38,28 @@ export async function GET(request: Request) {
 
   try {
     const cacheKey = anilistListEntryCacheKey(account.providerAccountId, mediaId);
-    let payload = await kvGet<CachedAnilistListEntryEnvelope>(cacheKey);
-    if (!payload) {
-      const entry = await getAnilistListEntry(account.access_token, mediaId);
-      payload = {
-        entry: entry
-          ? {
-              id: entry.id,
-              status: fromAnilistListStatus(entry.status),
-              progress: Math.max(0, Number(entry.progress || 0)),
-              score: entry.score ?? null,
-            }
-          : null,
-      };
-      await kvSet(
-        cacheKey,
-        payload,
-        ANILIST_LIST_ENTRY_CACHE_TTL_SECONDS,
-      );
-    }
+    const cacheMs = ANILIST_LIST_ENTRY_CACHE_TTL_SECONDS * 1000;
+    const payload = await cacheFetch<CachedAnilistListEntryEnvelope>(
+      cacheKey,
+      async () => {
+        const entry = await getAnilistListEntry(account.access_token!, mediaId);
+        return {
+          entry: entry
+            ? {
+                id: entry.id,
+                status: fromAnilistListStatus(entry.status),
+                progress: Math.max(0, Number(entry.progress || 0)),
+                score: entry.score ?? null,
+              }
+            : null,
+        };
+      },
+      {
+        freshMs: cacheMs,
+        staleMs: cacheMs,
+        expireMs: cacheMs,
+      },
+    );
 
     return NextResponse.json(
       payload,

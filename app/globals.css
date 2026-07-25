@@ -624,25 +624,21 @@ h1, h2, h3 {
 
 }
 
-/* App View Slide-Up Transition */
-@keyframes pageSlideUpFade {
-  0% {
-    opacity: 0;
-    transform: translateY(28px) scale(0.992);
-    filter: blur(4px);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-    filter: blur(0px);
-  }
+/* Route content may fade in, but must never rise from below the viewport. */
+@keyframes pageContentFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .page-transition-enter {
-  animation: pageSlideUpFade 0.42s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  will-change: transform, opacity, filter;
+  animation: pageContentFade 160ms ease-out both;
 }
 
+@media (max-width: 767px) {
+  .page-transition-enter {
+    animation: none;
+  }
+}
 
 
 

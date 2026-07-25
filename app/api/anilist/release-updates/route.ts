@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { kvCached } from "@/lib/cache/kv";
+import { cacheFetch } from "@/lib/cache";
 import { getAnilistFollowedReleaseEntries } from "@/lib/anilist/user";
-import { buildFollowedReleaseUpdates, type FollowedReleaseListEntry } from "@/lib/anilist/release-updates";
+import {
+  buildFollowedReleaseUpdates,
+  type FollowedReleaseListEntry,
+  type FollowedReleaseMedia,
+} from "@/lib/anilist/release-updates";
 
 const ANILIST_URL = "https://graphql.anilist.co";
 
@@ -66,13 +70,18 @@ export async function GET() {
   }
 
   try {
-    const updates = await kvCached(
+    const updates = await cacheFetch(
       `anilist:release-updates:user:${userId}`,
       async () => {
         const entries = await getAnilistFollowedReleaseEntries(account.access_token!, userId);
         return buildFollowedReleaseUpdates(entries);
       },
-      300,
+      {
+        freshMs: 5 * 60 * 1000,
+        staleMs: 5 * 60 * 1000,
+        expireMs: 5 * 60 * 1000,
+        shouldCache: (value) => Array.isArray(value),
+      },
     );
 
     return NextResponse.json(
@@ -139,8 +148,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ updates: [] });
     }
 
-    const json = await res.json();
-    const mediaList: any[] = json?.data?.Page?.media || [];
+    const json = await res.json() as {
+      data?: {
+        Page?: {
+          media?: FollowedReleaseMedia[];
+        };
+      };
+    };
+    const mediaList = json.data?.Page?.media || [];
 
     const entries: FollowedReleaseListEntry[] = mediaList.map((media) => {
       const userItem = itemsMap.get(media.id);

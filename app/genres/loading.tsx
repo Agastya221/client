@@ -1,10 +1,6 @@
-import Navbar from "@/components/ui/Navbar";
-
 export default function Loading() {
   return (
     <main className="min-h-screen bg-[#0a0b0c] text-white">
-      <Navbar />
-
       {/* Hero skeleton */}
       <section className="border-b border-white/5 px-6 pb-14 pt-28">
         <div className="mx-auto max-w-7xl animate-pulse space-y-6">

@@ -7,7 +7,6 @@ import WatchHistorySyncClient from "@/components/anime/WatchHistorySyncClient";
 import ScrollToTop from "@/components/ui/ScrollToTop";
 import NavigationPendingController from "@/components/ui/NavigationPendingController";
 import WatchPageLoading from "@/components/anime/WatchPageLoading";
-import RootLoading from "@/app/loading";
 import AnimeDetailLoading from "@/app/anime/[id]/loading";
 import "./globals.css";
 
@@ -15,14 +14,14 @@ const plusJakartaSans = Plus_Jakarta_Sans({
   variable: "--font-sans",
   subsets: ["latin"],
   display: "swap",
-  weight: ["400", "500", "600", "700", "800"],
+  weight: "variable",
 });
 
 const outfit = Outfit({
   variable: "--font-display",
   subsets: ["latin"],
   display: "swap",
-  weight: ["400", "500", "600", "700", "800", "900"],
+  weight: "variable",
 });
 
 const geistMono = Geist_Mono({
@@ -55,7 +54,6 @@ export const metadata: Metadata = {
 };
 
 import Navbar from "@/components/ui/Navbar";
-import PageTransitionWrapper from "@/components/ui/PageTransitionWrapper";
 
 export default function RootLayout({
   children,
@@ -71,7 +69,6 @@ export default function RootLayout({
         <AuthSessionProvider>
           <WatchHistorySyncClient />
           <NavigationPendingController
-            rootLoader={<RootLoading />}
             detailLoader={<AnimeDetailLoading />}
             watchLoader={<WatchPageLoading />}
           >
@@ -79,9 +76,7 @@ export default function RootLayout({
             <Suspense fallback={null}>
               <ScrollToTop />
             </Suspense>
-            <PageTransitionWrapper>
-              {children}
-            </PageTransitionWrapper>
+            {children}
           </NavigationPendingController>
         </AuthSessionProvider>
         <Analytics />

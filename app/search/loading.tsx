@@ -1,5 +1,3 @@
-import Navbar from "@/components/ui/Navbar";
-
 /**
  * Shown instantly when the search page is fetching (SSR in progress).
  * Matches the exact layout of the search page so there's no jarring layout shift.
@@ -7,8 +5,6 @@ import Navbar from "@/components/ui/Navbar";
 export default function Loading() {
   return (
     <main className="min-h-screen bg-[#0a0b0c] text-white">
-      <Navbar />
-
       <section className="pt-24 pb-16 px-4 lg:px-12 xl:px-16">
         {/* Header skeleton */}
         <div className="mb-10 animate-pulse">

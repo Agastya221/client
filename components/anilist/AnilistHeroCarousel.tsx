@@ -152,7 +152,13 @@ export default function AnilistHeroCarousel({
 
   useEffect(() => {
     if (deck.length === 0) return;
-    for (const item of deck) {
+    const nearbySlides = [
+      deck[activeIndex],
+      deck[(activeIndex + 1) % deck.length],
+      deck[(activeIndex - 1 + deck.length) % deck.length],
+    ].filter((item): item is AnilistMedia => Boolean(item));
+
+    for (const item of nearbySlides) {
       const id = item.id;
       if (!id || requestedAssetIdsRef.current.has(id)) continue;
       requestedAssetIdsRef.current.add(id);
@@ -168,21 +174,6 @@ export default function AnilistHeroCarousel({
             backdrop: payload?.backdrop || null,
           };
 
-          if (assets.backdrop) {
-            const preloadBackdrop = getImageProps({
-              src: assets.backdrop,
-              alt: "",
-              fill: true,
-              quality: 90,
-              sizes: "100vw",
-            }).props;
-            preload(preloadBackdrop.src, {
-              as: "image",
-              imageSrcSet: preloadBackdrop.srcSet,
-              imageSizes: preloadBackdrop.sizes,
-            });
-          }
-
           setHeroAssets((current) => ({ ...current, [id]: assets }));
         })
         .catch(() => {
@@ -192,7 +183,58 @@ export default function AnilistHeroCarousel({
           }));
         });
     }
-  }, [deck]);
+  }, [activeIndex, deck]);
+
+  useEffect(() => {
+    if (deck.length <= 1) return;
+    const nextSlide = deck[(activeIndex + 1) % deck.length];
+    if (!nextSlide) return;
+
+    const warmNextArtwork = () => {
+      const nextAssets = heroAssets[nextSlide.id];
+      const desktop = getImageProps({
+        src: nextAssets?.backdrop || nextSlide.bannerImage || nextSlide.coverImage.extraLarge,
+        alt: "",
+        fill: true,
+        quality: 90,
+        sizes: "100vw",
+      }).props;
+      const mobile = getImageProps({
+        src: nextSlide.coverImage.extraLarge || nextSlide.bannerImage || "",
+        alt: "",
+        fill: true,
+        quality: 85,
+        sizes: "100vw",
+      }).props;
+
+      preload(desktop.src, {
+        as: "image",
+        fetchPriority: "low",
+        imageSrcSet: desktop.srcSet,
+        imageSizes: desktop.sizes,
+        media: "(min-width: 768px)",
+      });
+      preload(mobile.src, {
+        as: "image",
+        fetchPriority: "low",
+        imageSrcSet: mobile.srcSet,
+        imageSizes: mobile.sizes,
+        media: "(max-width: 767px)",
+      });
+    };
+
+    const idleApi = window as unknown as {
+      requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    if (idleApi.requestIdleCallback) {
+      const idleId = idleApi.requestIdleCallback(warmNextArtwork, { timeout: 1200 });
+      return () => idleApi.cancelIdleCallback?.(idleId);
+    }
+
+    const timer = globalThis.setTimeout(warmNextArtwork, 250);
+    return () => globalThis.clearTimeout(timer);
+  }, [activeIndex, deck, heroAssets]);
 
   // Touch swipe support for mobile
   const touchStartPoint = useRef<{ x: number; y: number } | null>(null);

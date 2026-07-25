@@ -1,73 +1,109 @@
 /**
- * Server-side in-memory cache for expensive API responses.
+ * Two-level cache for expensive API responses.
  *
- * This acts as a fast layer in front of the Python scraper API.
- * - First request → calls the real API, caches the result
- * - Subsequent requests → served instantly from cache
- * - TTL-based expiration with stale-while-revalidate
- * - Manual invalidation when streams fail
- *
- * In production with Redis:
- *   Replace the Map with a Redis client for cross-process sharing.
- *   The interface stays the same.
+ * L1 is a fast process-local memory cache. L2 is Cloudflare KV, the only
+ * persistent/distributed cache service used by this layer.
  */
 
 import { recordCounter } from "@/lib/observability";
-import { kvGet, kvSet } from "@/lib/cache/kv";
+import {
+  isKvConfigured,
+  kvDelete,
+  kvDeletePrefix,
+  kvGet,
+  kvSet,
+} from "@/lib/cache/kv";
 
-type CacheEntry<T> = {
+type CacheEnvelope<T> = {
+  version: 1;
   data: T;
   createdAt: number;
   staleAt: number;
   expiresAt: number;
 };
 
-const store = new Map<string, CacheEntry<unknown>>();
 const inFlight = new Map<string, Promise<unknown>>();
 const refreshing = new Set<string>();
+const store = new Map<string, CacheEnvelope<unknown>>();
 
-/** Defaults: 5 min fresh, 30 min stale-while-revalidate, 1 hour hard expire */
 const DEFAULT_FRESH_MS = 5 * 60 * 1000;
 const DEFAULT_STALE_MS = 30 * 60 * 1000;
 const DEFAULT_EXPIRE_MS = 60 * 60 * 1000;
 
-function cacheNamespace(key: string): string {
-  return key.split(":")[0] || "unknown";
-}
-
-// Cleanup every 10 minutes
 if (typeof setInterval !== "undefined") {
   const cleanupTimer = setInterval(() => {
     const now = Date.now();
     for (const [key, entry] of store) {
-      if (entry.expiresAt < now) store.delete(key);
+      if (entry.expiresAt <= now) store.delete(key);
     }
   }, 10 * 60 * 1000);
   cleanupTimer.unref?.();
 }
 
+function cacheNamespace(key: string): string {
+  return key.split(":")[0] || "unknown";
+}
+
 export interface CacheOptions {
-  /** Time in ms before data is considered stale (default: 5 min) */
   freshMs?: number;
-  /** Time in ms to serve stale data while refreshing (default: 30 min) */
   staleMs?: number;
-  /** Hard expiration time in ms (default: 1 hour) */
   expireMs?: number;
-  /** Skip storing broken or partial payloads. */
   shouldCache?: (value: unknown) => boolean;
 }
 
-function createEntry<T>(data: T, createdAt: number, freshMs: number, expireMs: number): CacheEntry<T> {
+function createEnvelope<T>(
+  data: T,
+  createdAt: number,
+  freshMs: number,
+  staleMs: number,
+  expireMs: number,
+): CacheEnvelope<T> {
   return {
+    version: 1,
     data,
     createdAt,
     staleAt: createdAt + freshMs,
-    expiresAt: createdAt + expireMs,
+    expiresAt: createdAt + Math.max(expireMs, staleMs),
   };
 }
 
-function canStore(value: unknown, shouldCache?: ((value: unknown) => boolean) | undefined): boolean {
+function isCacheEnvelope<T>(value: unknown): value is CacheEnvelope<T> {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<CacheEnvelope<T>>;
+  return candidate.version === 1
+    && "data" in candidate
+    && typeof candidate.createdAt === "number"
+    && typeof candidate.staleAt === "number"
+    && typeof candidate.expiresAt === "number";
+}
+
+function canStore(value: unknown, shouldCache?: (value: unknown) => boolean): boolean {
   return shouldCache ? shouldCache(value) : true;
+}
+
+function storeValue<T>(
+  key: string,
+  data: T,
+  options: {
+    freshMs: number;
+    staleMs: number;
+    expireMs: number;
+  },
+): void {
+  const storedAt = Date.now();
+  const envelope = createEnvelope(
+    data,
+    storedAt,
+    options.freshMs,
+    options.staleMs,
+    options.expireMs,
+  );
+  store.set(key, envelope);
+  const ttlSeconds = Math.max(60, Math.ceil((envelope.expiresAt - storedAt) / 1000));
+
+  // The response is already safe in L1. Persist to KV without adding a
+  // Cloudflare REST round trip to the user's request latency.
+  void kvSet(key, envelope, ttlSeconds);
 }
 
 async function fetchAndMaybeStore<T>(
@@ -76,6 +112,7 @@ async function fetchAndMaybeStore<T>(
   fetcher: () => Promise<T>,
   options: {
     freshMs: number;
+    staleMs: number;
     expireMs: number;
     shouldCache?: (value: unknown) => boolean;
     source: "miss" | "refresh";
@@ -94,11 +131,20 @@ async function fetchAndMaybeStore<T>(
       return data;
     }
 
-    const storedAt = Date.now();
-    store.set(key, createEntry(data, storedAt, options.freshMs, options.expireMs));
-    // Also write to KV (fire-and-forget) with the full expire TTL in seconds
-    void kvSet(key, data, Math.floor(options.expireMs / 1000));
-    recordCounter("cache.store", 1, { namespace, source: options.source });
+    storeValue(
+      key,
+      data,
+      {
+        freshMs: options.freshMs,
+        staleMs: options.staleMs,
+        expireMs: options.expireMs,
+      },
+    );
+    recordCounter("cache.store", 1, {
+      namespace,
+      source: options.source,
+      target: isKvConfigured() ? "memory+cloudflare-kv" : "memory",
+    });
     return data;
   })().finally(() => {
     inFlight.delete(key);
@@ -108,121 +154,174 @@ async function fetchAndMaybeStore<T>(
   return promise;
 }
 
-/**
- * Get-or-fetch with stale-while-revalidate semantics.
- *
- * @param key   Cache key (e.g., "watch-session:animekai~naruto")
- * @param fetcher  Async function that produces the data
- * @param options  TTL configuration
- * @returns The cached or freshly fetched data
- */
+/** Get-or-fetch with memory-first, KV-backed stale-while-revalidate semantics. */
 export async function cacheFetch<T>(
   key: string,
   fetcher: () => Promise<T>,
-  options?: CacheOptions
+  options?: CacheOptions,
 ): Promise<T> {
   const freshMs = options?.freshMs ?? DEFAULT_FRESH_MS;
   const staleMs = options?.staleMs ?? DEFAULT_STALE_MS;
   const expireMs = options?.expireMs ?? DEFAULT_EXPIRE_MS;
   const shouldCache = options?.shouldCache;
+  const namespace = cacheNamespace(key);
   const now = Date.now();
 
-  const existing = store.get(key) as CacheEntry<T> | undefined;
-  const namespace = cacheNamespace(key);
-
-  if (existing) {
-    if (!canStore(existing.data, shouldCache)) {
+  const memoryValue = store.get(key) as CacheEnvelope<T> | undefined;
+  if (memoryValue) {
+    if (!canStore(memoryValue.data, shouldCache)) {
       store.delete(key);
+      void kvDelete(key);
       recordCounter("cache.invalidate", 1, { namespace, scope: "invalid" });
-    }
-    // Hard expired — delete it
-    else if (existing.expiresAt < now) {
+    } else if (memoryValue.expiresAt <= now) {
       store.delete(key);
+      void kvDelete(key);
       recordCounter("cache.expired", 1, { namespace });
-    }
-    // Still fresh — return immediately
-    else if (existing.staleAt > now) {
-      recordCounter("cache.hit", 1, { namespace, state: "fresh" });
-      return existing.data;
-    }
-    // Stale but not expired — return stale data, refresh in background
-    else {
-      recordCounter("cache.hit", 1, { namespace, state: "stale" });
+    } else if (memoryValue.staleAt > now) {
+      recordCounter("cache.hit", 1, { namespace, state: "memory-fresh" });
+      return memoryValue.data;
+    } else {
+      recordCounter("cache.hit", 1, { namespace, state: "memory-stale" });
       if (!refreshing.has(key) && !inFlight.has(key)) {
         refreshing.add(key);
-        fetchAndMaybeStore(key, namespace, fetcher, {
+        void fetchAndMaybeStore(key, namespace, fetcher, {
           freshMs,
+          staleMs,
           expireMs,
           shouldCache,
           source: "refresh",
         })
-        .then(() => {
-          recordCounter("cache.refresh", 1, { namespace, outcome: "success" });
-        })
-        .catch(() => {
-          // Keep stale data if refresh fails
-          recordCounter("cache.refresh", 1, { namespace, outcome: "error" });
-        })
-        .finally(() => {
-          refreshing.delete(key);
-        });
+          .then(() => {
+            recordCounter("cache.refresh", 1, { namespace, outcome: "success" });
+          })
+          .catch(() => {
+            recordCounter("cache.refresh", 1, { namespace, outcome: "error" });
+          })
+          .finally(() => {
+            refreshing.delete(key);
+          });
       } else {
         recordCounter("cache.refresh", 1, { namespace, outcome: "deduped" });
       }
-      return existing.data;
+      return memoryValue.data;
     }
   }
 
-  // No in-memory cache — try KV (distributed L2) before hitting origin
-  recordCounter("cache.miss", 1, { namespace });
-
-  const kvHit = await kvGet<T>(key);
-  if (kvHit !== null && canStore(kvHit, shouldCache)) {
-    // Warm memory cache from KV hit
-    const storedAt = Date.now();
-    store.set(key, createEntry(kvHit, storedAt, freshMs, expireMs));
-    recordCounter("cache.hit", 1, { namespace, state: "kv" });
-    return kvHit;
+  const kvValue = await kvGet<CacheEnvelope<T> | T>(key);
+  if (kvValue !== null) {
+    // Values from the previous cache implementation were stored without an
+    // envelope. Keep serving them until their existing KV TTL expires.
+    if (!isCacheEnvelope<T>(kvValue)) {
+      if (canStore(kvValue, shouldCache)) {
+        store.set(
+          key,
+          createEnvelope(kvValue, now, freshMs, staleMs, expireMs),
+        );
+        recordCounter("cache.hit", 1, { namespace, state: "kv-legacy" });
+        return kvValue;
+      }
+      void kvDelete(key);
+    } else if (!canStore(kvValue.data, shouldCache)) {
+      void kvDelete(key);
+      recordCounter("cache.invalidate", 1, { namespace, scope: "invalid" });
+    } else if (kvValue.expiresAt <= now) {
+      void kvDelete(key);
+      recordCounter("cache.expired", 1, { namespace });
+    } else if (kvValue.staleAt > now) {
+      store.set(key, kvValue);
+      recordCounter("cache.hit", 1, { namespace, state: "kv-fresh" });
+      return kvValue.data;
+    } else {
+      store.set(key, kvValue);
+      recordCounter("cache.hit", 1, { namespace, state: "kv-stale" });
+      if (!refreshing.has(key) && !inFlight.has(key)) {
+        refreshing.add(key);
+        void fetchAndMaybeStore(key, namespace, fetcher, {
+          freshMs,
+          staleMs,
+          expireMs,
+          shouldCache,
+          source: "refresh",
+        })
+          .then(() => {
+            recordCounter("cache.refresh", 1, { namespace, outcome: "success" });
+          })
+          .catch(() => {
+            recordCounter("cache.refresh", 1, { namespace, outcome: "error" });
+          })
+          .finally(() => {
+            refreshing.delete(key);
+          });
+      } else {
+        recordCounter("cache.refresh", 1, { namespace, outcome: "deduped" });
+      }
+      return kvValue.data;
+    }
   }
+
+  recordCounter("cache.miss", 1, {
+    namespace,
+    target: isKvConfigured() ? "cloudflare-kv" : "unconfigured",
+  });
 
   return fetchAndMaybeStore(key, namespace, fetcher, {
     freshMs,
+    staleMs,
     expireMs,
     shouldCache,
     source: "miss",
   });
 }
 
-/**
- * Invalidate a specific cache key.
- * Use when a stream source fails and we want to re-fetch next time.
- */
-export function cacheInvalidate(key: string): void {
-  store.delete(key);
-  recordCounter("cache.invalidate", 1, { namespace: cacheNamespace(key), scope: "single" });
-}
-
-/**
- * Invalidate all keys matching a prefix.
- * e.g., cacheInvalidatePrefix("watch-session:animekai~naruto")
- */
-export function cacheInvalidatePrefix(prefix: string): void {
-  let deleted = 0;
-  for (const key of store.keys()) {
-    if (key.startsWith(prefix)) {
-      store.delete(key);
-      deleted += 1;
-    }
+/** Write a known value to both memory and KV, without waiting on KV I/O. */
+export function cacheStore<T>(
+  key: string,
+  data: T,
+  options?: CacheOptions,
+): void {
+  if (!canStore(data, options?.shouldCache)) {
+    cacheInvalidate(key);
+    return;
   }
-  recordCounter("cache.invalidate", 1, {
-    namespace: cacheNamespace(prefix),
-    scope: "prefix",
-    deleted,
+
+  storeValue(key, data, {
+    freshMs: options?.freshMs ?? DEFAULT_FRESH_MS,
+    staleMs: options?.staleMs ?? DEFAULT_STALE_MS,
+    expireMs: options?.expireMs ?? DEFAULT_EXPIRE_MS,
+  });
+  recordCounter("cache.store", 1, {
+    namespace: cacheNamespace(key),
+    source: "manual",
+    target: isKvConfigured() ? "memory+cloudflare-kv" : "memory",
   });
 }
 
-/** Get cache stats for debugging */
+export function cacheInvalidate(key: string): void {
+  store.delete(key);
+  void kvDelete(key);
+  recordCounter("cache.invalidate", 1, {
+    namespace: cacheNamespace(key),
+    scope: "single",
+    target: "cloudflare-kv",
+  });
+}
+
+export function cacheInvalidatePrefix(prefix: string): void {
+  for (const key of store.keys()) {
+    if (key.startsWith(prefix)) store.delete(key);
+  }
+  void kvDeletePrefix(prefix);
+  recordCounter("cache.invalidate", 1, {
+    namespace: cacheNamespace(prefix),
+    scope: "prefix",
+    target: "cloudflare-kv",
+  });
+}
+
+/** Synchronous L1 statistics plus the configured persistent cache mode. */
 export function cacheStats(): {
+  mode: "memory+cloudflare-kv";
+  configured: boolean;
   size: number;
   inFlight: number;
   refreshing: number;
@@ -242,6 +341,8 @@ export function cacheStats(): {
   }
 
   return {
+    mode: "memory+cloudflare-kv",
+    configured: isKvConfigured(),
     size: store.size,
     inFlight: inFlight.size,
     refreshing: refreshing.size,

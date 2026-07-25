@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { kvDelete, kvSet } from "@/lib/cache/kv";
+import { cacheInvalidate, cacheStore } from "@/lib/cache";
 import { fromAnilistListStatus } from "@/lib/anilist/list-status";
 import {
   ANILIST_LIST_ENTRY_CACHE_TTL_SECONDS,
@@ -228,15 +228,16 @@ export async function POST(request: Request) {
     }
     const savedEntry = data?.data?.SaveMediaListEntry || null;
 
-    // Invalidate the KV user-list cache so next fetch gets fresh data
+    // Invalidate both cache layers so list views fetch the new AniList state.
     const sessionName = session.user?.name;
     if (sessionName) {
-      void kvDelete(`anilist:user-list:name:${sessionName}`);
+      cacheInvalidate(`anilist:user-list:name:${sessionName}`);
     }
     if (anilistUserId) {
-      void kvDelete(`anilist:user-list:id:${anilistUserId}`);
-      void kvDelete(`anilist:release-updates:user:${anilistUserId}`);
-      await kvSet(
+      cacheInvalidate(`anilist:user-list:id:${anilistUserId}`);
+      cacheInvalidate(`anilist:release-updates:user:${anilistUserId}`);
+      const listEntryCacheMs = ANILIST_LIST_ENTRY_CACHE_TTL_SECONDS * 1000;
+      cacheStore(
         anilistListEntryCacheKey(anilistUserId, mediaId),
         {
           entry: savedEntry
@@ -248,7 +249,11 @@ export async function POST(request: Request) {
               }
             : null,
         },
-        ANILIST_LIST_ENTRY_CACHE_TTL_SECONDS,
+        {
+          freshMs: listEntryCacheMs,
+          staleMs: listEntryCacheMs,
+          expireMs: listEntryCacheMs,
+        },
       );
     }
 
@@ -317,10 +322,15 @@ export async function DELETE(request: Request) {
 
     if (!entryId) {
       if (anilistUserId) {
-        await kvSet(
+        const listEntryCacheMs = ANILIST_LIST_ENTRY_CACHE_TTL_SECONDS * 1000;
+        cacheStore(
           anilistListEntryCacheKey(anilistUserId, mediaId),
           { entry: null },
-          ANILIST_LIST_ENTRY_CACHE_TTL_SECONDS,
+          {
+            freshMs: listEntryCacheMs,
+            staleMs: listEntryCacheMs,
+            expireMs: listEntryCacheMs,
+          },
         );
       }
       return NextResponse.json({ success: true, message: "Entry was not in AniList list" });
@@ -345,18 +355,23 @@ export async function DELETE(request: Request) {
 
     const deleteData = await deleteRes.json();
 
-    // Invalidate the KV user-list cache
+    // Invalidate both cache layers after deleting the AniList entry.
     const sessionName = session.user?.name;
     if (sessionName) {
-      void kvDelete(`anilist:user-list:name:${sessionName}`);
+      cacheInvalidate(`anilist:user-list:name:${sessionName}`);
     }
     if (anilistUserId) {
-      void kvDelete(`anilist:user-list:id:${anilistUserId}`);
-      void kvDelete(`anilist:release-updates:user:${anilistUserId}`);
-      await kvSet(
+      cacheInvalidate(`anilist:user-list:id:${anilistUserId}`);
+      cacheInvalidate(`anilist:release-updates:user:${anilistUserId}`);
+      const listEntryCacheMs = ANILIST_LIST_ENTRY_CACHE_TTL_SECONDS * 1000;
+      cacheStore(
         anilistListEntryCacheKey(anilistUserId, mediaId),
         { entry: null },
-        ANILIST_LIST_ENTRY_CACHE_TTL_SECONDS,
+        {
+          freshMs: listEntryCacheMs,
+          staleMs: listEntryCacheMs,
+          expireMs: listEntryCacheMs,
+        },
       );
     }
 

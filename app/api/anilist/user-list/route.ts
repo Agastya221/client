@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { kvCached } from "@/lib/cache/kv";
+import { cacheFetch } from "@/lib/cache";
 import { ANILIST_USER_LIST_CACHE_TTL_SECONDS } from "@/lib/anilist/list-entry-cache";
 
 export async function GET(request: Request) {
@@ -85,7 +85,8 @@ export async function GET(request: Request) {
       ? `anilist:user-list:name:${queryVariables.userName}`
       : `anilist:user-list:id:${queryVariables.userId}`;
 
-    const lists = await kvCached(
+    const listCacheMs = ANILIST_USER_LIST_CACHE_TTL_SECONDS * 1000;
+    const lists = await cacheFetch(
       cacheKey,
       async () => {
         let res = await fetch("https://graphql.anilist.co", {
@@ -110,7 +111,12 @@ export async function GET(request: Request) {
 
         return data?.data?.MediaListCollection?.lists ?? [];
       },
-      ANILIST_USER_LIST_CACHE_TTL_SECONDS,
+      {
+        freshMs: listCacheMs,
+        staleMs: listCacheMs,
+        expireMs: listCacheMs,
+        shouldCache: (value) => Array.isArray(value),
+      },
     );
 
     const entries: Array<{
