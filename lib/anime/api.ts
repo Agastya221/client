@@ -4078,7 +4078,7 @@ export async function getAnivexaEpisodeAvailabilityMetadata(
   if (!ANIVEXA_WORKER_URL || !Number.isInteger(anilistId) || anilistId <= 0) return [];
 
   return cacheFetch(
-    `anivexa-episode-availability:${anilistId}`,
+    `anivexa-episode-availability:confirmed-audio-v2:${anilistId}`,
     async () => {
       // Keep each Worker invocation below its subrequest budget. Both groups
       // run concurrently and their results are merged into one catalogue.
@@ -4091,7 +4091,10 @@ export async function getAnivexaEpisodeAvailabilityMetadata(
           `${ANIVEXA_WORKER_URL}/episodes/${providers.join("/")}/${anilistId}?map=false`,
           {
             headers: { Accept: "application/json", "User-Agent": "Tatakai-Frontend/1.0" },
-            next: { revalidate: 6 * 60 * 60 },
+            // cacheFetch already provides memory + Cloudflare KV caching. Do
+            // not let Next's separate fetch cache preserve an obsolete
+            // provider response after the availability rules change.
+            cache: "no-store",
             signal: AbortSignal.timeout(12_000),
           },
         ).catch(() => null);
@@ -4110,6 +4113,10 @@ export async function getAnivexaEpisodeAvailabilityMetadata(
               number,
               title: null,
               image: null,
+              isSubbed: false,
+              isDubbed: false,
+              subAvailabilityKnown: true,
+              dubAvailabilityKnown: true,
             };
             const candidateTitle = pickFirstNonEmpty(rawEpisode.title);
             if (!existing.title && candidateTitle && !/^episode\s+\d+(?:\.\d+)?$/i.test(candidateTitle)) {
@@ -4122,6 +4129,8 @@ export async function getAnivexaEpisodeAvailabilityMetadata(
             existing.airDate ||= pickFirstNonEmpty(rawEpisode.airDate, rawEpisode.airdate, rawEpisode.aired) || null;
             if (audio === "sub") existing.isSubbed = true;
             if (audio === "dub") existing.isDubbed = true;
+            existing.subAvailabilityKnown = true;
+            existing.dubAvailabilityKnown = true;
             entriesByNumber.set(number, existing);
           }
         }

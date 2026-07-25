@@ -13,7 +13,6 @@ export default function WatchPageLoading() {
                 <div className="h-4 w-48 rounded bg-white/10" />
                 <div className="h-3 w-28 rounded bg-white/[0.06]" />
               </div>
-              <div className="absolute left-1/2 top-1/2 h-12 w-12 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/10" />
             </div>
 
             <div className="flex min-h-12 items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-[#101216] px-4">

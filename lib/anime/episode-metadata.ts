@@ -9,6 +9,8 @@ export interface EpisodeDisplayMetadata {
   airDate?: string | null;
   isSubbed?: boolean;
   isDubbed?: boolean;
+  subAvailabilityKnown?: boolean;
+  dubAvailabilityKnown?: boolean;
   /** Prefer this catalog artwork over a provider screencap for the player. */
   preferArtwork?: boolean;
 }
@@ -31,6 +33,8 @@ export function mergeEpisodeDisplayMetadataSources(
       airDate: existing.airDate || incoming.airDate,
       isSubbed: incoming.isSubbed ?? existing.isSubbed,
       isDubbed: incoming.isDubbed ?? existing.isDubbed,
+      subAvailabilityKnown: incoming.subAvailabilityKnown ?? existing.subAvailabilityKnown,
+      dubAvailabilityKnown: incoming.dubAvailabilityKnown ?? existing.dubAvailabilityKnown,
     } : { ...incoming });
   }
 
@@ -53,7 +57,10 @@ export function normalizeEpisodeDescription(value: string | null | undefined): s
 }
 
 export function resolveEpisodeLanguageAvailability(
-  episode: Pick<EpisodeModel, "number" | "isSubbed" | "isDubbed">,
+  episode: Pick<
+    EpisodeModel,
+    "number" | "isSubbed" | "isDubbed" | "subAvailabilityKnown" | "dubAvailabilityKnown"
+  >,
   options: {
     subCount?: number | null;
     dubCount?: number | null;
@@ -67,6 +74,10 @@ export function resolveEpisodeLanguageAvailability(
   const dubCountConfirms = Boolean(options.dubCount && episode.number <= options.dubCount);
   const currentDubServerConfirms =
     options.hasDubServerForCurrentEpisode && episode.number === options.currentEpisodeNumber;
+  const isCurrentEpisode = episode.number === options.currentEpisodeNumber;
+  const catalogueDubbed = episode.dubAvailabilityKnown
+    ? episode.isDubbed === true
+    : episode.isDubbed === true || dubCountConfirms;
 
   return {
     subbed:
@@ -74,9 +85,9 @@ export function resolveEpisodeLanguageAvailability(
       subCountConfirms ||
       (episode.isSubbed !== false && !options.hasAnySubEpisode && options.hasSubFallback),
     dubbed:
-      episode.isDubbed === true ||
-      dubCountConfirms ||
-      currentDubServerConfirms,
+      isCurrentEpisode
+        ? currentDubServerConfirms
+        : catalogueDubbed,
   };
 }
 
@@ -103,6 +114,8 @@ function mergeEpisodeDisplayMetadata(
   const airDate = metadata.airDate || episode.airDate || null;
   const isSubbed = metadata.isSubbed ?? episode.isSubbed;
   const isDubbed = metadata.isDubbed ?? episode.isDubbed;
+  const subAvailabilityKnown = metadata.subAvailabilityKnown ?? episode.subAvailabilityKnown;
+  const dubAvailabilityKnown = metadata.dubAvailabilityKnown ?? episode.dubAvailabilityKnown;
 
   if (
     title === episode.title &&
@@ -111,7 +124,9 @@ function mergeEpisodeDisplayMetadata(
     description === (episode.description || null) &&
     airDate === (episode.airDate || null) &&
     isSubbed === episode.isSubbed &&
-    isDubbed === episode.isDubbed
+    isDubbed === episode.isDubbed &&
+    subAvailabilityKnown === episode.subAvailabilityKnown &&
+    dubAvailabilityKnown === episode.dubAvailabilityKnown
   ) {
     return episode;
   }
@@ -125,6 +140,8 @@ function mergeEpisodeDisplayMetadata(
     airDate,
     isSubbed,
     isDubbed,
+    subAvailabilityKnown,
+    dubAvailabilityKnown,
   };
 }
 

@@ -2450,7 +2450,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                 dubCount,
                 hasAnySubEpisode: hasSubEpisode,
                 hasSubFallback: hasSub,
-                hasDubServerForCurrentEpisode: hasDubServer,
+                hasDubServerForCurrentEpisode: hasDub,
                 currentEpisodeNumber: session.episode.number,
               });
               return (
@@ -2537,7 +2537,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                 dubCount,
                 hasAnySubEpisode: hasSubEpisode,
                 hasSubFallback: hasSub,
-                hasDubServerForCurrentEpisode: hasDubServer,
+                hasDubServerForCurrentEpisode: hasDub,
                 currentEpisodeNumber: session.episode.number,
               });
               return (

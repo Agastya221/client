@@ -94,6 +94,10 @@ export interface EpisodeModel {
   isFiller?: boolean;
   isSubbed?: boolean;
   isDubbed?: boolean;
+  /** True when an episode-level catalogue explicitly checked sub availability. */
+  subAvailabilityKnown?: boolean;
+  /** True when an episode-level catalogue explicitly checked dub availability. */
+  dubAvailabilityKnown?: boolean;
   idByProvider: Partial<Record<ProviderId, string>>;
   availableProviders: ProviderId[];
 }

@@ -51,6 +51,8 @@ function mergeEpisodeMetadataSources(
       airDate: existing.airDate || incoming.airDate,
       isSubbed: incoming.isSubbed ?? existing.isSubbed,
       isDubbed: incoming.isDubbed ?? existing.isDubbed,
+      subAvailabilityKnown: incoming.subAvailabilityKnown ?? existing.subAvailabilityKnown,
+      dubAvailabilityKnown: incoming.dubAvailabilityKnown ?? existing.dubAvailabilityKnown,
     } : incoming);
   }
   return Array.from(entries.values()).sort((left, right) => left.number - right.number);

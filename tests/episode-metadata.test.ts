@@ -111,6 +111,49 @@ test("episode language badges follow per-episode counts and confirmed current se
   );
 });
 
+test("current episode dub badge follows exact server discovery over broad catalogue counts", () => {
+  assert.deepEqual(
+    resolveEpisodeLanguageAvailability(
+      { number: 1, isDubbed: true },
+      {
+        subCount: 12,
+        dubCount: 12,
+        hasAnySubEpisode: true,
+        hasSubFallback: true,
+        hasDubServerForCurrentEpisode: false,
+        currentEpisodeNumber: 1,
+      },
+    ),
+    { subbed: true, dubbed: false },
+  );
+});
+
+test("confirmed per-episode catalogue availability overrides a broad dub count", () => {
+  const common = {
+    subCount: 12,
+    dubCount: 12,
+    hasAnySubEpisode: true,
+    hasSubFallback: true,
+    hasDubServerForCurrentEpisode: false,
+    currentEpisodeNumber: 1,
+  };
+
+  assert.equal(
+    resolveEpisodeLanguageAvailability(
+      { number: 2, isDubbed: false, dubAvailabilityKnown: true },
+      common,
+    ).dubbed,
+    false,
+  );
+  assert.equal(
+    resolveEpisodeLanguageAvailability(
+      { number: 3, isDubbed: true, dubAvailabilityKnown: true },
+      common,
+    ).dubbed,
+    true,
+  );
+});
+
 test("deferred availability metadata enables dub before an episode is selected", () => {
   const session = {
     anime: { id: "anilist~21" },
@@ -120,11 +163,43 @@ test("deferred availability metadata enables dub before an episode is selected",
   session.episodes[1].isDubbed = false;
 
   const merged = mergeEpisodeMetadataIntoWatchSession(session, [
-    { number: 2, title: null, image: null, isSubbed: true, isDubbed: true },
+    {
+      number: 2,
+      title: null,
+      image: null,
+      isSubbed: true,
+      isDubbed: true,
+      subAvailabilityKnown: true,
+      dubAvailabilityKnown: true,
+    },
   ]);
 
   assert.equal(merged.episodes[1]?.isSubbed, true);
   assert.equal(merged.episodes[1]?.isDubbed, true);
+  assert.equal(merged.episodes[1]?.dubAvailabilityKnown, true);
+});
+
+test("confirmed sub-only metadata clears a stale provider dub flag", () => {
+  const staleEpisode = episode(2, "Episode 2");
+  staleEpisode.isDubbed = true;
+  const session = {
+    anime: { id: "anilist~21" },
+    episode: episode(1, "Episode 1"),
+    episodes: [episode(1, "Episode 1"), staleEpisode],
+  } as unknown as WatchSessionModel;
+
+  const merged = mergeEpisodeMetadataIntoWatchSession(session, [{
+    number: 2,
+    title: null,
+    image: null,
+    isSubbed: true,
+    isDubbed: false,
+    subAvailabilityKnown: true,
+    dubAvailabilityKnown: true,
+  }]);
+
+  assert.equal(merged.episodes[1]?.isDubbed, false);
+  assert.equal(merged.episodes[1]?.dubAvailabilityKnown, true);
 });
 
 test("episode metadata replaces repeated provider artwork", () => {
