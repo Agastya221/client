@@ -76,6 +76,7 @@ export default function AiringSchedulePanel({ days }: { days: AiringScheduleDay[
               <Link
                 key={`${activeDay.key}-${item.id}`}
                 href={item.href}
+                prefetch={false}
                 className="group flex items-center justify-between gap-2.5 rounded-xl border border-white/[0.04] bg-white/[0.02] p-2.5 transition-all duration-200 hover:border-cyan-500/30 hover:bg-white/[0.06] hover:shadow-[0_4px_20px_rgba(0,0,0,0.3)]"
               >
                 {/* Time Badge */}

@@ -26,8 +26,61 @@ const NAMESPACE_BASE = () => {
 
 const TOKEN = () => process.env.CF_KV_API_TOKEN ?? null;
 
+function isEnabledFlag(value: string | undefined): boolean {
+  return /^(1|true|yes|on)$/i.test(value?.trim() || "");
+}
+
+function isDisabledFlag(value: string | undefined): boolean {
+  return /^(0|false|no|off)$/i.test(value?.trim() || "");
+}
+
+function isBuildProcess(): boolean {
+  return process.env.NEXT_PHASE === "phase-production-build"
+    || process.env.npm_lifecycle_event === "build";
+}
+
+function usesLocalSiteUrl(): boolean {
+  const rawUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  if (!rawUrl) return false;
+
+  try {
+    const hostname = new URL(rawUrl).hostname;
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Persistent KV is a production-runtime cache.
+ *
+ * Local development and `next build` still use the in-memory L1 cache, but
+ * they must not consume the production namespace's daily write allowance.
+ * Each escape hatch is explicit so an intentional local cache test remains
+ * possible without making it the default.
+ */
+export function isKvRuntimeEnabled(): boolean {
+  if (isDisabledFlag(process.env.CF_KV_ENABLED)) return false;
+
+  if (isBuildProcess() && !isEnabledFlag(process.env.CF_KV_ALLOW_BUILD)) {
+    return false;
+  }
+
+  const isLocalRuntime = process.env.NODE_ENV !== "production" || usesLocalSiteUrl();
+  if (isLocalRuntime && !isEnabledFlag(process.env.CF_KV_ALLOW_LOCAL)) {
+    return false;
+  }
+
+  return true;
+}
+
 export function isKvConfigured(): boolean {
-  return Boolean(process.env.CF_KV_ACCOUNT_ID && process.env.CF_KV_NAMESPACE_ID && process.env.CF_KV_API_TOKEN);
+  return isKvRuntimeEnabled()
+    && Boolean(
+      process.env.CF_KV_ACCOUNT_ID
+      && process.env.CF_KV_NAMESPACE_ID
+      && process.env.CF_KV_API_TOKEN,
+    );
 }
 
 /** Read a JSON value from KV. Returns null on miss or error. */

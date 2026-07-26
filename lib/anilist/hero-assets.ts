@@ -127,8 +127,8 @@ export async function getAnilistHeroAssets(anilistId: number): Promise<AnilistHe
     },
     {
       freshMs: 7 * 24 * 60 * 60 * 1000,
-      staleMs: 30 * 24 * 60 * 60 * 1000,
-      expireMs: 60 * 24 * 60 * 60 * 1000,
+      staleMs: 7 * 24 * 60 * 60 * 1000,
+      expireMs: 7 * 24 * 60 * 60 * 1000,
       shouldCache: isCacheable,
     },
   );

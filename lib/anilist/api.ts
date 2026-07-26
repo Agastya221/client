@@ -1215,6 +1215,7 @@ export async function searchAnilist(options: {
         freshMs: 5 * 60 * 1000,
         staleMs: 20 * 60 * 1000,
         expireMs: 45 * 60 * 1000,
+        persistent: false,
         shouldCache: (value) =>
           Boolean(
             value &&
@@ -1230,6 +1231,7 @@ export async function searchAnilist(options: {
         freshMs: 5 * 60 * 1000,
         staleMs: 20 * 60 * 1000,
         expireMs: 45 * 60 * 1000,
+        persistent: false,
         shouldCache: (value) =>
           Boolean(
             value &&

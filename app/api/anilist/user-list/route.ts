@@ -115,6 +115,7 @@ export async function GET(request: Request) {
         freshMs: listCacheMs,
         staleMs: listCacheMs,
         expireMs: listCacheMs,
+        persistent: false,
         shouldCache: (value) => Array.isArray(value),
       },
     );

@@ -1274,8 +1274,8 @@ function shouldCacheStreamResolution(result: { source: StreamSource | null }): b
 
 function invalidateAnimeRuntimeCaches(animeId: string): void {
   cacheInvalidatePrefix(`detail-model:${animeId}`);
-  cacheInvalidatePrefix(`watch-session:${animeId}`);
-  cacheInvalidatePrefix(`stream:${animeId}`);
+  cacheInvalidatePrefix(`watch-session:${animeId}`, { persistent: false });
+  cacheInvalidatePrefix(`stream:${animeId}`, { persistent: false });
 }
 
 type AnimeKaiResolvedMeta = {
@@ -1557,7 +1557,7 @@ async function getAniZipEpisodeBundle(anilistId: number): Promise<AniZipEpisodeB
     () => fetchAniZipEpisodeArtwork(anilistId),
     {
       freshMs: EPISODE_ARTWORK_REVALIDATE_SECONDS * 1000,
-      expireMs: 7 * EPISODE_ARTWORK_REVALIDATE_SECONDS * 1000,
+      expireMs: EPISODE_ARTWORK_REVALIDATE_SECONDS * 1000,
       shouldCache: (value) => Boolean(
         value &&
         typeof value === "object" &&
@@ -1664,7 +1664,7 @@ export async function getKitsuEpisodeMetadataRange(
     {
       freshMs: 24 * 60 * 60 * 1000,
       staleMs: 24 * 60 * 60 * 1000,
-      expireMs: 7 * 24 * 60 * 60 * 1000,
+      expireMs: 24 * 60 * 60 * 1000,
       shouldCache: (value) => Array.isArray(value) && value.some((episode) => Boolean(episode?.image)),
     },
   );
@@ -1792,7 +1792,7 @@ export async function getTvMazeEpisodeMetadataRange(
     {
       freshMs: 24 * 60 * 60 * 1000,
       staleMs: 24 * 60 * 60 * 1000,
-      expireMs: 7 * 24 * 60 * 60 * 1000,
+      expireMs: 24 * 60 * 60 * 1000,
       shouldCache: (value) => Array.isArray(value) && value.some((episode) => Boolean(episode?.image)),
     },
   );
@@ -3201,7 +3201,7 @@ export async function getAnimeDetailModel(
   return cacheFetch(
     cacheKey,
     () => _getAnimeDetailModelRaw(routeId, preferredProvider, options),
-    { freshMs: 10 * 60 * 1000, staleMs: 60 * 60 * 1000, expireMs: 2 * 60 * 60 * 1000 },
+    { freshMs: 60 * 60 * 1000, staleMs: 6 * 60 * 60 * 1000, expireMs: 6 * 60 * 60 * 1000 },
   );
 }
 
@@ -3396,6 +3396,7 @@ async function fetchAnimeKaiServerEntries(
       freshMs: WATCH_SESSION_FRESH_MS,
       staleMs: WATCH_SESSION_STALE_MS,
       expireMs: WATCH_SESSION_EXPIRE_MS,
+      persistent: false,
       shouldCache: (entries) => Array.isArray(entries) && entries.length > 0,
     },
   );
@@ -3409,6 +3410,7 @@ async function fetchAnimeKaiEmbedSource(linkId: string): Promise<JsonValue> {
       freshMs: WATCH_SESSION_FRESH_MS,
       staleMs: WATCH_SESSION_STALE_MS,
       expireMs: WATCH_SESSION_EXPIRE_MS,
+      persistent: false,
       shouldCache: (payload) => Boolean((payload as JsonValue)?.embed_url),
     },
   );
@@ -3954,6 +3956,7 @@ async function fetchAnivexaAggregateData(
     freshMs: 45 * 1000,
     staleMs: 45 * 1000,
     expireMs: 90 * 1000,
+    persistent: false,
     shouldCache: (value) => {
       const aggregate = value as AnivexaAggregateData;
       return Array.isArray(aggregate?.buckets) &&
@@ -4076,6 +4079,7 @@ async function fetchFirstAnivexaAggregateData(
     freshMs: 45 * 1000,
     staleMs: 45 * 1000,
     expireMs: 90 * 1000,
+    persistent: false,
     shouldCache: (value) => {
       const aggregate = value as AnivexaAggregateData;
       return aggregate.buckets.some((bucket) => bucket.internal.length > 0 || bucket.embed.length > 0);
@@ -4151,7 +4155,7 @@ export async function getAnivexaEpisodeAvailabilityMetadata(
     },
     {
       freshMs: 6 * 60 * 60 * 1000,
-      expireMs: 7 * 24 * 60 * 60 * 1000,
+      expireMs: 24 * 60 * 60 * 1000,
       shouldCache: (value) => Array.isArray(value) && value.length > 0,
     },
   );
@@ -4186,6 +4190,7 @@ async function discoverAnivexaDubServerOptions(
       freshMs: 5 * 60 * 1000,
       staleMs: 15 * 60 * 1000,
       expireMs: 30 * 60 * 1000,
+      persistent: false,
     },
   );
 }
@@ -5593,6 +5598,7 @@ export async function getFastWatchSession(input: {
       freshMs: WATCH_SESSION_FRESH_MS,
       staleMs: WATCH_SESSION_STALE_MS,
       expireMs: WATCH_SESSION_EXPIRE_MS,
+      persistent: false,
       shouldCache: (value) => shouldCacheWatchShell(value as WatchSessionModel),
     },
   );
@@ -6454,6 +6460,7 @@ export async function resolveStreamSource(input: {
     freshMs: isAnivexaSourceRequest ? 30 * 1000 : 5 * 60 * 1000,
     staleMs: isAnivexaSourceRequest ? 30 * 1000 : 15 * 60 * 1000,
     expireMs: isAnivexaSourceRequest ? 90 * 1000 : 30 * 60 * 1000,
+    persistent: false,
     shouldCache: (value) => shouldCacheStreamResolution(value as { source: StreamSource | null }),
   });
 }

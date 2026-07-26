@@ -227,7 +227,7 @@ export function WatchAnimeDetailsPanel({
           <div className="min-w-0">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
-                <Link href={session.anime.href} className="group">
+                <Link href={session.anime.href} prefetch={false} className="group">
                   <h2 className="text-xl font-black leading-tight text-white transition-opacity group-hover:opacity-80 sm:text-[1.7rem]">
                     {session.anime.title}
                   </h2>
@@ -287,6 +287,7 @@ export function WatchAnimeDetailsPanel({
             <div className="mt-4 hidden flex-wrap items-center gap-2 sm:flex">
               <Link
                 href={session.anime.href}
+                prefetch={false}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-[11px] font-bold text-white/75 transition-colors hover:bg-white/[0.08] hover:text-white"
               >
                 <Info className="h-3.5 w-3.5" aria-hidden="true" />
@@ -387,6 +388,7 @@ export function WatchSeasonsPanel({
             <Link
               key={entry.media.id}
               href={"/anime/" + encodeAnilistRouteId(entry.media.id) + "/watch"}
+              prefetch={false}
               aria-current={entry.isCurrent ? "page" : undefined}
               aria-label={`${title}, ${seasonRelationLabel(entry)}`}
               className={compact
@@ -438,6 +440,7 @@ function DiscoveryCard({
   return (
     <Link
       href={href}
+      prefetch={false}
       aria-label={title}
       className="group relative flex h-24 overflow-hidden rounded-lg bg-[#151618] transition-colors duration-300 hover:bg-[#191a1d] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--card-accent)]"
       style={{ "--card-accent": accent } as CSSProperties}

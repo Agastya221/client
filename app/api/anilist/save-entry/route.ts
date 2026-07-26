@@ -231,11 +231,11 @@ export async function POST(request: Request) {
     // Invalidate both cache layers so list views fetch the new AniList state.
     const sessionName = session.user?.name;
     if (sessionName) {
-      cacheInvalidate(`anilist:user-list:name:${sessionName}`);
+      cacheInvalidate(`anilist:user-list:name:${sessionName}`, { persistent: false });
     }
     if (anilistUserId) {
-      cacheInvalidate(`anilist:user-list:id:${anilistUserId}`);
-      cacheInvalidate(`anilist:release-updates:user:${anilistUserId}`);
+      cacheInvalidate(`anilist:user-list:id:${anilistUserId}`, { persistent: false });
+      cacheInvalidate(`anilist:release-updates:user:${anilistUserId}`, { persistent: false });
       const listEntryCacheMs = ANILIST_LIST_ENTRY_CACHE_TTL_SECONDS * 1000;
       cacheStore(
         anilistListEntryCacheKey(anilistUserId, mediaId),
@@ -358,11 +358,11 @@ export async function DELETE(request: Request) {
     // Invalidate both cache layers after deleting the AniList entry.
     const sessionName = session.user?.name;
     if (sessionName) {
-      cacheInvalidate(`anilist:user-list:name:${sessionName}`);
+      cacheInvalidate(`anilist:user-list:name:${sessionName}`, { persistent: false });
     }
     if (anilistUserId) {
-      cacheInvalidate(`anilist:user-list:id:${anilistUserId}`);
-      cacheInvalidate(`anilist:release-updates:user:${anilistUserId}`);
+      cacheInvalidate(`anilist:user-list:id:${anilistUserId}`, { persistent: false });
+      cacheInvalidate(`anilist:release-updates:user:${anilistUserId}`, { persistent: false });
       const listEntryCacheMs = ANILIST_LIST_ENTRY_CACHE_TTL_SECONDS * 1000;
       cacheStore(
         anilistListEntryCacheKey(anilistUserId, mediaId),

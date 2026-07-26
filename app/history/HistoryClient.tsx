@@ -108,7 +108,7 @@ export default function HistoryPage() {
                   className="flex items-center gap-4 rounded-xl bg-white/[0.03] border border-white/5 p-3 hover:bg-white/[0.06] transition-all group"
                 >
                   {/* Poster */}
-                  <Link href={entry.href} className="shrink-0">
+                  <Link href={entry.href} prefetch={false} className="shrink-0">
                     {entry.poster ? (
                       <img src={entry.poster} alt={entry.title} className="w-16 h-22 rounded-lg object-cover" />
                     ) : (
@@ -118,7 +118,7 @@ export default function HistoryPage() {
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
-                    <Link href={entry.href} className="text-sm font-bold text-white group-hover:text-[#ff5500] transition-colors truncate block">
+                    <Link href={entry.href} prefetch={false} className="text-sm font-bold text-white group-hover:text-[#ff5500] transition-colors truncate block">
                       {entry.title}
                     </Link>
                     <div className="flex items-center gap-3 mt-1 text-[11px] text-white/40">

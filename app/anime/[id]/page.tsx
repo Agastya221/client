@@ -19,7 +19,6 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import AddToListButton from "@/components/anime/AddToListButton";
 import AniListStatusModal from "@/components/anime/AniListStatusModal";
-import StreamPrefetch from "@/components/anime/StreamPrefetch";
 import WatchIntentLink from "@/components/anime/WatchIntentLink";
 import ExpandableSynopsis from "@/components/anime/ExpandableSynopsis";
 
@@ -120,12 +119,6 @@ async function AnilistDetailContent({
 
   return (
     <>
-      <StreamPrefetch
-        animeId={routeId}
-        episodeNumber={fromAiring ? latestEpisode : 1}
-        href={watchHref}
-      />
-
       {/* Hero Section */}
       <section className="relative overflow-hidden">
         {/* Banner bg */}
@@ -151,8 +144,8 @@ async function AnilistDetailContent({
           style={{ background: `radial-gradient(ellipse at 20% 50%, ${accentColor} 0%, transparent 60%)` }}
         />
 
-        <div className="relative z-10 mx-auto max-w-7xl px-6 pt-28 pb-16">
-          <div className="grid gap-10 lg:grid-cols-[280px_1fr] items-start">
+        <div className="relative z-10 mx-auto max-w-7xl px-4 pb-8 pt-24 sm:px-6 sm:pb-12 sm:pt-28 lg:pb-16">
+          <div className="grid items-start gap-6 sm:gap-8 lg:grid-cols-[280px_1fr] lg:gap-10">
             {/* Poster */}
             <div className="flex justify-center lg:block">
               <div className="relative">
@@ -167,18 +160,18 @@ async function AnilistDetailContent({
                   height={420}
                   priority
                   quality={80}
-                  className="relative w-48 sm:w-60 lg:w-full rounded-2xl shadow-2xl border border-white/10 object-cover"
+                  className="relative w-36 rounded-2xl border border-white/10 object-cover shadow-2xl sm:w-52 lg:w-full"
                 />
               </div>
             </div>
 
             {/* Info */}
-            <div className="space-y-6">
+            <div className="flex flex-col">
               {/* Badges */}
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="order-1 mb-4 flex flex-wrap items-center gap-2 lg:mb-6">
                 {media.status === "RELEASING" && (
                   <span
-                    className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] backdrop-blur-md"
+                    className="flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] backdrop-blur-md sm:px-3"
                     style={{
                       backgroundColor: `${accentColor}20`,
                       borderColor: `${accentColor}70`,
@@ -206,17 +199,17 @@ async function AnilistDetailContent({
               </div>
 
               {/* Title */}
-              <div>
-                <h1 className="text-4xl lg:text-5xl font-black text-white leading-tight tracking-tight max-w-2xl">
+              <div className="order-2 mb-5 lg:mb-6">
+                <h1 className="max-w-2xl text-balance text-3xl font-black leading-[1.08] tracking-tight text-white sm:text-4xl lg:text-5xl">
                   {title}
                 </h1>
                 {media.title.native && media.title.native !== title && (
-                  <p className="text-white/30 text-lg font-semibold mt-2">{media.title.native}</p>
+                  <p className="mt-2 text-sm font-semibold text-white/30 sm:text-lg">{media.title.native}</p>
                 )}
               </div>
 
               {/* Studios + genres */}
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="order-4 mb-4 flex flex-wrap items-center gap-2 lg:order-3 lg:mb-6">
                 {studios && <span className="text-white/50 text-sm font-semibold">{studios}</span>}
                 {studios && media.genres.length > 0 && <span className="w-1 h-1 rounded-full bg-white/20" />}
                 {media.genres.slice(0, 4).map((g) => (
@@ -232,13 +225,13 @@ async function AnilistDetailContent({
 
               {/* Description */}
               {description && (
-                <p className="text-white/60 text-sm leading-relaxed max-w-2xl line-clamp-4">
+                <p className="order-5 mb-0 max-w-2xl text-sm leading-relaxed text-white/60 line-clamp-3 lg:order-4 lg:mb-6 lg:line-clamp-4">
                   {description}
                 </p>
               )}
 
               {/* CTAs */}
-              <div className="grid grid-cols-2 gap-3 pt-2 w-full max-w-md sm:flex sm:w-auto">
+              <div className="order-3 mb-5 grid w-full grid-cols-2 gap-3 sm:flex sm:w-auto lg:order-5 lg:mb-0 lg:pt-2">
                 <WatchIntentLink
                   href={watchHref}
                   animeId={routeId}
@@ -328,6 +321,7 @@ async function AnilistDetailContent({
                     <Link
                       key={edge.node.id}
                       href={`/anime/${encodeAnilistRouteId(edge.node.id)}`}
+                      prefetch={false}
                       className="flex items-center gap-3 bg-white/5 hover:bg-white/10 border border-white/5 rounded-xl p-3 transition-all"
                     >
                       <img

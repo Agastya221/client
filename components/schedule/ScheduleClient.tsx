@@ -133,6 +133,7 @@ export default function ScheduleClient({ weekDays, schedulesByDay, todayKey }: S
               <Link
                 key={`${item.id}-${item.episode}`}
                 href={item.watchHref}
+                prefetch={false}
                 className="group flex items-center gap-3.5 rounded-2xl bg-white/[0.03] hover:bg-white/[0.07] border border-white/[0.06] hover:border-white/15 p-3 transition-all duration-200 hover:-translate-y-0.5 shadow-md hover:shadow-xl"
               >
                 {/* Poster image */}

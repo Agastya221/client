@@ -80,6 +80,7 @@ export async function GET() {
         freshMs: 5 * 60 * 1000,
         staleMs: 5 * 60 * 1000,
         expireMs: 5 * 60 * 1000,
+        persistent: false,
         shouldCache: (value) => Array.isArray(value),
       },
     );

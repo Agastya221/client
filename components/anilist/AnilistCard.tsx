@@ -30,6 +30,7 @@ export default function AnilistCard({
   return (
     <Link
       href={href}
+      prefetch={false}
       className="anime-card group relative flex w-full flex-col gap-2 transition-all duration-300"
     >
       {/* Poster */}

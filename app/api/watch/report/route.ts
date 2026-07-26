@@ -90,8 +90,8 @@ export async function POST(request: Request) {
 
     const playbackCacheInvalidated = affectsPlaybackCache(normalizedIssues as WatchReportIssue[]);
     if (playbackCacheInvalidated) {
-      cacheInvalidatePrefix(`watch-session:${normalizedAnimeId}`);
-      cacheInvalidatePrefix(`stream:${normalizedAnimeId}`);
+      cacheInvalidatePrefix(`watch-session:${normalizedAnimeId}`, { persistent: false });
+      cacheInvalidatePrefix(`stream:${normalizedAnimeId}`, { persistent: false });
     }
 
     recordLog("info", "watch.report.success", {

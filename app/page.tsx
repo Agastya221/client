@@ -160,6 +160,7 @@ function SidebarMediaPanel({
             <Link
               key={item.id}
               href={`/anime/${encodeAnilistRouteId(item.id)}${fromAiring ? "?from=airing" : ""}`}
+              prefetch={false}
               className="group flex min-h-[4.5rem] items-center gap-3 rounded-xl border border-white/[0.04] bg-white/[0.02] p-2 transition-all duration-200 hover:border-white/15 hover:bg-white/[0.06] hover:shadow-[0_4px_20px_rgba(0,0,0,0.3)]"
             >
               {/* Cover image with optional rank or soon badge */}

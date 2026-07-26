@@ -47,7 +47,7 @@ export default function WatchIntentLink({
   return (
     <Link
       href={href}
-      prefetch
+      prefetch={false}
       className={className}
       style={style}
       onPointerEnter={warm}

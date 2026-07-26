@@ -326,7 +326,7 @@ export default function MyListClient({ user }: MyListClientProps) {
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-4 gap-y-8">
           {filtered.map((item) => (
             <div key={item.animeId} className="group relative">
-              <Link href={item.href}>
+              <Link href={item.href} prefetch={false}>
                 <div className="relative aspect-[2/3] rounded-xl overflow-hidden bg-white/5 border border-white/5 group-hover:border-white/15 transition-all">
                   {item.poster ? (
                     <img src={item.poster} alt={item.title} className="w-full h-full object-cover" />

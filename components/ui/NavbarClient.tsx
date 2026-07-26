@@ -352,6 +352,7 @@ export default function NavbarClient({ user }: NavbarClientProps) {
                           <Link
                             key={media.id}
                             href={href}
+                            prefetch={false}
                             onClick={() => {
                               setSearchValue("");
                               setMobileSearchActive(false);
@@ -508,6 +509,7 @@ export default function NavbarClient({ user }: NavbarClientProps) {
                             <Link
                               key={media.id}
                               href={href}
+                              prefetch={false}
                               onClick={() => { setSearchValue(""); setDesktopFocused(false); }}
                               className="flex items-center gap-3.5 rounded-xl p-2.5 hover:bg-white/5 border border-transparent hover:border-white/5 transition-all group duration-200"
                             >

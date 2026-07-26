@@ -23,7 +23,6 @@ type CacheEnvelope<T> = {
 };
 
 const inFlight = new Map<string, Promise<unknown>>();
-const refreshing = new Set<string>();
 const store = new Map<string, CacheEnvelope<unknown>>();
 
 const DEFAULT_FRESH_MS = 5 * 60 * 1000;
@@ -48,6 +47,12 @@ export interface CacheOptions {
   freshMs?: number;
   staleMs?: number;
   expireMs?: number;
+  /**
+   * Persist this entry to Cloudflare KV. Set false for volatile or
+   * high-cardinality data such as searches and resolved stream URLs.
+   * The process-local L1 cache remains active either way.
+   */
+  persistent?: boolean;
   shouldCache?: (value: unknown) => boolean;
 }
 
@@ -88,6 +93,7 @@ function storeValue<T>(
     freshMs: number;
     staleMs: number;
     expireMs: number;
+    persistent: boolean;
   },
 ): Promise<void> {
   const storedAt = Date.now();
@@ -99,6 +105,8 @@ function storeValue<T>(
     options.expireMs,
   );
   store.set(key, envelope);
+  if (!options.persistent) return Promise.resolve();
+
   const ttlSeconds = Math.max(60, Math.ceil((envelope.expiresAt - storedAt) / 1000));
 
   // The response is already safe in L1. Persist to KV without adding a
@@ -114,8 +122,9 @@ async function fetchAndMaybeStore<T>(
     freshMs: number;
     staleMs: number;
     expireMs: number;
+    persistent: boolean;
     shouldCache?: (value: unknown) => boolean;
-    source: "miss" | "refresh";
+    source: "miss";
   },
 ): Promise<T> {
   const existingPromise = inFlight.get(key) as Promise<T> | undefined;
@@ -138,12 +147,13 @@ async function fetchAndMaybeStore<T>(
         freshMs: options.freshMs,
         staleMs: options.staleMs,
         expireMs: options.expireMs,
+        persistent: options.persistent,
       },
     );
     recordCounter("cache.store", 1, {
       namespace,
       source: options.source,
-      target: isKvConfigured() ? "memory+cloudflare-kv" : "memory",
+      target: options.persistent && isKvConfigured() ? "memory+cloudflare-kv" : "memory",
     });
     return data;
   })().finally(() => {
@@ -154,7 +164,7 @@ async function fetchAndMaybeStore<T>(
   return promise;
 }
 
-/** Get-or-fetch with memory-first, KV-backed stale-while-revalidate semantics. */
+/** Get-or-fetch with memory-first, KV-backed stale-until-expiry semantics. */
 export async function cacheFetch<T>(
   key: string,
   fetcher: () => Promise<T>,
@@ -163,6 +173,7 @@ export async function cacheFetch<T>(
   const freshMs = options?.freshMs ?? DEFAULT_FRESH_MS;
   const staleMs = options?.staleMs ?? DEFAULT_STALE_MS;
   const expireMs = options?.expireMs ?? DEFAULT_EXPIRE_MS;
+  const persistent = options?.persistent ?? true;
   const shouldCache = options?.shouldCache;
   const namespace = cacheNamespace(key);
   const now = Date.now();
@@ -171,43 +182,25 @@ export async function cacheFetch<T>(
   if (memoryValue) {
     if (!canStore(memoryValue.data, shouldCache)) {
       store.delete(key);
-      void kvDelete(key);
+      if (persistent) void kvDelete(key);
       recordCounter("cache.invalidate", 1, { namespace, scope: "invalid" });
     } else if (memoryValue.expiresAt <= now) {
       store.delete(key);
-      void kvDelete(key);
       recordCounter("cache.expired", 1, { namespace });
     } else if (memoryValue.staleAt > now) {
       recordCounter("cache.hit", 1, { namespace, state: "memory-fresh" });
       return memoryValue.data;
     } else {
       recordCounter("cache.hit", 1, { namespace, state: "memory-stale" });
-      if (!refreshing.has(key) && !inFlight.has(key)) {
-        refreshing.add(key);
-        void fetchAndMaybeStore(key, namespace, fetcher, {
-          freshMs,
-          staleMs,
-          expireMs,
-          shouldCache,
-          source: "refresh",
-        })
-          .then(() => {
-            recordCounter("cache.refresh", 1, { namespace, outcome: "success" });
-          })
-          .catch(() => {
-            recordCounter("cache.refresh", 1, { namespace, outcome: "error" });
-          })
-          .finally(() => {
-            refreshing.delete(key);
-          });
-      } else {
-        recordCounter("cache.refresh", 1, { namespace, outcome: "deduped" });
-      }
+      // Serve the valid stale value until hard expiry. Refreshing on every
+      // serverless stale hit caused many instances to rewrite the same KV key.
       return memoryValue.data;
     }
   }
 
-  const kvValue = await kvGet<CacheEnvelope<T> | T>(key);
+  const kvValue = persistent
+    ? await kvGet<CacheEnvelope<T> | T>(key)
+    : null;
   if (kvValue !== null) {
     // Values from the previous cache implementation were stored without an
     // envelope. Keep serving them until their existing KV TTL expires.
@@ -220,12 +213,11 @@ export async function cacheFetch<T>(
         recordCounter("cache.hit", 1, { namespace, state: "kv-legacy" });
         return kvValue;
       }
-      void kvDelete(key);
+      if (persistent) void kvDelete(key);
     } else if (!canStore(kvValue.data, shouldCache)) {
-      void kvDelete(key);
+      if (persistent) void kvDelete(key);
       recordCounter("cache.invalidate", 1, { namespace, scope: "invalid" });
     } else if (kvValue.expiresAt <= now) {
-      void kvDelete(key);
       recordCounter("cache.expired", 1, { namespace });
     } else if (kvValue.staleAt > now) {
       store.set(key, kvValue);
@@ -234,40 +226,20 @@ export async function cacheFetch<T>(
     } else {
       store.set(key, kvValue);
       recordCounter("cache.hit", 1, { namespace, state: "kv-stale" });
-      if (!refreshing.has(key) && !inFlight.has(key)) {
-        refreshing.add(key);
-        void fetchAndMaybeStore(key, namespace, fetcher, {
-          freshMs,
-          staleMs,
-          expireMs,
-          shouldCache,
-          source: "refresh",
-        })
-          .then(() => {
-            recordCounter("cache.refresh", 1, { namespace, outcome: "success" });
-          })
-          .catch(() => {
-            recordCounter("cache.refresh", 1, { namespace, outcome: "error" });
-          })
-          .finally(() => {
-            refreshing.delete(key);
-          });
-      } else {
-        recordCounter("cache.refresh", 1, { namespace, outcome: "deduped" });
-      }
       return kvValue.data;
     }
   }
 
   recordCounter("cache.miss", 1, {
     namespace,
-    target: isKvConfigured() ? "cloudflare-kv" : "unconfigured",
+    target: persistent && isKvConfigured() ? "cloudflare-kv" : "memory",
   });
 
   return fetchAndMaybeStore(key, namespace, fetcher, {
     freshMs,
     staleMs,
     expireMs,
+    persistent,
     shouldCache,
     source: "miss",
   });
@@ -280,7 +252,7 @@ export function cacheStore<T>(
   options?: CacheOptions,
 ): void {
   if (!canStore(data, options?.shouldCache)) {
-    cacheInvalidate(key);
+    cacheInvalidate(key, { persistent: options?.persistent });
     return;
   }
 
@@ -288,11 +260,12 @@ export function cacheStore<T>(
     freshMs: options?.freshMs ?? DEFAULT_FRESH_MS,
     staleMs: options?.staleMs ?? DEFAULT_STALE_MS,
     expireMs: options?.expireMs ?? DEFAULT_EXPIRE_MS,
+    persistent: options?.persistent ?? true,
   });
   recordCounter("cache.store", 1, {
     namespace: cacheNamespace(key),
     source: "manual",
-    target: isKvConfigured() ? "memory+cloudflare-kv" : "memory",
+    target: (options?.persistent ?? true) && isKvConfigured() ? "memory+cloudflare-kv" : "memory",
   });
 }
 
@@ -307,7 +280,7 @@ export async function cacheStorePersistent<T>(
   options?: CacheOptions,
 ): Promise<void> {
   if (!canStore(data, options?.shouldCache)) {
-    cacheInvalidate(key);
+    cacheInvalidate(key, { persistent: options?.persistent });
     return;
   }
 
@@ -315,33 +288,40 @@ export async function cacheStorePersistent<T>(
     freshMs: options?.freshMs ?? DEFAULT_FRESH_MS,
     staleMs: options?.staleMs ?? DEFAULT_STALE_MS,
     expireMs: options?.expireMs ?? DEFAULT_EXPIRE_MS,
+    persistent: options?.persistent ?? true,
   });
   recordCounter("cache.store", 1, {
     namespace: cacheNamespace(key),
     source: "manual-persistent",
-    target: isKvConfigured() ? "memory+cloudflare-kv" : "memory",
+    target: (options?.persistent ?? true) && isKvConfigured() ? "memory+cloudflare-kv" : "memory",
   });
 }
 
-export function cacheInvalidate(key: string): void {
+export function cacheInvalidate(
+  key: string,
+  options?: { persistent?: boolean },
+): void {
   store.delete(key);
-  void kvDelete(key);
+  if (options?.persistent ?? true) void kvDelete(key);
   recordCounter("cache.invalidate", 1, {
     namespace: cacheNamespace(key),
     scope: "single",
-    target: "cloudflare-kv",
+    target: (options?.persistent ?? true) ? "cloudflare-kv" : "memory",
   });
 }
 
-export function cacheInvalidatePrefix(prefix: string): void {
+export function cacheInvalidatePrefix(
+  prefix: string,
+  options?: { persistent?: boolean },
+): void {
   for (const key of store.keys()) {
     if (key.startsWith(prefix)) store.delete(key);
   }
-  void kvDeletePrefix(prefix);
+  if (options?.persistent ?? true) void kvDeletePrefix(prefix);
   recordCounter("cache.invalidate", 1, {
     namespace: cacheNamespace(prefix),
     scope: "prefix",
-    target: "cloudflare-kv",
+    target: (options?.persistent ?? true) ? "cloudflare-kv" : "memory",
   });
 }
 
@@ -372,7 +352,7 @@ export function cacheStats(): {
     configured: isKvConfigured(),
     size: store.size,
     inFlight: inFlight.size,
-    refreshing: refreshing.size,
+    refreshing: 0,
     keys: Array.from(store.keys()),
     namespaces: Array.from(namespaces.entries())
       .map(([namespace, stats]) => ({ namespace, ...stats }))
