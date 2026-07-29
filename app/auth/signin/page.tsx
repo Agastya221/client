@@ -1,6 +1,5 @@
 import { auth, signIn } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import Navbar from "@/components/ui/Navbar";
 
 export default async function SignInPage() {
   const session = await auth();
@@ -8,8 +7,7 @@ export default async function SignInPage() {
 
   return (
     <main className="min-h-screen bg-[#0a0b0c] text-[#eaeaea]">
-      <Navbar />
-      <div className="flex items-center justify-center min-h-[calc(100vh-64px)] px-4">
+      <div className="flex items-center justify-center min-h-[calc(100vh-64px)] pt-16 px-4">
         <div className="w-full max-w-md">
           {/* Card */}
           <div className="relative rounded-3xl border border-white/8 bg-[#111215] overflow-hidden">

@@ -123,6 +123,7 @@ export default function NavbarClient({ user }: NavbarClientProps) {
   const desktopSearchRef = useRef<HTMLDivElement>(null);
   const mobileHeaderSearchRef = useRef<HTMLDivElement>(null);
   const mobileHeaderInputRef = useRef<HTMLInputElement>(null);
+  const desktopInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (user) {
@@ -145,6 +146,13 @@ export default function NavbarClient({ user }: NavbarClientProps) {
       mobileHeaderInputRef.current?.focus();
     }
   }, [mobileSearchActive]);
+
+  // Focus desktop search input when activated
+  useEffect(() => {
+    if (isDesktopFocused) {
+      requestAnimationFrame(() => desktopInputRef.current?.focus());
+    }
+  }, [isDesktopFocused]);
 
 
 
@@ -276,7 +284,7 @@ export default function NavbarClient({ user }: NavbarClientProps) {
           font-size: 0.75rem;
           font-weight: 700;
           letter-spacing: 0.025em;
-          transition: all 0.15s ease;
+          transition: color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
           color: rgba(255,255,255,0.6);
         }
         .nav-pill:hover {
@@ -451,42 +459,39 @@ export default function NavbarClient({ user }: NavbarClientProps) {
 
           {/* Right: search + shuffle + user */}
           <div className="hidden lg:flex items-center gap-2">
-            {/* Search bar (desktop) */}
-            <div ref={desktopSearchRef} className={`relative transition-all duration-300 ease-out ${isDesktopFocused ? "w-[260px]" : "w-9"}`}>
-              {isDesktopFocused ? (
-                <form
-                  onSubmit={handleSearch}
-                  className="flex items-center gap-2 rounded-full bg-white/8 px-3 py-1.5 border border-white/10 w-full transition-all animate-slide-down"
-                >
-                  <Search className="w-4 h-4 text-white/50 shrink-0" aria-hidden="true" />
-                  <input
-                    id="navbar-search"
-                    name="q"
-                    type="text"
-                    value={searchValue}
-                    autoFocus
-                    onFocus={() => setDesktopFocused(true)}
-                    onBlur={() => { if (!searchValue) setDesktopFocused(false); }}
-                    onChange={(e) => setSearchValue(e.target.value)}
-                    placeholder="Search anime…"
-                    className="bg-transparent text-sm text-white focus:outline-none w-full placeholder:text-white/30"
-                  />
-                  {searchValue && (
-                    <button type="button" onClick={() => setSearchValue("")} className="shrink-0" aria-label="Clear search">
-                      <X className="w-3.5 h-3.5 text-white/40 hover:text-white transition-colors" aria-hidden="true" />
-                    </button>
-                  )}
-                </form>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setDesktopFocused(true)}
-                  className="w-9 h-9 rounded-full bg-white/[0.07] hover:bg-white/[0.12] flex items-center justify-center border border-white/[0.08] transition-all"
-                  aria-label="Search"
-                >
-                  <Search className="w-4 h-4 text-white/70" aria-hidden="true" />
-                </button>
-              )}
+            {/* Search bar (desktop) — single persistent element to prevent ghosting */}
+            <div ref={desktopSearchRef} className={`relative h-9 transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${isDesktopFocused ? "w-[260px]" : "w-9"}`}>
+              <form
+                onSubmit={handleSearch}
+                onClick={() => { if (!isDesktopFocused) setDesktopFocused(true); }}
+                className={`flex items-center h-full rounded-full overflow-hidden transition-[background-color,border-color,padding,gap] duration-200 ${
+                  isDesktopFocused
+                    ? "bg-white/8 border border-white/10 px-3 gap-2"
+                    : "bg-white/[0.07] hover:bg-white/[0.12] border border-white/[0.08] justify-center px-0 gap-0 cursor-pointer"
+                }`}
+              >
+                <Search className={`w-4 h-4 shrink-0 transition-colors duration-200 ${isDesktopFocused ? "text-white/50" : "text-white/70"}`} aria-hidden="true" />
+                <input
+                  ref={desktopInputRef}
+                  id="navbar-search"
+                  name="q"
+                  type="text"
+                  value={searchValue}
+                  onFocus={() => setDesktopFocused(true)}
+                  onBlur={() => { if (!searchValue) setDesktopFocused(false); }}
+                  onChange={(e) => setSearchValue(e.target.value)}
+                  placeholder="Search anime…"
+                  className={`bg-transparent text-sm text-white focus:outline-none placeholder:text-white/30 min-w-0 transition-[width,opacity] duration-200 ${
+                    isDesktopFocused ? "w-full opacity-100" : "w-0 opacity-0"
+                  }`}
+                  tabIndex={isDesktopFocused ? 0 : -1}
+                />
+                {isDesktopFocused && searchValue && (
+                  <button type="button" onClick={(e) => { e.stopPropagation(); setSearchValue(""); }} className="shrink-0" aria-label="Clear search">
+                    <X className="w-3.5 h-3.5 text-white/40 hover:text-white transition-colors" aria-hidden="true" />
+                  </button>
+                )}
+              </form>
 
               {isDesktopFocused && searchValue.trim() && (
                 <div className="absolute top-full right-0 z-50 mt-2 w-[420px] max-w-[calc(100vw-32px)] rounded-2xl border border-white/10 bg-[#0c0d0f]/95 backdrop-blur-xl p-3 shadow-[0_20px_50px_rgba(0,0,0,0.6)] flex flex-col gap-1.5 animate-slide-down">
