@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { auth } from "@/lib/auth";
 import FooterSignInLink from "@/components/ui/FooterSignInLink";
+import YorumiWordmark from "@/components/ui/YorumiWordmark";
 
 export default async function SiteFooter() {
   const session = await auth();
@@ -13,10 +14,7 @@ export default async function SiteFooter() {
         <div className="flex flex-col gap-10 md:flex-row md:justify-between mb-10">
           {/* Brand */}
           <div className="space-y-3 max-w-sm">
-            <p className="text-2xl font-black tracking-tight">
-              <span className="text-white">Anime</span>
-              <span className="text-[#52ff7f]">PLAY</span>
-            </p>
+            <p><YorumiWordmark className="text-2xl" /></p>
             <p className="text-sm text-white/40 leading-relaxed">
               The ultimate anime streaming experience. Powered by MegaPlay, AnimePlay, TryEmbed, and MoStream — plus DesiDub for Hindi dub.
             </p>
@@ -62,7 +60,7 @@ export default async function SiteFooter() {
         {/* Bottom bar */}
         <div className="border-t border-white/5 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p className="text-xs text-white/20">
-            © {new Date().getFullYear()} AnimePlay. For educational purposes only.
+            © {new Date().getFullYear()} Yorumi. For educational purposes only.
           </p>
           <div className="flex items-center gap-4 text-[10px] font-bold uppercase tracking-widest text-white/15">
             <span>Multi-provider</span>

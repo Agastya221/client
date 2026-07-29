@@ -8,6 +8,8 @@ import UserMenu from "@/components/ui/UserMenu";
 import { HOME_VIEW_EVENT, type HomeViewMode } from "@/lib/home-view";
 import { type AnilistMedia, anilistTitle, anilistFormat, anilistYear, encodeAnilistRouteId } from "@/lib/anilist/api";
 import { useNavigationPending } from "@/components/ui/NavigationPendingController";
+import YorumiWordmark from "@/components/ui/YorumiWordmark";
+import { DEFAULT_THEME_ACCENT, dispatchThemeAccent } from "@/lib/theme-accent";
 
 type NavbarUser = {
   name?: string | null;
@@ -160,6 +162,20 @@ export default function NavbarClient({ user }: NavbarClientProps) {
   useEffect(() => {
     setMobileMenuOpen(false);
     setMobileSearchActive(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      const hasVisibleAccentSource = Array.from(
+        document.querySelectorAll<HTMLElement>('[data-yorumi-accent-source="true"]'),
+      ).some((element) => element.getClientRects().length > 0);
+
+      if (!hasVisibleAccentSource) {
+        dispatchThemeAccent(DEFAULT_THEME_ACCENT);
+      }
+    });
+
+    return () => window.cancelAnimationFrame(frame);
   }, [pathname]);
 
   useEffect(() => {
@@ -418,9 +434,8 @@ export default function NavbarClient({ user }: NavbarClientProps) {
             >
               <Menu className="h-5 w-5 text-white/65" aria-hidden="true" />
             </button>
-            <Link href="/" className="flex items-center text-2xl font-black tracking-tight">
-              <span className="text-white">Anime</span>
-              <span className="text-[#52ff7f]">PLAY</span>
+            <Link href="/" aria-label="Yorumi home" className="flex items-center">
+              <YorumiWordmark className="text-[28px] sm:text-[30px] lg:text-[32px]" />
             </Link>
           </div>
 
@@ -599,9 +614,7 @@ export default function NavbarClient({ user }: NavbarClientProps) {
         <div className={`absolute left-0 top-0 bottom-0 w-[80%] max-w-sm bg-[#0f1012] border-r border-white/10 shadow-2xl flex flex-col transform transition-transform duration-300 ease-out ${mobileMenuOpen ? "translate-x-0" : "-translate-x-full"}`}>
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
-              <span className="text-lg font-black text-white">
-                Anime<span className="text-[#52ff7f]">PLAY</span>
-              </span>
+              <YorumiWordmark className="text-2xl" />
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(false)}

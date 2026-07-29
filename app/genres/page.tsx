@@ -6,7 +6,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Browse by Genre | AnimePlay",
+  title: "Browse by Genre | Yorumi",
   description: "Explore anime by genre. Find Action, Romance, Fantasy, Sci-Fi, Comedy and more — all sourced live from AniList.",
 };
 

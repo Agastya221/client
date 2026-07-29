@@ -4,8 +4,8 @@ import SiteFooter from "@/components/ui/SiteFooter";
 import MyListClient from "./MyListClient";
 
 export const metadata = {
-  title: "My List | AnimePlay",
-  description: "Your personal anime watchlist on AnimePlay. Keep track of what you're watching, plan to watch, and more.",
+  title: "My List | Yorumi",
+  description: "Your personal anime watchlist on Yorumi. Keep track of what you're watching, plan to watch, and more.",
 };
 
 export const dynamic = "force-dynamic";

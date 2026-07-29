@@ -315,7 +315,7 @@ export default function MyListClient({ user }: MyListClientProps) {
           </p>
           <p className="text-white/25 text-sm mt-2">
             {sessionUser
-              ? "Add anime to your AniList watchlist or bookmark them on AnimePlay."
+              ? "Add anime to your AniList watchlist or bookmark them on Yorumi."
               : "Bookmark anime from detail pages to build your collection."}
           </p>
           <Link href="/search" className="mt-6 inline-flex items-center gap-2 text-[#ff5500] text-sm font-bold hover:underline">

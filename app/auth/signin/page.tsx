@@ -18,7 +18,7 @@ export default async function SignInPage() {
               {/* Header */}
               <div className="text-center mb-8">
                 <h1 className="text-3xl font-black text-white tracking-tight mb-2">
-                  Welcome to <span className="text-[#ff5500]">AnimePlay</span>
+                  Welcome to <span className="text-[#ff5500]">Yorumi</span>
                 </h1>
                 <p className="text-white/50 text-sm">
                   Sign in to track your progress, bookmark anime, and join the conversation.

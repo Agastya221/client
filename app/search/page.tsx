@@ -21,22 +21,22 @@ export async function generateMetadata({
   const sort = firstParam(query.sort);
 
   const title = genre
-    ? `${genre} Anime | AnimePlay`
+    ? `${genre} Anime | Yorumi`
     : search
-    ? `Search: ${search} | AnimePlay`
+    ? `Search: ${search} | Yorumi`
     : sort === "trending"
-    ? "Trending Anime | AnimePlay"
+    ? "Trending Anime | Yorumi"
     : sort === "season"
-    ? "This Season | AnimePlay"
-    : "Browse Anime | AnimePlay";
+    ? "This Season | Yorumi"
+    : "Browse Anime | Yorumi";
 
   return {
     title,
     description: genre
-      ? `Browse the best ${genre} anime on AnimePlay. HD streaming with multi-provider fallback.`
+      ? `Browse the best ${genre} anime on Yorumi. HD streaming with multi-provider fallback.`
       : search
-      ? `Search results for "${search}" on AnimePlay.`
-      : "Browse and search anime on AnimePlay.",
+      ? `Search results for "${search}" on Yorumi.`
+      : "Browse and search anime on Yorumi.",
   };
 }
 

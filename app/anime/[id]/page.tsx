@@ -21,6 +21,7 @@ import AddToListButton from "@/components/anime/AddToListButton";
 import AniListStatusModal from "@/components/anime/AniListStatusModal";
 import WatchIntentLink from "@/components/anime/WatchIntentLink";
 import ExpandableSynopsis from "@/components/anime/ExpandableSynopsis";
+import ThemeAccentSource from "@/components/ui/ThemeAccentSource";
 
 
 
@@ -31,26 +32,26 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { id } = await params;
   if (!id.startsWith("anilist~")) {
-    return { title: "Anime Details | AnimePlay" };
+    return { title: "Anime Details | Yorumi" };
   }
   const anilistId = parseInt(id.replace("anilist~", ""), 10);
-  if (isNaN(anilistId)) return { title: "Not Found | AnimePlay" };
+  if (isNaN(anilistId)) return { title: "Not Found | Yorumi" };
 
   try {
     const media = await getAnilistDetail(anilistId);
     const title = anilistTitle(media);
-    const desc = media.description?.replace(/<[^>]*>/g, "").slice(0, 160) || `Watch ${title} on AnimePlay`;
+    const desc = media.description?.replace(/<[^>]*>/g, "").slice(0, 160) || `Watch ${title} on Yorumi`;
     return {
-      title: `${title} | AnimePlay`,
+      title: `${title} | Yorumi`,
       description: desc,
       openGraph: {
-        title: `${title} | AnimePlay`,
+        title: `${title} | Yorumi`,
         description: desc,
         images: [media.coverImage.extraLarge || media.coverImage.large],
       },
     };
   } catch {
-    return { title: "Anime Details | AnimePlay" };
+    return { title: "Anime Details | Yorumi" };
   }
 }
 
@@ -119,6 +120,7 @@ async function AnilistDetailContent({
 
   return (
     <>
+      <ThemeAccentSource color={accentColor} />
       {/* Hero Section */}
       <section className="relative overflow-hidden">
         {/* Banner bg */}

@@ -7,8 +7,8 @@ import { Sparkles, ChevronRight } from "lucide-react";
 import Link from "next/link";
 
 export const metadata = {
-  title: "New Releases | AnimePlay",
-  description: "Discover the latest anime releases and newly added series on AnimePlay.",
+  title: "New Releases | Yorumi",
+  description: "Discover the latest anime releases and newly added series on Yorumi.",
 };
 
 export default async function NewReleasesPage() {

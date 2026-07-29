@@ -39,7 +39,7 @@ export default function HomeHeroCarousel({ slides }: HomeHeroCarouselProps) {
 
   if (!activeSlide) return null;
 
-  const heroImage = activeSlide.banner || activeSlide.poster || "https://placehold.co/1600x900/101010/333333?text=AnimePlay";
+  const heroImage = activeSlide.banner || activeSlide.poster || "https://placehold.co/1600x900/101010/333333?text=Yorumi";
   const genres = activeSlide.genres?.slice(0, 3).join(", ") || "Anime";
   const quality = activeSlide.episodeCount ? "HD" : "";
   const rating = activeSlide.rating && activeSlide.rating !== "?" && activeSlide.rating !== "1" ? activeSlide.rating : "";

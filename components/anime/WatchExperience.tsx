@@ -72,6 +72,7 @@ import Image, { type ImageProps } from "next/image";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import ThemeAccentSource from "@/components/ui/ThemeAccentSource";
 
 const WatchPartyModal = dynamic(() => import("@/components/anime/WatchPartyModal"), { ssr: false });
 const WatchPartyPanel = dynamic(() => import("@/components/anime/WatchParty"), { ssr: false });
@@ -780,7 +781,7 @@ function PlayerPosterImage({
   const [hdLoaded, setHdLoaded] = useState(false);
 
   return (
-    <>
+    <span className="episode-poster-swap absolute inset-0">
       {!hdLoaded && thumbnailArtwork ? (
         <SafeWatchImage
           src={thumbnailArtwork}
@@ -804,7 +805,7 @@ function PlayerPosterImage({
           onImageLoad={() => setHdLoaded(true)}
         />
       ) : null}
-    </>
+    </span>
   );
 }
 
@@ -2249,87 +2250,6 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     }
   }, [displayedEpisodeNumber, episodeQuery, filteredEpisodes.length]);
 
-  // Auto-scroll active episode into view (centered) within the active scroll container (desktop & mobile)
-  useEffect(() => {
-    const getVisibleActiveElement = (): HTMLElement | null => {
-      const elements = Array.from(document.querySelectorAll<HTMLElement>('[data-active-episode="true"]'));
-      for (const el of elements) {
-        const rect = el.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0 && el.offsetParent !== null) {
-          return el;
-        }
-      }
-      return elements[0] || null;
-    };
-
-    const findScrollContainer = (el: HTMLElement | null): HTMLElement | null => {
-      let parent = el?.parentElement;
-      while (parent && parent !== document.body) {
-        const style = window.getComputedStyle(parent);
-        const overflowY = style.overflowY;
-        const isScrollable =
-          (overflowY === "auto" || overflowY === "scroll" || parent.classList.contains("watch-sidebar-rail")) &&
-          parent.scrollHeight > parent.clientHeight;
-        if (isScrollable) return parent;
-        parent = parent.parentElement;
-      }
-      return null;
-    };
-
-    const scrollToActive = (instant = false) => {
-      const activeEl = getVisibleActiveElement();
-      if (!activeEl) return;
-
-      const container =
-        findScrollContainer(activeEl) ||
-        activeEl.closest<HTMLElement>(".watch-sidebar-rail") ||
-        activeEl.closest<HTMLElement>(".watch-episode-scroll");
-
-      if (container && container.scrollHeight > container.clientHeight) {
-        const containerRect = container.getBoundingClientRect();
-        const activeRect = activeEl.getBoundingClientRect();
-        const relativeTop = activeRect.top - containerRect.top + container.scrollTop;
-
-        // Center active episode card in scroll container
-        const targetScrollTop = Math.max(0, relativeTop - container.clientHeight / 2 + activeEl.clientHeight / 2);
-
-        if (instant) {
-          container.scrollTop = targetScrollTop;
-        } else {
-          container.scrollTo({ top: targetScrollTop, behavior: "smooth" });
-        }
-      }
-      // No fallback — don't scroll the entire page on medium devices
-    };
-
-    // 1. Fire immediately (instant scroll on first paint)
-    scrollToActive(true);
-
-    // 2. Multi-stage smooth scroll passes as images and metadata finish rendering
-    const timer1 = setTimeout(() => scrollToActive(false), 120);
-    const timer2 = setTimeout(() => scrollToActive(false), 350);
-    const timer3 = setTimeout(() => scrollToActive(false), 700);
-
-    // 3. Attach ResizeObserver to handle layout expansion (e.g. image loads)
-    let observer: ResizeObserver | null = null;
-    const activeEl = getVisibleActiveElement();
-    const container = activeEl ? (findScrollContainer(activeEl) || activeEl.closest<HTMLElement>(".watch-sidebar-rail")) : null;
-
-    if (container && typeof ResizeObserver !== "undefined") {
-      observer = new ResizeObserver(() => {
-        scrollToActive(false);
-      });
-      observer.observe(container);
-    }
-
-    return () => {
-      clearTimeout(timer1);
-      clearTimeout(timer2);
-      clearTimeout(timer3);
-      if (observer) observer.disconnect();
-    };
-  }, [displayedEpisodeNumber, episodeRangeStart, episodeView, session.episodes.length]);
-
   const episodeRangeCount = Math.ceil(filteredEpisodes.length / EPISODE_PAGE_SIZE);
   const visibleEpisodes = episodeQuery.trim()
     ? filteredEpisodes
@@ -2575,10 +2495,10 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                   onMouseEnter={() => prefetchEpisode(episode.number)}
                   onFocus={() => prefetchEpisode(episode.number)}
                   data-active-episode={active ? "true" : undefined}
-                  className={`watch-episode-card group/episode relative flex w-full gap-0 overflow-hidden rounded-[11px] border text-left transition-[border-color,background-color,box-shadow,filter] duration-200 ease-out hover:shadow-[0_8px_24px_rgba(0,0,0,0.28)] active:brightness-110 ${episodeArtwork ? "h-[76px] sm:h-[100px]" : "h-[58px] sm:h-[68px]"}`}
+                  className={`watch-episode-card group/episode relative flex w-full gap-0 overflow-hidden rounded-[11px] border text-left transition-[border-color,background-color,box-shadow,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.28)] active:brightness-110 ${episodeArtwork ? "h-[76px] sm:h-[100px]" : "h-[58px] sm:h-[68px]"} ${active ? "is-active" : ""}`}
                   style={{
                     borderColor: active ? accentStyle(0.95) : watched ? accentStyle(0.38) : "rgba(255,255,255,0.07)",
-                    background: active ? accentStyle(0.68) : watched ? accentStyle(0.13) : "rgba(255,255,255,0.02)",
+                    backgroundColor: active ? accentStyle(0.68) : watched ? accentStyle(0.13) : "rgba(255,255,255,0.02)",
                     "--accent-hover-shadow": `0 8px 24px ${accentStyle(0.24)}`,
                   } as React.CSSProperties}
                 >
@@ -2593,7 +2513,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                         quality={55}
                         sizes="(max-width: 639px) 132px, (min-width: 1280px) 160px, 150px"
                         unoptimized
-                        className="object-cover transition-transform duration-300 group-hover/episode:scale-[1.025]"
+                        className={`object-cover transition-[transform,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/episode:scale-[1.025] ${active ? "brightness-105 saturate-110" : ""}`}
                       />
                       <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/75 px-1.5 py-0.5 text-[9px] font-black text-white">
                         EP {episode.number}
@@ -2662,12 +2582,12 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                   onMouseEnter={() => prefetchEpisode(episode.number)}
                   onFocus={() => prefetchEpisode(episode.number)}
                   data-active-episode={active ? "true" : undefined}
-                  className="group/ep flex h-9 w-full items-center gap-2 rounded-lg border px-2.5 text-left transition-all"
+                  className="watch-episode-row group/ep flex h-9 w-full items-center gap-2 rounded-lg border px-2.5 text-left transition-[background-color,border-color,color,box-shadow,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
                   style={active
-                    ? { background: accentColor, borderColor: accentStyle(0.95), color: "white" }
+                    ? { backgroundColor: accentColor, borderColor: accentStyle(0.95), color: "white", boxShadow: `0 4px 18px ${accentStyle(0.2)}` }
                     : watched
-                      ? { background: accentStyle(0.12), borderColor: accentStyle(0.28) }
-                      : { background: "rgba(255,255,255,0.025)", borderColor: "rgba(255,255,255,0.07)" }}
+                      ? { backgroundColor: accentStyle(0.12), borderColor: accentStyle(0.28) }
+                      : { backgroundColor: "rgba(255,255,255,0.025)", borderColor: "rgba(255,255,255,0.07)" }}
                 >
                   <span className={`flex w-5 shrink-0 items-center justify-center text-[11px] font-bold ${active ? "text-white" : "text-white/42"}`}>
                     {active ? <Play className="h-3.5 w-3.5 fill-current" aria-hidden="true" /> : `${episode.number}.`}
@@ -2705,6 +2625,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
      ════════════════════════════════════════════════ */
   return (
     <>
+      <ThemeAccentSource color={accentColor} />
       {/* Focus mode backdrop */}
       {focusMode && (
         <div

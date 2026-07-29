@@ -39,8 +39,8 @@ export async function generateMetadata({
         const media = await getAnilistDetail(anilistId);
         const title = anilistTitle(media);
         return {
-          title: `Watch ${title} Episode ${ep} | AnimePlay`,
-          description: `Stream ${title} Episode ${ep} in HD on AnimePlay. Multiple servers, sub & dub available.`,
+          title: `Watch ${title} Episode ${ep} | Yorumi`,
+          description: `Stream ${title} Episode ${ep} in HD on Yorumi. Multiple servers, sub & dub available.`,
         };
       } catch {
         // fall through
@@ -49,8 +49,8 @@ export async function generateMetadata({
   }
 
   return {
-    title: `Watch Episode ${ep} | AnimePlay`,
-    description: `Stream anime episodes in HD on AnimePlay.`,
+    title: `Watch Episode ${ep} | Yorumi`,
+    description: `Stream anime episodes in HD on Yorumi.`,
   };
 }
 

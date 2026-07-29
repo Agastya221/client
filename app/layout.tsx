@@ -34,18 +34,18 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "AnimePlay | The Ultimate Anime Experience",
+  title: "Yorumi | The Ultimate Anime Experience",
   description: "Watch your favorite anime online in high quality. Multi-provider streaming with sub, dub, and server fallback.",
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://animeplay.app"),
   openGraph: {
-    title: "AnimePlay | The Ultimate Anime Experience",
+    title: "Yorumi | The Ultimate Anime Experience",
     description: "Watch your favorite anime online in high quality with multi-provider streaming.",
-    siteName: "AnimePlay",
+    siteName: "Yorumi",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "AnimePlay | The Ultimate Anime Experience",
+    title: "Yorumi | The Ultimate Anime Experience",
     description: "Watch your favorite anime online in high quality.",
   },
   icons: {

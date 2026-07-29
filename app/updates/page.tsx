@@ -5,7 +5,7 @@ import { getWeeklyAiringSchedule, encodeAnilistRouteId } from "@/lib/anilist/api
 import { getCatalogAvailabilityForMedia, getWatchHrefsFromAvailability } from "@/lib/anilist/availability";
 
 export const metadata = {
-  title: "Anime Schedule & Airing Updates | AnimePlay",
+  title: "Anime Schedule & Airing Updates | Yorumi",
   description: "Weekly anime airing schedule for currently releasing anime.",
 };
 

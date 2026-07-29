@@ -4,7 +4,7 @@ import WatchPartyLanding from "@/components/anime/WatchPartyLanding";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Watch Together | AnimePlay",
+  title: "Watch Together | Yorumi",
   description: "Create a watch party room and watch anime in sync with your friends.",
 };
 

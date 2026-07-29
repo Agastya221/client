@@ -3,8 +3,8 @@ import SiteFooter from "@/components/ui/SiteFooter";
 import HistoryClient from "./HistoryClient";
 
 export const metadata = {
-  title: "Watch History | AnimePlay",
-  description: "Your anime watch history on AnimePlay. Resume where you left off, track your progress.",
+  title: "Watch History | Yorumi",
+  description: "Your anime watch history on Yorumi. Resume where you left off, track your progress.",
 };
 
 export default function HistoryPage() {

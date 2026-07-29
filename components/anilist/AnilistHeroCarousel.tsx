@@ -19,6 +19,7 @@ import {
   useMemo,
   useRef,
 } from "react";
+import ThemeAccentSource from "@/components/ui/ThemeAccentSource";
 
 const carouselEnterTransition = {
   "carousel-next": "slide-from-right",
@@ -68,6 +69,7 @@ export default function AnilistHeroCarousel({
   const carouselVisibleRef = useRef(true);
   const userScrollingRef = useRef(false);
   const scrollIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollFrameRef = useRef<number | null>(null);
 
   const goTo = useCallback((index: number) => {
     if (deck.length === 0) return;
@@ -128,13 +130,17 @@ export default function AnilistHeroCarousel({
     });
 
     const handleScroll = () => {
-      userScrollingRef.current = true;
-      if (scrollIdleTimerRef.current) {
-        clearTimeout(scrollIdleTimerRef.current);
-      }
-      scrollIdleTimerRef.current = setTimeout(() => {
-        userScrollingRef.current = false;
-      }, 180);
+      if (scrollFrameRef.current !== null) return;
+      scrollFrameRef.current = window.requestAnimationFrame(() => {
+        scrollFrameRef.current = null;
+        userScrollingRef.current = true;
+        if (scrollIdleTimerRef.current) {
+          clearTimeout(scrollIdleTimerRef.current);
+        }
+        scrollIdleTimerRef.current = setTimeout(() => {
+          userScrollingRef.current = false;
+        }, 180);
+      });
     };
 
     observer.observe(carousel);
@@ -146,6 +152,10 @@ export default function AnilistHeroCarousel({
       if (scrollIdleTimerRef.current) {
         clearTimeout(scrollIdleTimerRef.current);
         scrollIdleTimerRef.current = null;
+      }
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current);
+        scrollFrameRef.current = null;
       }
     };
   }, []);
@@ -337,6 +347,7 @@ export default function AnilistHeroCarousel({
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
+      <ThemeAccentSource color={accentColor} />
       {/* ── Full-viewport background image ─────────────────────────────────── */}
       <ViewTransition
         key={`backdrop-${slide.id}`}
@@ -530,12 +541,18 @@ export default function AnilistHeroCarousel({
         </ViewTransition>
         </div>
 
-      <div className="absolute bottom-10 left-14 z-20 hidden items-center lg:flex xl:left-20">
+      <div
+        className="carousel-persistent-control absolute bottom-10 left-14 z-20 hidden items-center lg:flex xl:left-20"
+        style={{ viewTransitionName: "carousel-desktop-dots" }}
+      >
         <NavButtons deck={deck} activeIndex={activeIndex} goTo={goTo} accentColor={accentColor} />
       </div>
 
       {/* Counter precedes the circular arrows, matching the reference. */}
-      <div className="absolute bottom-8 right-14 z-20 hidden items-center gap-3 lg:flex xl:right-20">
+      <div
+        className="carousel-persistent-control absolute bottom-8 right-14 z-20 hidden items-center gap-3 lg:flex xl:right-20"
+        style={{ viewTransitionName: "carousel-desktop-navigation" }}
+      >
         <span className="mr-1 text-xs font-black text-white/55">{activeIndex + 1}/{deck.length}</span>
         <button type="button" onClick={goPrev} aria-label="Previous slide"
           className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md transition-all hover:border-white/35 hover:bg-white/15">
@@ -701,7 +718,10 @@ export default function AnilistHeroCarousel({
           </div>
         </ViewTransition>
 
-        <div className="mt-4 flex items-center justify-between">
+        <div
+          className="carousel-persistent-control mt-4 flex items-center justify-between"
+          style={{ viewTransitionName: "carousel-mobile-navigation" }}
+        >
           <NavButtons deck={deck} activeIndex={activeIndex} goTo={goTo} accentColor={accentColor} />
           <div className="flex items-center gap-2">
             <span className="mr-1 text-[10px] font-black text-white/55">{activeIndex + 1}/{deck.length}</span>

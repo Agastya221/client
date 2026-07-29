@@ -7,8 +7,8 @@ import { Clock, ChevronRight } from "lucide-react";
 import Link from "next/link";
 
 export const metadata = {
-  title: "Recently Updated | AnimePlay",
-  description: "Most recently updated anime on AnimePlay. See what's been watched the most today.",
+  title: "Recently Updated | Yorumi",
+  description: "Most recently updated anime on Yorumi. See what's been watched the most today.",
 };
 
 export default async function RecentPage() {

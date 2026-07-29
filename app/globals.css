@@ -5,7 +5,7 @@
   --font-display: var(--font-display);
   --font-mono: var(--font-geist-mono);
   
-  /* AnimePlay Core Colors */
+  /* Yorumi core colors */
   --color-primary: #ff5500;
   --color-primary-dim: #dd4400;
   --color-primary-container: #331a11;
@@ -49,6 +49,22 @@ body {
   background-color: var(--color-surface);
   color: var(--color-on-surface);
   font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+.yorumi-wordmark {
+  font-variation-settings: "wght" 900;
+  letter-spacing: -0.045em;
+  line-height: 1;
+  text-rendering: geometricPrecision;
+  filter:
+    drop-shadow(0 1px 0 rgba(255, 255, 255, 0.08))
+    drop-shadow(0 6px 18px rgba(0, 0, 0, 0.34));
+}
+
+.yorumi-wordmark-accent {
+  transition:
+    color 620ms cubic-bezier(0.22, 1, 0.36, 1),
+    text-shadow 620ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* Apply Outfit display font to headings */
@@ -107,8 +123,8 @@ h1, h2, h3 {
 
 /* Native React View Transition recipes. */
 @keyframes fade {
-  from { filter: blur(3px); opacity: 0; }
-  to { filter: blur(0); opacity: 1; }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @keyframes slide {
@@ -219,6 +235,30 @@ h1, h2, h3 {
 
 ::view-transition-old(.carousel-artwork-to-right) {
   animation: 520ms cubic-bezier(0.22, 1, 0.36, 1) both carousel-artwork-to-right;
+}
+
+::view-transition-group(carousel-desktop-dots),
+::view-transition-group(carousel-desktop-navigation),
+::view-transition-group(carousel-mobile-navigation) {
+  animation: none;
+  z-index: 100;
+}
+
+::view-transition-old(carousel-desktop-dots),
+::view-transition-old(carousel-desktop-navigation),
+::view-transition-old(carousel-mobile-navigation) {
+  display: none;
+}
+
+::view-transition-new(carousel-desktop-dots),
+::view-transition-new(carousel-desktop-navigation),
+::view-transition-new(carousel-mobile-navigation) {
+  animation: none;
+}
+
+.carousel-persistent-control {
+  opacity: 1;
+  isolation: isolate;
 }
 
 ::view-transition-old(.nav-forward) {
@@ -420,13 +460,19 @@ h1, h2, h3 {
   }
 
   .watch-episode-panel-body {
+    display: flex;
     min-height: 0;
     flex: 1;
+    flex-direction: column;
     overflow: hidden;
   }
 
   .watch-episode-scroll {
+    height: auto !important;
     max-height: none;
+    min-height: 0;
+    flex: 1;
+    overflow-y: auto;
   }
 }
 
@@ -435,6 +481,7 @@ h1, h2, h3 {
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
+  overflow-anchor: none;
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
@@ -458,26 +505,10 @@ h1, h2, h3 {
   }
 }
 
-.watch-sidebar-rail {
-  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
-  scrollbar-width: thin;
-}
-
 .watch-sidebar-rail::-webkit-scrollbar {
-  width: 6px;
-}
-
-.watch-sidebar-rail::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.watch-sidebar-rail::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.16);
-}
-
-.watch-sidebar-rail::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.28);
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 /* Watch party animations */
@@ -638,11 +669,28 @@ h1, h2, h3 {
 
 /* Premium episode card hover effects */
 .watch-episode-card {
-  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1), border-color 200ms cubic-bezier(0.16, 1, 0.3, 1), background-color 200ms cubic-bezier(0.16, 1, 0.3, 1) !important;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 100px;
+  contain: layout paint style;
+  transition: box-shadow 300ms cubic-bezier(0.22, 1, 0.36, 1), border-color 300ms cubic-bezier(0.22, 1, 0.36, 1), background-color 300ms cubic-bezier(0.22, 1, 0.36, 1), filter 300ms cubic-bezier(0.22, 1, 0.36, 1) !important;
 }
 .watch-episode-card:hover {
-  transform: translateY(-2px);
   box-shadow: var(--accent-hover-shadow, 0 8px 24px rgba(0, 0, 0, 0.28)) !important;
+}
+
+.watch-episode-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 36px;
+  contain: layout paint style;
+}
+
+@keyframes episode-poster-swap {
+  from { opacity: 0.35; }
+  to { opacity: 1; }
+}
+
+.episode-poster-swap {
+  animation: episode-poster-swap 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 /* Video Player Play/Pause Overlay Animation */

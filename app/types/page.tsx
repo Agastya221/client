@@ -7,8 +7,8 @@ import { Film, Tv, MonitorPlay, Clapperboard, ChevronRight } from "lucide-react"
 import Link from "next/link";
 
 export const metadata = {
-  title: "Anime Types | AnimePlay",
-  description: "Browse anime by type — TV series, Movies, OVAs, ONAs, and Specials on AnimePlay.",
+  title: "Anime Types | Yorumi",
+  description: "Browse anime by type — TV series, Movies, OVAs, ONAs, and Specials on Yorumi.",
 };
 
 const FORMATS = [

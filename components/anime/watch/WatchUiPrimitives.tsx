@@ -280,12 +280,12 @@ export function EpisodeNumberGrid({
               aria-label={`${ep.title}${isWatched ? ", watched" : ""}`}
               data-active-episode={isActive ? "true" : undefined}
               className={`
-                relative h-10 min-w-0 rounded-md text-xs font-bold transition-colors md:h-9
+                relative h-10 min-w-0 rounded-md text-xs font-bold transition-[background-color,border-color,color,box-shadow,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] md:h-9
                 ${isHostLocked ? "opacity-40 cursor-not-allowed" : ""}
                 ${isActive
                   ? "text-white"
                   : isWatched
-                    ? "text-white/90 border transition-all duration-200 hover:brightness-110"
+                    ? "text-white/90 border hover:brightness-110"
                     : "bg-white/[0.06] text-white/60 hover:bg-white/12 hover:text-white border border-white/[0.06]"
                 }
               `}
