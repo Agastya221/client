@@ -12,6 +12,10 @@ import { recordCounter, recordLog } from "@/lib/observability";
 
 const ANILIST_REQUEST_TIMEOUT_MS = 12_000;
 const DEFAULT_ANILIST_USER_AGENT = "Tatakai/1.0 (Next.js server; AniList catalog integration)";
+const ANILIST_OUTAGE_COOLDOWN_MS = 2 * 60 * 1000;
+
+let anilistUnavailableUntil = 0;
+let anilistUnavailableMessage = "AniList is temporarily unavailable";
 
 export class AnilistApiError extends Error {
   statusCode: number;
@@ -82,6 +86,11 @@ async function anilistQuery<T>(query: string, variables?: Record<string, unknown
       ? "detail_query"
       : "query";
 
+  if (anilistUnavailableUntil > Date.now()) {
+    recordCounter("anilist.query.skipped", 1, { operation, reason: "outage_circuit" });
+    throw new AnilistApiError(anilistUnavailableMessage, 503);
+  }
+
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const res = await fetch(ANILIST_URL, {
       method: "POST",
@@ -110,6 +119,13 @@ async function anilistQuery<T>(query: string, variables?: Record<string, unknown
     const responseBody = (await res.text()).slice(0, 300);
     lastError = new AnilistApiError(`AniList API error: ${res.status}`, res.status, responseBody);
     const shouldRetry = res.status === 429 || res.status >= 500;
+    if (
+      res.status === 403
+      && /temporarily disabled|severe stability issues/i.test(responseBody)
+    ) {
+      anilistUnavailableUntil = Date.now() + ANILIST_OUTAGE_COOLDOWN_MS;
+      anilistUnavailableMessage = "AniList API temporarily disabled (outage circuit)";
+    }
     recordCounter("anilist.query.failure", 1, {
       operation,
       reason: "http_error",
@@ -537,6 +553,7 @@ async function withCatalogFallback<T>(
   scope: string,
   primary: () => Promise<T>,
   fallback: () => Promise<T>,
+  onFallbackFailure?: (error: unknown) => T | Promise<T>,
 ): Promise<T> {
   try {
     return await primary();
@@ -548,8 +565,30 @@ async function withCatalogFallback<T>(
     const message = error instanceof Error ? error.message : "AniList request failed";
     recordCounter("anilist.fallback.used", 1, { scope });
     recordLog("warn", "anilist.fallback.used", { scope }, message);
-    return fallback();
+    try {
+      return await fallback();
+    } catch (fallbackError) {
+      const fallbackMessage = fallbackError instanceof Error
+        ? fallbackError.message
+        : "Catalog fallback failed";
+      recordCounter("anilist.fallback.failure", 1, { scope });
+      recordLog("error", "anilist.fallback.failure", { scope }, fallbackMessage);
+      if (onFallbackFailure) {
+        return onFallbackFailure(fallbackError);
+      }
+      throw fallbackError;
+    }
   }
+}
+
+function emptyPageInfo(page: number, perPage: number): AnilistPageInfo {
+  return {
+    total: 0,
+    currentPage: page,
+    lastPage: page,
+    hasNextPage: false,
+    perPage,
+  };
 }
 
 async function jikanRequest<T>(
@@ -1088,6 +1127,7 @@ export async function getAnilistTrending(perPage = 10): Promise<AnilistMedia[]> 
         shouldCache: (value) => Array.isArray(value) && value.length > 0,
       },
     ),
+    () => [],
   );
 }
 
@@ -1123,6 +1163,7 @@ export async function getAnilistSeasonal(perPage = 20): Promise<AnilistMedia[]> 
         shouldCache: (value) => Array.isArray(value) && value.length > 0,
       },
     ),
+    () => [],
   );
 }
 
@@ -1155,6 +1196,7 @@ export async function getAnilistPopular(perPage = 20): Promise<AnilistMedia[]> {
         shouldCache: (value) => Array.isArray(value) && value.length > 0,
       },
     ),
+    () => [],
   );
 }
 
@@ -1240,6 +1282,7 @@ export async function searchAnilist(options: {
           ),
       },
     ),
+    () => ({ media: [], pageInfo: emptyPageInfo(page, perPage) }),
   );
 
   const shortQuery = normalizeCatalogSearchText(options.search || "");
@@ -1299,6 +1342,7 @@ export async function getAnilistGenres(): Promise<string[]> {
         shouldCache: (value) => Array.isArray(value) && value.length > 0,
       },
     ),
+    () => [],
   );
 }
 
