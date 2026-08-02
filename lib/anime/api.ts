@@ -1744,7 +1744,11 @@ export async function getTvMazeEpisodeMetadataRange(
   const aniZipBundle = await getAniZipEpisodeBundle(anilistId);
 
   const allEpisodes = await cacheFetch(
-    `tvmaze-episode-metadata:v4:${anilistId}`,
+    // v5 invalidates TVMaze records cached before the premiere-alignment
+    // guard. Those v4 entries can contain an older franchise season (for
+    // example 2012 JoJo metadata for 2026 Steel Ball Run) and must never be
+    // served from memory or persistent KV after the validator was fixed.
+    `tvmaze-episode-metadata:v5:${anilistId}`,
     async () => {
       const { title, premiereYear, premiereDate, tvdbShowId } = aniZipBundle;
       if (!title) return [];

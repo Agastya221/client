@@ -36,6 +36,28 @@ interface RelationEdge {
   node?: { id?: number };
 }
 
+interface KitsuResourceIdentifier {
+  id?: string;
+  type?: string;
+}
+
+interface KitsuRelationshipEntry {
+  attributes?: { role?: string };
+  relationships?: {
+    destination?: { data?: KitsuResourceIdentifier };
+  };
+}
+
+interface KitsuMappingEntry {
+  attributes?: {
+    externalSite?: string;
+    externalId?: string;
+  };
+  relationships?: {
+    item?: { data?: KitsuResourceIdentifier };
+  };
+}
+
 export interface AnilistHeroAssets {
   logo: string | null;
   backdrop: string | null;
@@ -152,6 +174,70 @@ async function fetchDirectAssets(
   };
 }
 
+const KITSU_HEADERS = {
+  Accept: "application/vnd.api+json",
+  "User-Agent": "Yorumi/1.0",
+};
+
+async function fetchKitsuPrequelId(anilistId: number): Promise<number | null> {
+  try {
+    const mappingUrl = new URL("https://kitsu.io/api/edge/mappings");
+    mappingUrl.searchParams.set("filter[externalSite]", "anilist/anime");
+    mappingUrl.searchParams.set("filter[externalId]", String(anilistId));
+    mappingUrl.searchParams.set("include", "item");
+    const mappingResponse = await fetch(mappingUrl, {
+      headers: KITSU_HEADERS,
+      cache: "no-store",
+      signal: AbortSignal.timeout(4_000),
+    });
+    if (!mappingResponse.ok) return null;
+    const mappingPayload = (await mappingResponse.json()) as { data?: KitsuMappingEntry[] };
+    const kitsuId = mappingPayload.data?.find(
+      (entry) => entry.relationships?.item?.data?.type === "anime",
+    )?.relationships?.item?.data?.id;
+    if (!kitsuId) return null;
+
+    const relationshipsResponse = await fetch(
+      `https://kitsu.io/api/edge/anime/${kitsuId}/media-relationships?include=destination`,
+      {
+        headers: KITSU_HEADERS,
+        cache: "no-store",
+        signal: AbortSignal.timeout(4_000),
+      },
+    );
+    if (!relationshipsResponse.ok) return null;
+    const relationshipsPayload = (await relationshipsResponse.json()) as {
+      data?: KitsuRelationshipEntry[];
+    };
+    const destination = relationshipsPayload.data?.find(
+      (entry) =>
+        entry.attributes?.role?.toLowerCase() === "prequel" &&
+        entry.relationships?.destination?.data?.type === "anime",
+    )?.relationships?.destination?.data;
+    if (!destination?.id) return null;
+
+    const destinationMappingsResponse = await fetch(
+      `https://kitsu.io/api/edge/anime/${destination.id}/mappings`,
+      {
+        headers: KITSU_HEADERS,
+        cache: "no-store",
+        signal: AbortSignal.timeout(4_000),
+      },
+    );
+    if (!destinationMappingsResponse.ok) return null;
+    const destinationMappings = (await destinationMappingsResponse.json()) as {
+      data?: KitsuMappingEntry[];
+    };
+    const externalId = destinationMappings.data?.find(
+      (entry) => entry.attributes?.externalSite?.toLowerCase() === "anilist/anime",
+    )?.attributes?.externalId;
+    const id = Number(externalId);
+    return Number.isInteger(id) && id > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
 async function fetchPrequelId(anilistId: number): Promise<number | null> {
   try {
     const response = await fetch("https://graphql.anilist.co", {
@@ -163,19 +249,22 @@ async function fetchPrequelId(anilistId: number): Promise<number | null> {
       cache: "no-store",
       signal: AbortSignal.timeout(4_000),
     });
-    if (!response.ok) return null;
-
-    const payload = (await response.json()) as {
-      data?: { Media?: { relations?: { edges?: RelationEdge[] } } };
-    };
-    const relation = payload.data?.Media?.relations?.edges?.find(
-      (edge) => edge.relationType === "PREQUEL" || edge.relationType === "PARENT",
-    );
-    const id = Number(relation?.node?.id);
-    return Number.isInteger(id) && id > 0 ? id : null;
+    if (response.ok) {
+      const payload = (await response.json()) as {
+        data?: { Media?: { relations?: { edges?: RelationEdge[] } } };
+      };
+      const relation = payload.data?.Media?.relations?.edges?.find(
+        (edge) => edge.relationType === "PREQUEL" || edge.relationType === "PARENT",
+      );
+      const id = Number(relation?.node?.id);
+      if (Number.isInteger(id) && id > 0) return id;
+    }
   } catch {
-    return null;
+    // AniList is the primary relation source. Kitsu below is only used while
+    // AniList is unavailable or has no usable parent relation.
   }
+
+  return fetchKitsuPrequelId(anilistId);
 }
 
 function fillMissing(
@@ -191,6 +280,7 @@ function fillMissing(
 function isCacheable(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
   const assets = value as AnilistHeroAssets;
+  if (!assets.logo && !assets.backdrop) return false;
   return [assets.logo, assets.backdrop].every(
     (url) => url === null || (typeof url === "string" && url.startsWith("https://")),
   );
@@ -205,7 +295,7 @@ export async function getAnilistHeroAssets(anilistId: number): Promise<AnilistHe
   const customLogo = CUSTOM_TITLE_LOGOS[anilistId] || null;
   const artworkTier = process.env.FANART_TV_API_KEY?.trim() ? "fanart" : "base";
   const cached = await cacheFetch(
-    `anizip:hero-assets:v4:${artworkTier}:${anilistId}`,
+    `anizip:hero-assets:v5:${artworkTier}:${anilistId}`,
     async () => {
       let assets = await fetchDirectAssets(anilistId, true).catch(() => EMPTY_ASSETS);
       let relationId = anilistId;
