@@ -14,6 +14,17 @@ const ANILIST_REQUEST_TIMEOUT_MS = 12_000;
 const DEFAULT_ANILIST_USER_AGENT = "Tatakai/1.0 (Next.js server; AniList catalog integration)";
 const ANILIST_OUTAGE_COOLDOWN_MS = 2 * 60 * 1000;
 
+// Anime catalog data does not need second-by-second freshness. Keeping a
+// four-hour fresh window dramatically reduces upstream and KV traffic, while
+// stale-while-revalidate plus a long hard expiry keeps the site usable during
+// extended AniList/Jikan outages.
+const CATALOG_FRESH_MS = 4 * 60 * 60 * 1000;
+const CATALOG_STALE_MS = 7 * 24 * 60 * 60 * 1000;
+const CATALOG_EXPIRE_MS = 30 * 24 * 60 * 60 * 1000;
+const SEARCH_FRESH_MS = 4 * 60 * 60 * 1000;
+const SEARCH_STALE_MS = 12 * 60 * 60 * 1000;
+const SEARCH_EXPIRE_MS = 24 * 60 * 60 * 1000;
+
 let anilistUnavailableUntil = 0;
 let anilistUnavailableMessage = "AniList is temporarily unavailable";
 
@@ -532,6 +543,25 @@ function getCurrentSeason(): { season: string; year: number } {
 }
 
 const JIKAN_URL = "https://api.jikan.moe/v4";
+const KITSU_URL = "https://kitsu.io/api/edge";
+const JIKAN_OUTAGE_COOLDOWN_MS = 30 * 1000;
+const JIKAN_REQUEST_SPACING_MS = 400;
+
+let jikanUnavailableUntil = 0;
+let jikanRequestSchedule: Promise<void> = Promise.resolve();
+let jikanNextRequestAt = 0;
+
+async function waitForJikanRequestSlot(): Promise<void> {
+  const scheduled = jikanRequestSchedule.then(async () => {
+    const waitMs = Math.max(0, jikanNextRequestAt - Date.now());
+    if (waitMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+    jikanNextRequestAt = Date.now() + JIKAN_REQUEST_SPACING_MS;
+  });
+  jikanRequestSchedule = scheduled.catch(() => undefined);
+  await scheduled;
+}
 
 function shouldUseJikanFallback(error: unknown): boolean {
   if (error instanceof AnilistApiError) {
@@ -581,20 +611,14 @@ async function withCatalogFallback<T>(
   }
 }
 
-function emptyPageInfo(page: number, perPage: number): AnilistPageInfo {
-  return {
-    total: 0,
-    currentPage: page,
-    lastPage: page,
-    hasNextPage: false,
-    perPage,
-  };
-}
-
 async function jikanRequest<T>(
   path: string,
   params?: Record<string, string | number | undefined>,
 ): Promise<T> {
+  if (jikanUnavailableUntil > Date.now()) {
+    throw new Error("Jikan API temporarily unavailable (outage circuit)");
+  }
+
   const url = new URL(`${JIKAN_URL}${path}`);
   for (const [key, value] of Object.entries(params || {})) {
     if (value === undefined || value === "") continue;
@@ -602,7 +626,11 @@ async function jikanRequest<T>(
   }
 
   let lastError: Error | null = null;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 1; attempt += 1) {
+    await waitForJikanRequestSlot();
+    if (jikanUnavailableUntil > Date.now()) {
+      throw new Error("Jikan API temporarily unavailable (outage circuit)");
+    }
     const res = await fetch(url.toString(), {
       method: "GET",
       headers: {
@@ -618,16 +646,10 @@ async function jikanRequest<T>(
     }
 
     lastError = new Error(`Jikan API error: ${res.status}`);
-    const shouldRetry = res.status === 429 || res.status >= 500;
-    if (!shouldRetry || attempt === 2) {
-      throw lastError;
+    if (res.status === 429 || res.status >= 500) {
+      jikanUnavailableUntil = Date.now() + JIKAN_OUTAGE_COOLDOWN_MS;
     }
-
-    const retryAfterSeconds = Number(res.headers.get("retry-after") || 0);
-    const waitMs = retryAfterSeconds > 0
-      ? retryAfterSeconds * 1000
-      : 750 * (attempt + 1);
-    await new Promise((resolve) => setTimeout(resolve, waitMs));
+    throw lastError;
   }
 
   throw lastError || new Error("Jikan request failed");
@@ -955,9 +977,8 @@ async function searchJikanAnime(options: {
 }
 
 async function getJikanTrending(perPage: number): Promise<AnilistMedia[]> {
-  const response = await jikanRequest<{ data?: unknown[] }>("/anime", {
-    order_by: "members",
-    sort: "desc",
+  const response = await jikanRequest<{ data?: unknown[] }>("/top/anime", {
+    filter: "airing",
     page: 1,
     limit: perPage,
     sfw: "true",
@@ -1001,6 +1022,8 @@ async function getJikanGenreNames(): Promise<string[]> {
     .filter(Boolean);
 }
 
+// Retained for MAL-ID detail recovery without exposing it as the AniList-ID fallback.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function getJikanDetail(id: number): Promise<AnilistDetailMedia> {
   const [fullResponse, charactersResponse, recommendationsResponse] = await Promise.all([
     jikanRequest<{ data?: unknown }>(`/anime/${id}/full`),
@@ -1111,9 +1134,10 @@ export async function getAnilistTrending(perPage = 10): Promise<AnilistMedia[]> 
         return normalizeAnilistMediaCollection(data?.trending?.media);
       },
       {
-        freshMs: 5 * 60 * 1000,
-        staleMs: 30 * 60 * 1000,
-        expireMs: 60 * 60 * 1000,
+        freshMs: CATALOG_FRESH_MS,
+        staleMs: CATALOG_STALE_MS,
+        expireMs: CATALOG_EXPIRE_MS,
+        refreshStale: true,
         shouldCache: (value) => Array.isArray(value) && value.length > 0,
       },
     ),
@@ -1121,13 +1145,19 @@ export async function getAnilistTrending(perPage = 10): Promise<AnilistMedia[]> 
       `jikan:trending:${perPage}`,
       () => getJikanTrending(perPage),
       {
-        freshMs: 5 * 60 * 1000,
-        staleMs: 30 * 60 * 1000,
-        expireMs: 60 * 60 * 1000,
+        freshMs: CATALOG_FRESH_MS,
+        staleMs: CATALOG_STALE_MS,
+        expireMs: CATALOG_EXPIRE_MS,
+        refreshStale: true,
         shouldCache: (value) => Array.isArray(value) && value.length > 0,
       },
     ),
-    () => [],
+    () => searchKitsuAnime({
+      perPage,
+      status: "RELEASING",
+      seasonYear: new Date().getFullYear(),
+      sort: ["POPULARITY_DESC"],
+    }).then((result) => result.media),
   );
 }
 
@@ -1147,9 +1177,10 @@ export async function getAnilistSeasonal(perPage = 20): Promise<AnilistMedia[]> 
         return normalizeAnilistMediaCollection(data?.seasonal?.media);
       },
       {
-        freshMs: 5 * 60 * 1000,
-        staleMs: 30 * 60 * 1000,
-        expireMs: 60 * 60 * 1000,
+        freshMs: CATALOG_FRESH_MS,
+        staleMs: CATALOG_STALE_MS,
+        expireMs: CATALOG_EXPIRE_MS,
+        refreshStale: true,
         shouldCache: (value) => Array.isArray(value) && value.length > 0,
       },
     ),
@@ -1157,13 +1188,19 @@ export async function getAnilistSeasonal(perPage = 20): Promise<AnilistMedia[]> 
       `jikan:seasonal:${season}:${year}:${perPage}`,
       () => getJikanSeasonal(perPage),
       {
-        freshMs: 5 * 60 * 1000,
-        staleMs: 30 * 60 * 1000,
-        expireMs: 60 * 60 * 1000,
+        freshMs: CATALOG_FRESH_MS,
+        staleMs: CATALOG_STALE_MS,
+        expireMs: CATALOG_EXPIRE_MS,
+        refreshStale: true,
         shouldCache: (value) => Array.isArray(value) && value.length > 0,
       },
     ),
-    () => [],
+    () => searchKitsuAnime({
+      perPage,
+      status: "RELEASING",
+      seasonYear: year,
+      sort: ["POPULARITY_DESC"],
+    }).then((result) => result.media),
   );
 }
 
@@ -1180,9 +1217,10 @@ export async function getAnilistPopular(perPage = 20): Promise<AnilistMedia[]> {
         return normalizeAnilistMediaCollection(data?.popular?.media);
       },
       {
-        freshMs: 5 * 60 * 1000,
-        staleMs: 30 * 60 * 1000,
-        expireMs: 60 * 60 * 1000,
+        freshMs: CATALOG_FRESH_MS,
+        staleMs: CATALOG_STALE_MS,
+        expireMs: CATALOG_EXPIRE_MS,
+        refreshStale: true,
         shouldCache: (value) => Array.isArray(value) && value.length > 0,
       },
     ),
@@ -1190,13 +1228,19 @@ export async function getAnilistPopular(perPage = 20): Promise<AnilistMedia[]> {
       `jikan:popular:${perPage}`,
       () => getJikanPopular(perPage),
       {
-        freshMs: 5 * 60 * 1000,
-        staleMs: 30 * 60 * 1000,
-        expireMs: 60 * 60 * 1000,
+        freshMs: CATALOG_FRESH_MS,
+        staleMs: CATALOG_STALE_MS,
+        expireMs: CATALOG_EXPIRE_MS,
+        refreshStale: true,
         shouldCache: (value) => Array.isArray(value) && value.length > 0,
       },
     ),
-    () => [],
+    () => searchKitsuAnime({
+      perPage,
+      status: "RELEASING",
+      seasonYear: new Date().getFullYear(),
+      sort: ["POPULARITY_DESC"],
+    }).then((result) => result.media),
   );
 }
 
@@ -1254,9 +1298,9 @@ export async function searchAnilist(options: {
         };
       },
       {
-        freshMs: 5 * 60 * 1000,
-        staleMs: 20 * 60 * 1000,
-        expireMs: 45 * 60 * 1000,
+        freshMs: SEARCH_FRESH_MS,
+        staleMs: SEARCH_STALE_MS,
+        expireMs: SEARCH_EXPIRE_MS,
         persistent: false,
         shouldCache: (value) =>
           Boolean(
@@ -1270,9 +1314,9 @@ export async function searchAnilist(options: {
       `jikan:${cacheKey}`,
       () => searchJikanAnime(options),
       {
-        freshMs: 5 * 60 * 1000,
-        staleMs: 20 * 60 * 1000,
-        expireMs: 45 * 60 * 1000,
+        freshMs: SEARCH_FRESH_MS,
+        staleMs: SEARCH_STALE_MS,
+        expireMs: SEARCH_EXPIRE_MS,
         persistent: false,
         shouldCache: (value) =>
           Boolean(
@@ -1282,7 +1326,17 @@ export async function searchAnilist(options: {
           ),
       },
     ),
-    () => ({ media: [], pageInfo: emptyPageInfo(page, perPage) }),
+    () => cacheFetch(
+      `kitsu:${cacheKey}`,
+      () => searchKitsuAnime(options),
+      {
+        freshMs: SEARCH_FRESH_MS,
+        staleMs: SEARCH_STALE_MS,
+        expireMs: SEARCH_EXPIRE_MS,
+        persistent: false,
+        shouldCache: (value) => Boolean(value && Array.isArray((value as { media?: unknown[] }).media)),
+      },
+    ),
   );
 
   const shortQuery = normalizeCatalogSearchText(options.search || "");
@@ -1342,8 +1396,293 @@ export async function getAnilistGenres(): Promise<string[]> {
         shouldCache: (value) => Array.isArray(value) && value.length > 0,
       },
     ),
-    () => [],
+    () => cacheFetch(
+      "kitsu:genres",
+      () => getKitsuGenres(),
+      {
+        freshMs: 12 * 60 * 60 * 1000,
+        staleMs: 24 * 60 * 60 * 1000,
+        expireMs: 3 * 24 * 60 * 60 * 1000,
+        shouldCache: (value) => Array.isArray(value) && value.length > 0,
+      },
+    ),
   );
+}
+
+async function kitsuRequest<T>(
+  path: string,
+  params?: Record<string, string | number | undefined>,
+): Promise<T> {
+  const url = new URL(`${KITSU_URL}${path}`);
+  for (const [key, value] of Object.entries(params || {})) {
+    if (value === undefined || value === "") continue;
+    url.searchParams.set(key, String(value));
+  }
+
+  const res = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      Accept: "application/vnd.api+json",
+      "User-Agent": process.env.ANILIST_USER_AGENT || DEFAULT_ANILIST_USER_AGENT,
+    },
+    cache: "no-store",
+    signal: AbortSignal.timeout(ANILIST_REQUEST_TIMEOUT_MS),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Kitsu API error: ${res.status}`);
+  }
+
+  return await res.json() as T;
+}
+
+function mapKitsuStatus(status: string): string {
+  switch (status.trim().toLowerCase()) {
+    case "current":
+      return "RELEASING";
+    case "finished":
+      return "FINISHED";
+    case "tba":
+    case "unreleased":
+    case "upcoming":
+      return "NOT_YET_RELEASED";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+function mapKitsuFormat(subtype: string): string {
+  const normalized = subtype.trim().toUpperCase();
+  return normalized === "TV" || normalized === "MOVIE" || normalized === "SPECIAL" ||
+    normalized === "OVA" || normalized === "ONA" || normalized === "MUSIC"
+    ? normalized
+    : "UNKNOWN";
+}
+
+function parseKitsuDate(value: unknown): { year: number | null; month: number | null; day: number | null } {
+  const date = asString(value);
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(date);
+  return match
+    ? { year: Number(match[1]), month: Number(match[2]), day: Number(match[3]) }
+    : { year: null, month: null, day: null };
+}
+
+function estimateKitsuNextEpisode(
+  startDate: { year: number | null; month: number | null; day: number | null },
+  nextReleaseValue: unknown,
+  episodeCount: number | null,
+): { episode: number; airingAt: number } | null {
+  const nextRelease = Date.parse(asString(nextReleaseValue));
+  if (!Number.isFinite(nextRelease) || nextRelease <= 0) return null;
+
+  let episode = 1;
+  if (startDate.year && startDate.month && startDate.day) {
+    const premiere = Date.UTC(startDate.year, startDate.month - 1, startDate.day);
+    if (nextRelease >= premiere) {
+      episode = Math.floor((nextRelease - premiere) / (7 * 24 * 60 * 60 * 1000)) + 1;
+    }
+  }
+  if (episodeCount && episodeCount > 0) episode = Math.min(episode, episodeCount);
+
+  return {
+    episode: Math.max(1, episode),
+    airingAt: Math.floor(nextRelease / 1000),
+  };
+}
+
+function normalizeKitsuMediaCollection(
+  values: unknown[],
+  includedValues: unknown[],
+): AnilistMedia[] {
+  const included = includedValues
+    .map((value) => asObject(value))
+    .filter((value): value is Record<string, unknown> => Boolean(value));
+  const includedByKey = new Map(
+    included.map((value) => [`${asString(value.type)}:${asString(value.id)}`, value]),
+  );
+
+  const media = values.flatMap((value): AnilistMedia[] => {
+    const anime = asObject(value);
+    const attributes = asObject(anime?.attributes);
+    const relationships = asObject(anime?.relationships);
+    if (!anime || !attributes || !relationships) return [];
+
+    const mappingsRelationship = asObject(relationships.mappings);
+    const mappingRefs = Array.isArray(mappingsRelationship?.data) ? mappingsRelationship.data : [];
+    let anilistId = 0;
+    let malId: number | null = null;
+    for (const reference of mappingRefs) {
+      const ref = asObject(reference);
+      const mapping = includedByKey.get(`mappings:${asString(ref?.id)}`);
+      const mappingAttributes = asObject(mapping?.attributes);
+      const site = asString(mappingAttributes?.externalSite);
+      const externalId = Number(asString(mappingAttributes?.externalId));
+      if (!Number.isFinite(externalId) || externalId <= 0) continue;
+      if (site === "anilist/anime") anilistId = externalId;
+      if (site === "myanimelist/anime") malId = externalId;
+    }
+    if (anilistId <= 0) return [];
+
+    const genresRelationship = asObject(relationships.genres);
+    const genreRefs = Array.isArray(genresRelationship?.data) ? genresRelationship.data : [];
+    const genres = genreRefs
+      .map((reference) => asObject(reference))
+      .map((reference) => includedByKey.get(`genres:${asString(reference?.id)}`))
+      .map((genre) => asString(asObject(genre?.attributes)?.name))
+      .filter(Boolean);
+    const titles = asObject(attributes.titles);
+    const posterImage = asObject(attributes.posterImage);
+    const coverImage = asObject(attributes.coverImage);
+    const canonicalTitle = asString(attributes.canonicalTitle) || `Anime ${anilistId}`;
+    const englishTitle = asNullableString(titles?.en) || asNullableString(titles?.en_us);
+    const romajiTitle = asString(titles?.en_jp) || englishTitle || canonicalTitle;
+    const nativeTitle = asString(titles?.ja_jp) || romajiTitle;
+    const rating = Number(asString(attributes.averageRating));
+    const startDate = parseKitsuDate(attributes.startDate);
+    const endDate = parseKitsuDate(attributes.endDate);
+    const episodeCount = asNullableNumber(attributes.episodeCount);
+    const nextAiringEpisode = estimateKitsuNextEpisode(startDate, attributes.nextRelease, episodeCount);
+    const slug = asString(attributes.slug);
+
+    return [{
+      id: anilistId,
+      idMal: malId,
+      title: { romaji: romajiTitle, english: englishTitle, native: nativeTitle },
+      synonyms: asStringArray(attributes.abbreviatedTitles),
+      coverImage: {
+        extraLarge: asString(posterImage?.original) || asString(posterImage?.large),
+        large: asString(posterImage?.large) || asString(posterImage?.original),
+        medium: asString(posterImage?.medium) || asString(posterImage?.small),
+        color: null,
+      },
+      bannerImage: asNullableString(coverImage?.original) || asNullableString(coverImage?.large),
+      description: asNullableString(attributes.synopsis) || asNullableString(attributes.description),
+      genres,
+      averageScore: Number.isFinite(rating) ? Math.round(rating) : null,
+      meanScore: Number.isFinite(rating) ? Math.round(rating) : null,
+      popularity: asNumber(attributes.userCount, 0),
+      trending: asNumber(attributes.favoritesCount, 0),
+      episodes: episodeCount,
+      status: mapKitsuStatus(asString(attributes.status)),
+      format: mapKitsuFormat(asString(attributes.subtype)),
+      season: null,
+      seasonYear: startDate.year,
+      startDate,
+      endDate,
+      countryOfOrigin: "JP",
+      duration: asNullableNumber(attributes.episodeLength),
+      siteUrl: slug ? `https://kitsu.app/anime/${slug}` : null,
+      externalLinks: [],
+      studios: { nodes: [] },
+      nextAiringEpisode,
+      trailer: asString(attributes.youtubeVideoId)
+        ? { id: asString(attributes.youtubeVideoId), site: "YOUTUBE" }
+        : null,
+      isAdult: Boolean(attributes.nsfw),
+    }];
+  });
+
+  return normalizeAnilistMediaCollection(media);
+}
+
+function kitsuStatusParam(status?: string): string | undefined {
+  switch ((status || "").toUpperCase()) {
+    case "RELEASING":
+      return "current";
+    case "FINISHED":
+      return "finished";
+    case "NOT_YET_RELEASED":
+      return "upcoming";
+    default:
+      return undefined;
+  }
+}
+
+async function searchKitsuAnime(options: {
+  search?: string;
+  page?: number;
+  perPage?: number;
+  sort?: string[];
+  status?: string;
+  format?: string;
+  seasonYear?: number;
+}): Promise<{ media: AnilistMedia[]; pageInfo: AnilistPageInfo }> {
+  const page = Math.max(1, options.page || 1);
+  const requestedPerPage = Math.max(1, options.perPage || 24);
+  const limit = Math.min(20, requestedPerPage);
+  const sort = (options.sort || []).join(",");
+  const response = await kitsuRequest<{
+    data?: unknown[];
+    included?: unknown[];
+    meta?: { count?: number };
+    links?: { next?: string };
+  }>("/anime", {
+    "filter[text]": options.search || undefined,
+    "filter[status]": kitsuStatusParam(options.status),
+    "filter[subtype]": options.format ? options.format.toUpperCase() : undefined,
+    "filter[seasonYear]": options.seasonYear,
+    "page[limit]": limit,
+    "page[offset]": (page - 1) * limit,
+    include: "mappings,genres",
+    sort: sort.includes("SCORE") ? "-averageRating" : sort.includes("START_DATE") ? "-startDate" : "-userCount",
+  });
+  const media = normalizeKitsuMediaCollection(response.data || [], response.included || []);
+  const total = Math.max(media.length, asNumber(response.meta?.count, media.length));
+
+  return {
+    media,
+    pageInfo: {
+      total,
+      currentPage: page,
+      lastPage: Math.max(1, Math.ceil(total / limit)),
+      hasNextPage: Boolean(response.links?.next),
+      perPage: requestedPerPage,
+    },
+  };
+}
+
+async function getKitsuGenres(): Promise<string[]> {
+  const response = await kitsuRequest<{ data?: unknown[] }>("/genres", { "page[limit]": 20 });
+  return (response.data || [])
+    .map((value) => asObject(value))
+    .map((genre) => asString(asObject(genre?.attributes)?.name))
+    .filter(Boolean);
+}
+
+async function getKitsuDetailByAnilistId(id: number): Promise<AnilistDetailMedia> {
+  const response = await kitsuRequest<{ data?: unknown[]; included?: unknown[] }>("/mappings", {
+    "filter[externalSite]": "anilist/anime",
+    "filter[externalId]": id,
+    include: "item",
+  });
+  const mappingRefs = (response.data || [])
+    .map((value) => asObject(value))
+    .filter((value): value is Record<string, unknown> => Boolean(value))
+    .map((value) => ({ type: "mappings", id: asString(value.id) }));
+  const anime = (response.included || [])
+    .filter((value) => asString(asObject(value)?.type) === "anime")
+    .map((value) => {
+      const entry = asObject(value) || {};
+      const relationships = asObject(entry.relationships) || {};
+      return {
+        ...entry,
+        relationships: {
+          ...relationships,
+          mappings: { data: mappingRefs },
+        },
+      };
+    });
+  const media = normalizeKitsuMediaCollection(anime, [
+    ...(response.included || []),
+    ...(response.data || []),
+  ])[0];
+  if (!media) throw new Error(`Kitsu detail not found for AniList ${id}`);
+  return {
+    ...media,
+    characters: { nodes: [] },
+    relations: { edges: [] },
+    recommendations: { nodes: [] },
+  };
 }
 
 export interface AnilistDetailMedia extends AnilistMedia {
@@ -1434,19 +1773,20 @@ export function buildAnilistSeasonEntries(detail: AnilistDetailMedia): AnilistSe
 
 export const getAnilistDetail = cache(async (id: number): Promise<AnilistDetailMedia> => {
   return cacheFetch(
-    `anilist:detail:${id}`,
+    `anilist:detail:v2:${id}`,
     () => withCatalogFallback(
       "detail",
       async () => {
         const data = await anilistQuery<{ Media: AnilistDetailMedia }>(ANIME_DETAIL_QUERY, { id });
         return data.Media;
       },
-      () => getJikanDetail(id),
+      () => getKitsuDetailByAnilistId(id),
     ),
     {
-      freshMs: 15 * 60 * 1000,
-      staleMs: 6 * 60 * 60 * 1000,
-      expireMs: 24 * 60 * 60 * 1000,
+      freshMs: CATALOG_FRESH_MS,
+      staleMs: CATALOG_STALE_MS,
+      expireMs: CATALOG_EXPIRE_MS,
+      refreshStale: true,
       shouldCache: (value) => Boolean((value as AnilistDetailMedia | null)?.id),
     },
   );
@@ -1556,43 +1896,86 @@ export interface AnilistAiringScheduleEntry {
 export const getWeeklyAiringSchedule = cache(
   async (start: number, end: number): Promise<AnilistAiringScheduleEntry[]> => {
     try {
-      let schedules: any[] = [];
-      let currentPage = 1;
-      const MAX_PAGES = 6;
+      return await cacheFetch(
+        `anilist:airing-schedule:${start}:${end}`,
+        async () => {
+          let schedules: AnilistAiringScheduleEntry[] = [];
+          let currentPage = 1;
+          const MAX_PAGES = 6;
 
-      while (currentPage <= MAX_PAGES) {
-        const res = await anilistQuery<{
-          Page: {
-            pageInfo: { hasNextPage: boolean };
-            airingSchedules: any[];
-          };
-        }>(WEEKLY_AIRING_SCHEDULE_QUERY, { start, end, page: currentPage });
+          while (currentPage <= MAX_PAGES) {
+            const res = await anilistQuery<{
+              Page: {
+                pageInfo: { hasNextPage: boolean };
+                airingSchedules: AnilistAiringScheduleEntry[];
+              };
+            }>(WEEKLY_AIRING_SCHEDULE_QUERY, { start, end, page: currentPage });
 
-        const items = res?.Page?.airingSchedules || [];
-        schedules = schedules.concat(items);
+            const items = res?.Page?.airingSchedules || [];
+            schedules = schedules.concat(items);
 
-        if (!res?.Page?.pageInfo?.hasNextPage || items.length === 0) {
-          break;
-        }
-        currentPage++;
-      }
+            if (!res?.Page?.pageInfo?.hasNextPage || items.length === 0) {
+              break;
+            }
+            currentPage++;
+          }
 
-      return schedules
-        .map((item) => {
-          const normalizedMedia = normalizeAnilistMediaEntry(item.media);
-          if (!normalizedMedia) return null;
-          return {
-            id: asNumber(item.id),
-            airingAt: asNumber(item.airingAt),
-            timeUntilAiring: asNumber(item.timeUntilAiring),
-            episode: asNumber(item.episode),
-            media: normalizedMedia,
-          };
-        })
-        .filter((entry): entry is AnilistAiringScheduleEntry => entry !== null);
+          return schedules
+            .map((item) => {
+              const normalizedMedia = normalizeAnilistMediaEntry(item.media);
+              if (!normalizedMedia) return null;
+              return {
+                id: asNumber(item.id),
+                airingAt: asNumber(item.airingAt),
+                timeUntilAiring: asNumber(item.timeUntilAiring),
+                episode: asNumber(item.episode),
+                media: normalizedMedia,
+              };
+            })
+            .filter((entry): entry is AnilistAiringScheduleEntry => entry !== null);
+        },
+        {
+          freshMs: CATALOG_FRESH_MS,
+          staleMs: CATALOG_STALE_MS,
+          expireMs: CATALOG_EXPIRE_MS,
+          refreshStale: true,
+          shouldCache: (value) => Array.isArray(value) && value.length > 0,
+        },
+      );
     } catch (err) {
-      console.error("Error fetching weekly airing schedule:", err);
-      return [];
+      recordLog("warn", "anilist.fallback.used", {
+        scope: "airing_schedule",
+      }, err instanceof Error ? err.message : String(err));
+
+      return cacheFetch(
+        `kitsu:airing-schedule:v2:${start}:${end}`,
+        async () => {
+          const result = await searchKitsuAnime({
+            status: "RELEASING",
+            perPage: 20,
+            sort: ["POPULARITY_DESC"],
+          });
+          const nowSeconds = Math.floor(Date.now() / 1000);
+          return result.media.flatMap((media): AnilistAiringScheduleEntry[] => {
+            const next = media.nextAiringEpisode;
+            if (!next || next.airingAt < start || next.airingAt > end) return [];
+            return [{
+              id: media.id,
+              airingAt: next.airingAt,
+              timeUntilAiring: Math.max(0, next.airingAt - nowSeconds),
+              episode: next.episode,
+              media,
+            }];
+          });
+        },
+        {
+          freshMs: CATALOG_FRESH_MS,
+          staleMs: CATALOG_STALE_MS,
+          expireMs: CATALOG_EXPIRE_MS,
+          refreshStale: true,
+          shouldCache: (value) => Array.isArray(value) && value.length > 0,
+        },
+      ).catch(() => []);
     }
   }
 );

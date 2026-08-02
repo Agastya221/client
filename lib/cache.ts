@@ -53,6 +53,12 @@ export interface CacheOptions {
    * The process-local L1 cache remains active either way.
    */
   persistent?: boolean;
+  /**
+   * Return a stale value immediately and refresh it after the response.
+   * Refreshes are coalesced per process and failed refreshes never replace the
+   * last-known-good value.
+   */
+  refreshStale?: boolean;
   shouldCache?: (value: unknown) => boolean;
 }
 
@@ -124,7 +130,7 @@ async function fetchAndMaybeStore<T>(
     expireMs: number;
     persistent: boolean;
     shouldCache?: (value: unknown) => boolean;
-    source: "miss";
+    source: "miss" | "stale";
   },
 ): Promise<T> {
   const existingPromise = inFlight.get(key) as Promise<T> | undefined;
@@ -164,6 +170,37 @@ async function fetchAndMaybeStore<T>(
   return promise;
 }
 
+function scheduleStaleRefresh(task: () => Promise<unknown>): void {
+  const run = async () => {
+    try {
+      await task();
+    } catch {
+      // A stale refresh is best-effort. The valid last-known-good envelope
+      // remains available and the foreground response must not fail.
+    }
+  };
+
+  const refresh = run();
+  try {
+    const requestContextStore = (
+      globalThis as unknown as Record<symbol, {
+        get?: () => { waitUntil?: (promise: Promise<unknown>) => void } | undefined;
+      } | undefined>
+    )[Symbol.for("@next/request-context")];
+    const waitUntil = requestContextStore?.get?.()?.waitUntil;
+    if (waitUntil) {
+      waitUntil(refresh);
+      return;
+    }
+  } catch {
+    // Non-Next callers do not expose a request lifecycle.
+  }
+
+  // The promise is already running and intentionally does not block stale
+  // responses in tests, scripts, or runtimes without waitUntil support.
+  void refresh;
+}
+
 /** Get-or-fetch with memory-first, KV-backed stale-until-expiry semantics. */
 export async function cacheFetch<T>(
   key: string,
@@ -174,6 +211,7 @@ export async function cacheFetch<T>(
   const staleMs = options?.staleMs ?? DEFAULT_STALE_MS;
   const expireMs = options?.expireMs ?? DEFAULT_EXPIRE_MS;
   const persistent = options?.persistent ?? true;
+  const refreshStale = options?.refreshStale ?? false;
   const shouldCache = options?.shouldCache;
   const namespace = cacheNamespace(key);
   const now = Date.now();
@@ -192,8 +230,16 @@ export async function cacheFetch<T>(
       return memoryValue.data;
     } else {
       recordCounter("cache.hit", 1, { namespace, state: "memory-stale" });
-      // Serve the valid stale value until hard expiry. Refreshing on every
-      // serverless stale hit caused many instances to rewrite the same KV key.
+      if (refreshStale) {
+        scheduleStaleRefresh(() => fetchAndMaybeStore(key, namespace, fetcher, {
+          freshMs,
+          staleMs,
+          expireMs,
+          persistent,
+          shouldCache,
+          source: "stale",
+        }));
+      }
       return memoryValue.data;
     }
   }
@@ -226,6 +272,16 @@ export async function cacheFetch<T>(
     } else {
       store.set(key, kvValue);
       recordCounter("cache.hit", 1, { namespace, state: "kv-stale" });
+      if (refreshStale) {
+        scheduleStaleRefresh(() => fetchAndMaybeStore(key, namespace, fetcher, {
+          freshMs,
+          staleMs,
+          expireMs,
+          persistent,
+          shouldCache,
+          source: "stale",
+        }));
+      }
       return kvValue.data;
     }
   }

@@ -42,7 +42,7 @@ test("cacheStore immediately warms memory without waiting for KV", async () => {
   assert.equal(fetchCount, 0);
 });
 
-test("cacheFetch serves stale data without rewriting it before hard expiry", async () => {
+test("cacheFetch serves stale data without refreshing unless explicitly enabled", async () => {
   const key = `test-cache:stale-hit:${Date.now()}:${Math.random()}`;
   let fetchCount = 0;
   const options = {
@@ -69,6 +69,71 @@ test("cacheFetch serves stale data without rewriting it before hard expiry", asy
   assert.deepEqual(first, { value: 1 });
   assert.deepEqual(stale, { value: 1 });
   assert.equal(fetchCount, 1);
+});
+
+test("cacheFetch returns stale data immediately and coalesces an enabled refresh", async () => {
+  const key = `test-cache:stale-refresh:${Date.now()}:${Math.random()}`;
+  let fetchCount = 0;
+  let releaseRefresh: (() => void) | undefined;
+  const refreshGate = new Promise<void>((resolve) => {
+    releaseRefresh = resolve;
+  });
+  const options = {
+    freshMs: 1,
+    staleMs: 1_000,
+    expireMs: 1_000,
+    persistent: false,
+    refreshStale: true,
+  };
+
+  const first = await cacheFetch(key, async () => {
+    fetchCount += 1;
+    return { value: fetchCount };
+  }, options);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  const refreshFetcher = async () => {
+    fetchCount += 1;
+    await refreshGate;
+    return { value: fetchCount };
+  };
+  const staleOne = await cacheFetch(key, refreshFetcher, options);
+  const staleTwo = await cacheFetch(key, refreshFetcher, options);
+
+  assert.deepEqual(first, { value: 1 });
+  assert.deepEqual(staleOne, { value: 1 });
+  assert.deepEqual(staleTwo, { value: 1 });
+  assert.equal(fetchCount, 2, "stale refreshes should be coalesced");
+
+  releaseRefresh?.();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const refreshed = await cacheFetch(key, async () => ({ value: 99 }), options);
+  assert.deepEqual(refreshed, { value: 2 });
+});
+
+test("a failed stale refresh keeps the last-known-good value", async () => {
+  const key = `test-cache:stale-refresh-failure:${Date.now()}:${Math.random()}`;
+  const options = {
+    freshMs: 1,
+    staleMs: 1_000,
+    expireMs: 1_000,
+    persistent: false,
+    refreshStale: true,
+  };
+
+  await cacheFetch(key, async () => ({ value: "known-good" }), options);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const stale = await cacheFetch(key, async () => {
+    throw new Error("upstream unavailable");
+  }, options);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const retained = await cacheFetch(key, async () => ({ value: "unexpected" }), {
+    ...options,
+    refreshStale: false,
+  });
+
+  assert.deepEqual(stale, { value: "known-good" });
+  assert.deepEqual(retained, { value: "known-good" });
 });
 
 test("memory-only cache entries never call the persistent KV transport", async () => {

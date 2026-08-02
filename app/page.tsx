@@ -240,10 +240,15 @@ export default async function Home({
     Array.isArray(query.view) ? query.view[0] : query.view
   ) === "browse" ? "browse" : "home";
 
-  const isUnreleased = (m: AnilistMedia) =>
-    m.status === "NOT_YET_RELEASED" ||
-    m.status === "Upcoming" ||
-    (!m.nextAiringEpisode && m.startDate && m.startDate.year && m.startDate.year >= 2026);
+  const isUnreleased = (m: AnilistMedia) => {
+    const status = String(m.status || "").toUpperCase().replace(/[ -]+/g, "_");
+    if (status === "NOT_YET_RELEASED" || status === "UPCOMING") return true;
+    if (status === "RELEASING" || status === "FINISHED") return false;
+
+    const { year, month, day } = m.startDate || {};
+    if (!year || !month || !day) return false;
+    return Date.UTC(year, month - 1, day) > Date.now();
+  };
 
   // 1. Pure Coming Soon media
   const upcomingRaw = upcomingResult.media || [];
@@ -254,7 +259,7 @@ export default async function Home({
 
   // 2. Filter out unreleased anime from other rails
   const trending = trendingRaw.filter((m) => !isUnreleased(m));
-  const airingMedia = airingResult.media.filter((media) => media.nextAiringEpisode && !isUnreleased(media));
+  const airingMedia = airingResult.media.filter((media) => !isUnreleased(media));
   const popular = airingMedia.slice(0, 8);
   const upcoming = upcomingResult.media.slice(0, 5);
   const airingScheduleDays = buildAiringScheduleDays(airingMedia);

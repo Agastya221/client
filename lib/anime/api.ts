@@ -2,7 +2,7 @@ import { cache } from "react";
 import { Prisma } from "@prisma/client";
 import { cacheFetch, cacheInvalidatePrefix } from "@/lib/cache";
 import { measureAsync, recordCounter, recordLog } from "@/lib/observability";
-import { anilistTitle, getAnilistDetail } from "@/lib/anilist/api";
+import { anilistTitle, getAnilistDetail, type AnilistMedia } from "@/lib/anilist/api";
 import { decryptEmbed } from "./reanime-decrypt";
 import { normalizeEpisodeDescription, type EpisodeDisplayMetadata } from "./episode-metadata";
 import {
@@ -834,9 +834,7 @@ const getAnilistSeedAnime = cache(async function getAnilistSeedAnime(anilistId: 
 } | null> {
   try {
     const media = await getAnilistDetail(anilistId);
-    const airedEpisodeCount = media.status === "RELEASING" && media.nextAiringEpisode
-      ? Math.max(0, media.nextAiringEpisode.episode - 1)
-      : media.episodes;
+    const airedEpisodeCount = await resolveAiredEpisodeCount(media);
     const title = anilistTitle(media);
     return {
       anime: normalizeBaseAnime({
@@ -2998,23 +2996,7 @@ export async function getAnimeDetailOverviewModel(
 async function buildSyntheticEpisodesFromAnilist(anilistId: number): Promise<EpisodeModel[]> {
   try {
     const media = await getAnilistDetail(anilistId);
-    let episodeCount: number | null = null;
-
-    if (media.status === "NOT_YET_RELEASED") {
-      return [];
-    }
-
-    if (media.status === "RELEASING") {
-      // Never use the planned season total for an airing title. If AniList does
-      // not expose a next-airing record yet, the safe episode list is empty.
-      const nextEp = media.nextAiringEpisode?.episode ?? 0;
-      episodeCount = nextEp > 1 ? nextEp - 1 : 0;
-    }
-
-    // Finished titles can safely use the final episode total.
-    if (episodeCount === null && media.episodes && media.episodes > 0) {
-      episodeCount = media.episodes;
-    }
+    let episodeCount = await resolveAiredEpisodeCount(media);
 
     // Unknown metadata must not manufacture an unaired episode.
     if (episodeCount === null || episodeCount <= 0) {
@@ -3197,7 +3179,7 @@ export async function getAnimeDetailModel(
   preferredProvider?: ProviderId | null,
   options: AnimeDetailModelOptions = {},
 ): Promise<AnimeDetailModel> {
-  const cacheKey = `detail-model:${routeId}:${preferredProvider || "auto"}:${options.mergeEpisodeProviders ?? true}`;
+  const cacheKey = `detail-model:v2:${routeId}:${preferredProvider || "auto"}:${options.mergeEpisodeProviders ?? true}`;
   return cacheFetch(
     cacheKey,
     () => _getAnimeDetailModelRaw(routeId, preferredProvider, options),
@@ -4085,6 +4067,37 @@ async function fetchFirstAnivexaAggregateData(
       return aggregate.buckets.some((bucket) => bucket.internal.length > 0 || bucket.embed.length > 0);
     },
   });
+}
+
+async function resolveAiredEpisodeCount(media: AnilistMedia): Promise<number | null> {
+  const status = String(media.status || "").toUpperCase().replace(/[ -]+/g, "_");
+  if (status === "NOT_YET_RELEASED" || status === "UPCOMING") return 0;
+  if (status !== "RELEASING") return media.episodes;
+
+  if (media.nextAiringEpisode?.episode && media.nextAiringEpisode.episode > 1) {
+    return media.nextAiringEpisode.episode - 1;
+  }
+
+  try {
+    const { episodes } = await getAniZipEpisodeBundle(media.id);
+    const now = Date.now() + 12 * 60 * 60 * 1000;
+    const latestDatedEpisode = episodes.reduce((latest, episode) => {
+      const airDate = episode.airDate ? Date.parse(episode.airDate) : Number.NaN;
+      return Number.isFinite(airDate) && airDate <= now ? Math.max(latest, episode.number) : latest;
+    }, 0);
+    if (latestDatedEpisode > 0) return latestDatedEpisode;
+  } catch {
+    // Continue to the bounded weekly estimate below.
+  }
+
+  const { year, month, day } = media.startDate || {};
+  if (!year || !month || !day) return 0;
+  const premiere = Date.UTC(year, month - 1, day);
+  if (premiere > Date.now()) return 0;
+  const weeklyEstimate = Math.floor((Date.now() - premiere) / (7 * 24 * 60 * 60 * 1000)) + 1;
+  return media.episodes && media.episodes > 0
+    ? Math.min(media.episodes, weeklyEstimate)
+    : weeklyEstimate;
 }
 
 export async function getAnivexaEpisodeAvailabilityMetadata(
