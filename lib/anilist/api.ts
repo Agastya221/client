@@ -1893,6 +1893,93 @@ export interface AnilistAiringScheduleEntry {
   media: AnilistMedia;
 }
 
+async function getAniZipScheduleEntries(
+  media: AnilistMedia,
+  start: number,
+  end: number,
+): Promise<AnilistAiringScheduleEntry[]> {
+  try {
+    const response = await fetch(`https://api.ani.zip/mappings?anilist_id=${media.id}`, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": DEFAULT_ANILIST_USER_AGENT,
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) return [];
+
+    const payload = asObject(await response.json());
+    const episodes = asObject(payload?.episodes) || {};
+    const nowSeconds = Math.floor(Date.now() / 1000);
+
+    return Object.values(episodes).flatMap((rawEpisode) => {
+      const episode = asObject(rawEpisode) || {};
+      const episodeNumber = asNumber(episode.episode, asNumber(episode.episodeNumber, 0));
+      const airDate = asString(episode.airDateUtc) || asString(episode.airDate) || asString(episode.airdate);
+      const airingAt = Math.floor(Date.parse(airDate) / 1000);
+      if (
+        !Number.isInteger(episodeNumber) ||
+        episodeNumber <= 0 ||
+        !Number.isFinite(airingAt) ||
+        airingAt < start ||
+        airingAt > end
+      ) {
+        return [];
+      }
+
+      return [{
+        // AniZip does not expose an airing-schedule ID. Keep this stable and
+        // unique per media/episode for React keys and cache serialization.
+        id: media.id * 10_000 + episodeNumber,
+        airingAt,
+        timeUntilAiring: Math.max(0, airingAt - nowSeconds),
+        episode: episodeNumber,
+        media: {
+          ...media,
+          nextAiringEpisode: { episode: episodeNumber, airingAt },
+        },
+      } satisfies AnilistAiringScheduleEntry];
+    });
+  } catch {
+    return [];
+  }
+}
+
+async function getKitsuAiringScheduleFallback(
+  start: number,
+  end: number,
+): Promise<AnilistAiringScheduleEntry[]> {
+  const result = await searchKitsuAnime({
+    status: "RELEASING",
+    perPage: 20,
+    sort: ["POPULARITY_DESC"],
+  });
+
+  const scheduleGroups = await Promise.all(
+    result.media.map(async (media) => {
+      const next = media.nextAiringEpisode;
+      if (next && next.airingAt >= start && next.airingAt <= end) {
+        const nowSeconds = Math.floor(Date.now() / 1000);
+        return [{
+          id: media.id * 10_000 + next.episode,
+          airingAt: next.airingAt,
+          timeUntilAiring: Math.max(0, next.airingAt - nowSeconds),
+          episode: next.episode,
+          media,
+        } satisfies AnilistAiringScheduleEntry];
+      }
+      return getAniZipScheduleEntries(media, start, end);
+    }),
+  );
+
+  const deduplicated = new Map<string, AnilistAiringScheduleEntry>();
+  for (const entry of scheduleGroups.flat()) {
+    deduplicated.set(`${entry.media.id}:${entry.episode}`, entry);
+  }
+  return Array.from(deduplicated.values()).sort((left, right) => left.airingAt - right.airingAt);
+}
+
 export const getWeeklyAiringSchedule = cache(
   async (start: number, end: number): Promise<AnilistAiringScheduleEntry[]> => {
     try {
@@ -1948,26 +2035,8 @@ export const getWeeklyAiringSchedule = cache(
       }, err instanceof Error ? err.message : String(err));
 
       return cacheFetch(
-        `kitsu:airing-schedule:v2:${start}:${end}`,
-        async () => {
-          const result = await searchKitsuAnime({
-            status: "RELEASING",
-            perPage: 20,
-            sort: ["POPULARITY_DESC"],
-          });
-          const nowSeconds = Math.floor(Date.now() / 1000);
-          return result.media.flatMap((media): AnilistAiringScheduleEntry[] => {
-            const next = media.nextAiringEpisode;
-            if (!next || next.airingAt < start || next.airingAt > end) return [];
-            return [{
-              id: media.id,
-              airingAt: next.airingAt,
-              timeUntilAiring: Math.max(0, next.airingAt - nowSeconds),
-              episode: next.episode,
-              media,
-            }];
-          });
-        },
+        `kitsu:airing-schedule:v3:${start}:${end}`,
+        () => getKitsuAiringScheduleFallback(start, end),
         {
           freshMs: CATALOG_FRESH_MS,
           staleMs: CATALOG_STALE_MS,

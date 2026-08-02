@@ -99,3 +99,46 @@ test("TVMaze aligns a sequel entry to its own premiere instead of season one", a
     globalThis.fetch = originalFetch;
   }
 });
+
+test("TVMaze rejects an older franchise when the requested premiere is missing", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async (input) => {
+    const url = new URL(String(input));
+    if (url.hostname === "api.ani.zip") {
+      return Response.json({
+        titles: { en: "Steel Ball Run: JoJo's Bizarre Adventure" },
+        mappings: { thetvdb_id: 262954 },
+        episodes: {
+          "1": {
+            tvdbShowId: 262954,
+            title: { en: "Steel Ball Run" },
+            airDate: "2026-03-19",
+          },
+        },
+      });
+    }
+    if (url.pathname === "/lookup/shows") {
+      return Response.json({ id: 5, name: "JoJo's Bizarre Adventure", premiered: "2012-10-05" });
+    }
+    if (url.pathname === "/shows/5/episodes") {
+      return Response.json([{
+        id: 1,
+        type: "regular",
+        season: 1,
+        number: 1,
+        name: "Dio the Destroyer",
+        airdate: "2012-10-05",
+        image: { original: "https://static.tvmaze.com/old-jojo.jpg" },
+      }]);
+    }
+    return new Response(null, { status: 404 });
+  }) as typeof fetch;
+
+  try {
+    const metadata = await getTvMazeEpisodeMetadataRange(987_654_325, 0);
+    assert.deepEqual(metadata, []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

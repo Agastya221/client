@@ -1703,10 +1703,18 @@ function normalizeTvMazeEpisodePayload(
         smallestPremiereDifference = difference;
       }
     });
+
+    // TVMaze commonly groups an entire franchise under one show ID. If it has
+    // not indexed the AniList entry's actual premiere yet, returning episode 1
+    // from the franchise would attach an older season's title, artwork and air
+    // date to a new anime (for example, 2012 JoJo metadata on 2026 Steel Ball
+    // Run). A missing matching premiere is a metadata miss, not permission to
+    // fall back to the beginning of the linked TVMaze show.
+    if (premiereIndex < 0) return [];
   }
 
   return episodes
-    .slice(Math.max(0, premiereIndex))
+    .slice(premiereIndex >= 0 ? premiereIndex : 0)
     .map((entry, index) => ({
       // TVMaze resets `number` each broadcast year for long-running anime.
       // Chronological regular episodes correspond to the absolute episode run.
