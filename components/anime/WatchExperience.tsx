@@ -252,7 +252,7 @@ function hasDirectPlaybackSource(session: WatchSessionModel): boolean {
    making episode switching feel instant. */
 
 const CUSTOM_EMBED_BASES = ["megaplay", "animeplay", "tryembed", "mostream"] as const;
-const WORKER_PROVIDER_IDS = ["reanime", "allmanga", "anikoto", "animegg", "anineko"] as const;
+const WORKER_PROVIDER_IDS = ["reanime", "anikoto", "animegg", "anineko"] as const;
 
 function isCustomEmbedServer(serverId: string | null): boolean {
   if (!serverId) return false;

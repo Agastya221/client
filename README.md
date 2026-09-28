@@ -8,6 +8,10 @@ This Next.js frontend depends on an anime API backend for home, search, detail, 
 - Production falls back to `https://animeapi-production-5e2c.up.railway.app` if no env var is set.
 - For reliable deployments, set `ANIME_API_BASE_URL` to your own deployed `AnimeAPI` instance.
 
+## Anivexa API
+
+For Anivexa API 2.2.1 on Render, set `ANIVEXA_API_BASE_URL` in the website's server environment to the Render service URL. This overrides the older `NEXT_PUBLIC_ANIVEXA_WORKER_URL` setting and the default Cloudflare Worker URL. The website requests filtered episode catalogs and only advertises providers whose stream formats it currently supports.
+
 ## Getting Started
 
 First, run the development server:
@@ -48,4 +52,4 @@ things to work on to build
 
 - this seasoing  doesn’t show anime from the current season
 - report butttons doesnt nothing so fix that too
-- 
+-

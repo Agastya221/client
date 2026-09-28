@@ -19,6 +19,10 @@ export function decodeAnimeId(value: string): { provider: ProviderId; providerId
   if (maybeProvider === "anilist" && rest.length > 0) {
     return { provider: "animekai", providerId: `anilist:${rest.join("~")}` };
   }
+
+  if (maybeProvider === "allmanga" && rest.length > 0) {
+    return { provider: "anikoto", providerId: decodeURIComponent(rest.join("~")) };
+  }
   
   if (rest.length > 0 && (maybeProvider === "hianime" || PROVIDERS.includes(maybeProvider as any))) {
     return {
@@ -33,7 +37,7 @@ export function decodeAnimeId(value: string): { provider: ProviderId; providerId
 export function buildProviderOrder(preferred?: ProviderId | null, seeded?: ProviderId | null): ProviderId[] {
   const fallbackOrder: ProviderId[] = [
     "hianime", "animekai", "desidub",
-    "reanime", "allmanga", "anikoto", "animegg", "anineko",
+    "reanime", "anikoto", "animegg", "anineko",
   ];
   const ordered = [preferred, seeded, ...fallbackOrder].filter(Boolean) as ProviderId[];
   return Array.from(new Set(ordered));
@@ -120,6 +124,7 @@ export function buildProxyUrl(
   targetUrl: string,
   referer?: string | null,
   kind: "playlist" | "video" = "playlist",
+  playlistKey?: string | null,
 ): string {
   // Use relative path for all client/browser requests to hit local Next.js proxy route,
   // avoiding CORS and off-line backend server (404) blocks.
@@ -127,6 +132,7 @@ export function buildProxyUrl(
   url.searchParams.set("url", targetUrl);
   if (referer) url.searchParams.set("referer", referer);
   if (kind === "video") url.searchParams.set("type", "video");
+  if (playlistKey && kind === "playlist") url.searchParams.set("playlist_key", playlistKey);
   return url.pathname + url.search;
 }
 

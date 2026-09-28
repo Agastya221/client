@@ -43,32 +43,30 @@ import {
 export const LOCAL_ANIME_API_BASE_URL = "http://localhost:5000";
 export const PRODUCTION_ANIME_API_BASE_URL = "https://animekai-api-production-a143.up.railway.app";
 
-// Cloudflare Worker hosting the Anivexa streaming aggregator (multi-provider)
+// Anivexa streaming aggregator, hosted on Render or Cloudflare Workers.
 export const DEFAULT_ANIVEXA_WORKER_URL = "https://tatakai-anivexa.tatakai-anime.workers.dev";
 
 export function resolveAnivexaWorkerUrl(
-  env?: { NEXT_PUBLIC_ANIVEXA_WORKER_URL?: string },
+  env?: { ANIVEXA_API_BASE_URL?: string; NEXT_PUBLIC_ANIVEXA_WORKER_URL?: string },
 ): string {
   const configuredUrl = env
-    ? env.NEXT_PUBLIC_ANIVEXA_WORKER_URL
-    : process.env.NEXT_PUBLIC_ANIVEXA_WORKER_URL;
+    ? env.ANIVEXA_API_BASE_URL || env.NEXT_PUBLIC_ANIVEXA_WORKER_URL
+    : process.env.ANIVEXA_API_BASE_URL || process.env.NEXT_PUBLIC_ANIVEXA_WORKER_URL;
   return (configuredUrl || DEFAULT_ANIVEXA_WORKER_URL).replace(/\/+$/, "");
 }
 
 export const ANIVEXA_WORKER_URL = resolveAnivexaWorkerUrl();
 
-type AniviexaProvider = "reanime" | "allmanga" | "anikoto" | "animegg" | "anineko";
-const ANIVEXA_PROVIDERS: AniviexaProvider[] = ["reanime", "allmanga", "anikoto", "animegg", "anineko"];
+type AniviexaProvider = "reanime" | "anikoto" | "animegg" | "anineko";
+const ANIVEXA_PROVIDERS: AniviexaProvider[] = ["reanime", "anikoto", "animegg", "anineko"];
 const ANIVEXA_PROVIDER_SET = new Set<ProviderId>(ANIVEXA_PROVIDERS);
-type AnivexaWorkerProvider = AniviexaProvider | "animepahe" | "anidbapp" | "2dhive" | "anizone" | "animenosub" | "anibd" | "senshi";
+type AnivexaWorkerProvider = AniviexaProvider | "anidbapp" | "anizone" | "animenosub" | "anibd" | "senshi";
 const ANIVEXA_WORKER_PROVIDERS: AnivexaWorkerProvider[] = [
   "animegg",
   "anineko",
-  "allmanga",
   "anikoto",
   "reanime",
   "anidbapp",
-  "2dhive",
   "animenosub",
   "anizone",
   "senshi",
@@ -86,19 +84,16 @@ const ANIVEXA_WORKER_WATCH_ALIAS: Partial<Record<AnivexaWorkerProvider, AnivexaW
 };
 const ANIVEXA_DISPLAY_NAMES: Record<AnivexaWorkerProvider, string> = {
   animegg: "Nexus",
-  allmanga: "Lunar",
   anineko: "Prism",
   anikoto: "Solaris",
   reanime: "Frost",
-  animepahe: "Sally",
   anidbapp: "Atlas",
-  "2dhive": "Hive",
   anizone: "Zone",
   animenosub: "Mori",
   anibd: "Nova",
   senshi: "Kage",
 };
-const ANIVEXA_HARD_SUB_PROVIDERS = new Set<AnivexaWorkerProvider>(["animegg", "allmanga"]);
+const ANIVEXA_HARD_SUB_PROVIDERS = new Set<AnivexaWorkerProvider>(["animegg"]);
 const ANIVEXA_HLS_ONLY_PROVIDERS = new Set<AnivexaWorkerProvider>(["anikoto", "anizone"]);
 const ANIVEXA_DISABLED_PROVIDERS = new Set<AnivexaWorkerProvider>(["reanime", "senshi", "anibd", "anizone"]);
 const ANIVEXA_TRANSPORT_PRIORITY: Record<NonNullable<ServerOption["transport"]>, number> = {
@@ -2250,7 +2245,6 @@ async function fetchProviderEpisodesRemote(provider: ProviderId, providerId: str
     case "desidub":
       return fetchDesidubEpisodes(providerId);
     case "reanime":
-    case "allmanga":
     case "anikoto":
     case "animegg":
     case "anineko":
@@ -3571,7 +3565,7 @@ async function fetchAniviexaEpisodes(anilistId: number): Promise<EpisodeModel[]>
 
   let response: Response | null = null;
   try {
-    response = await fetch(`${base}/episodes/${anilistId}`, {
+    response = await fetch(`${base}/episodes/${ANIVEXA_PROVIDERS.join("/")}/${anilistId}?map=false`, {
       headers: { Accept: "application/json", "User-Agent": "AnimeKAI-Frontend/1.0" },
       next: { revalidate: 1800 },
       signal: AbortSignal.timeout(25_000),
@@ -3830,7 +3824,7 @@ async function fetchAniviexaWatchSession(
       kind: isEmbed ? "iframe" : (isM3U8 ? "hls" : "video"),
       label: selectedLabel,
       url: streamUrl,
-      proxiedUrl: requiresProxy ? buildProxyUrl(API_BASE_URL, streamUrl, selectedReferer, isM3U8 ? "playlist" : "video") : streamUrl,
+      proxiedUrl: requiresProxy ? buildProxyUrl(API_BASE_URL, streamUrl, selectedReferer, isM3U8 ? "playlist" : "video", selectedStream.playlist_key || selectedStream.key) : streamUrl,
       iframeUrl: isEmbed ? streamUrl : null,
       isM3U8,
       requiresProxy,
@@ -4350,6 +4344,14 @@ async function fetchAnivexaAggregateWatchSession(
       requestedTransport: requestedTransport || "auto",
       providers: buckets.map((bucket) => `${bucket.provider}:${bucket.subType}:${bucket.internal.length}/${bucket.embed.length}`).join(","),
     });
+    return {
+      source: null,
+      subtitles: [],
+      serverOptions,
+      activeServerId: requestedServer || null,
+      intro: null,
+      outro: null,
+    };
   }
 
   const selectedBucket =
@@ -4382,7 +4384,8 @@ async function fetchAnivexaAggregateWatchSession(
 
   const streamProxyUrl = (assetUrl: string, referer?: string | null) =>
     buildProxyUrl(API_BASE_URL, assetUrl, referer);
-  const selectedReferer = selectedStream?.referer || selectedStream?.referrer || null;
+  const selectedReferer = selectedStream?.referer || selectedStream?.referrer ||
+    (selectedBucket?.provider === "reanime" ? "https://flixcloud.cc/" : null);
   const rawSubtitles = selectedBucket?.subtitles || [];
   const subtitleLangCounts = new Map<string, number>();
   const subtitles = preferEnglishSubtitleDefault(rawSubtitles
@@ -4423,7 +4426,7 @@ async function fetchAnivexaAggregateWatchSession(
       kind: isEmbed ? "iframe" : (isM3U8 ? "hls" : "video"),
       label: selectedBucket?.label || "Anivexa",
       url: streamUrl,
-      proxiedUrl: requiresProxy ? buildProxyUrl(API_BASE_URL, streamUrl, selectedReferer, isM3U8 ? "playlist" : "video") : streamUrl,
+      proxiedUrl: requiresProxy ? buildProxyUrl(API_BASE_URL, streamUrl, selectedReferer, isM3U8 ? "playlist" : "video", selectedStream.playlist_key || selectedStream.key) : streamUrl,
       iframeUrl: isEmbed ? streamUrl : fallbackEmbedUrl,
       isM3U8,
       requiresProxy,
@@ -4458,11 +4461,7 @@ async function fetchAnivexaAggregateWatchSession(
   };
 }
 
-// ── Reanime via Worker Stream Proxy ──────────────────────────────────────────
-// Flixcloud CDN blocks all non-browser/datacenter IPs at the network level.
-// The only solution: let the Cloudflare Worker (which Flixcloud trusts) serve
-// the M3U8 via its /stream/ endpoint, then proxy THAT through our Next.js
-// m3u8-streaming-proxy so HLS.js can consume it without CORS issues.
+// ReAnime streams include a FlixCloud playlist key used by the local HLS proxy.
 async function fetchReanimeDirectWatchSession(
   anilistId: string,
   episodeNum: number,
@@ -4483,8 +4482,7 @@ async function fetchReanimeDirectWatchSession(
     requestedServer?.endsWith("-sub") ? "sub" :
     requestedServer?.endsWith("-dub") ? "dub" :
     null;
-  const typeQuery = requestedReanimeType ? `?type=${encodeURIComponent(requestedReanimeType)}` : "";
-  const workerUrl = `${base}/watch/reanime/${anilistId}/${audio}/reanime-${episodeNum}${typeQuery}`;
+  const workerUrl = `${base}/watch/reanime/${anilistId}/${audio}/reanime-${episodeNum}`;
 
   recordLog("info", "anime.anivexa.reanime.request", {
     anilistId,
@@ -4530,20 +4528,18 @@ async function fetchReanimeDirectWatchSession(
   const intro = introStart != null ? { start: Number(introStart), end: Number(introEnd ?? (Number(introStart) + 90)) } : null;
   const outro = outroStart != null ? { start: Number(outroStart), end: Number(outroEnd ?? (Number(outroStart) + 90)) } : null;
 
-  // Parse allServers to build server option buttons (HD-1, HD-2, S-SUB etc.)
-  const allServers = ensureArray(data.allServers || data.data?.allServers);
-  const relevantServers = allServers.filter((s: any) => {
-    const typeStr = (s.type || "sub").toLowerCase();
-    return dubbed === typeStr.includes("dub");
-  });
+  const relevantServers = ensureArray(data.streams)
+    .filter((stream: any) => stream.type === "hls" && typeof stream.url === "string" &&
+      dubbed === String(stream.audio || audio).includes("dub"))
+    .sort((left: any, right: any) => Number(right.server === "HD-1") - Number(left.server === "HD-1"));
 
   const serverOptions: ServerOption[] = relevantServers.map((s: any, i: number) => {
-    const typeStr = (s.type || "sub").toLowerCase();
+    const typeStr = String(s.audio || audio).toLowerCase();
     const sType: "soft" | "hard" = typeStr === "s-sub" ? "soft" : "hard";
-    const serverId = `reanime-${(s.name || "HD").toLowerCase().replace(/\s+/g, "-") || String(i)}-${typeStr}`;
+    const serverId = `reanime-${(s.server || "HD").toLowerCase().replace(/\s+/g, "-") || String(i)}-${typeStr}`;
     return {
       id: serverId,
-      label: `Re ${s.name || "HD"}`,
+      label: `Re ${s.server || "HD"}`,
       provider: "reanime" as ProviderId,
       category: audio,
       subType: dubbed ? undefined : sType,
@@ -4560,44 +4556,28 @@ async function fetchReanimeDirectWatchSession(
     });
   }
 
-  let activeId = serverOptions[0]?.id ?? "reanime-default";
-  if (requestedServer) {
-    const idx = serverOptions.findIndex((opt) => opt.id === requestedServer);
-    if (idx >= 0) activeId = serverOptions[idx].id;
-  }
-
-  // ── Use the worker's /stream/ endpoint as M3U8 source ───────────────────────
-  // The worker streams Flixcloud HLS from its own IP (which Flixcloud trusts).
-  // streams[1] has { type: "hls-redirect", url: "...workers.dev/stream/reanime/..." }
-  // redirect_url is the same short-form URL from the worker.
-  const streams: any[] = ensureArray(data.streams);
-  const workerStreamEntry = streams.find((s: any) =>
-    s.type === "hls-redirect" || (typeof s.url === "string" && s.url.includes("/stream/"))
-  );
-  let workerStreamUrl: string =
-    workerStreamEntry?.url ||
-    data.redirect_url ||
-    `${base}/stream/reanime/${anilistId}/${audio}/${episodeNum}${typeQuery}`;
-  if (requestedReanimeType && !workerStreamUrl.includes("type=")) {
-    workerStreamUrl += `${workerStreamUrl.includes("?") ? "&" : "?"}type=${encodeURIComponent(requestedReanimeType)}`;
-  }
-
-  // The worker's /stream/ endpoint has Access-Control-Allow-Origin: * so HLS.js
-  // in the browser can fetch it directly — no Next.js proxy needed.
-  // Browser requests are NOT blocked by Cloudflare Bot Fight Mode (only server IPs are).
-  const source: StreamSource = {
+  const requestedIndex = requestedServer
+    ? serverOptions.findIndex((option) => option.id === requestedServer)
+    : -1;
+  const preferredIndex = requestedReanimeType
+    ? relevantServers.findIndex((stream: any) => stream.audio === requestedReanimeType)
+    : -1;
+  const selectedIndex = requestedIndex >= 0 ? requestedIndex : preferredIndex >= 0 ? preferredIndex : 0;
+  const selectedStream: any = relevantServers[selectedIndex] || null;
+  const activeId = serverOptions[selectedIndex]?.id || "reanime-default";
+  const source: StreamSource | null = selectedStream ? {
     kind: "hls",
     label: "Reanime",
-    url: workerStreamUrl,
-    proxiedUrl: workerStreamUrl,   // direct worker URL — browser fetches it natively
+    url: selectedStream.url,
+    proxiedUrl: buildProxyUrl(API_BASE_URL, selectedStream.url, "https://flixcloud.cc/", "playlist", selectedStream.playlist_key || selectedStream.key),
     iframeUrl: null,
     isM3U8: true,
-    requiresProxy: false,          // browser CAN fetch this cross-origin (CORS: *)
-  };
+    requiresProxy: true,
+  } : null;
 
 
   // Subtitles from worker response
-  const rawSubtitles = ensureArray(data.subtitles || []);
+  const rawSubtitles = ensureArray(selectedStream?.subtitles || data.subtitles || []);
   const subtitles: SubtitleTrack[] = rawSubtitles
     .filter((s: any) => {
       const fmt = String(s.format || "").toLowerCase();
@@ -4619,9 +4599,9 @@ async function fetchReanimeDirectWatchSession(
     activeServerId: activeId,
     serverCount: serverOptions.length,
     subtitleCount: subtitles.length,
-    sourceKind: source.kind,
-    isM3U8: Boolean(source.isM3U8),
-    sourceUrlKind: workerStreamUrl.includes("/stream/reanime/") ? "worker-stream" : "direct",
+    sourceKind: source?.kind || "none",
+    isM3U8: Boolean(source?.isM3U8),
+    sourceUrlKind: source ? "flixcloud" : "none",
   });
 
   return { source, subtitles, serverOptions, activeServerId: activeId, intro, outro };
@@ -4653,7 +4633,6 @@ async function fetchProviderWatch(
           const epNum = Number(epNumStr || "1");
           return fetchReanimeDirectWatchSession(anilistId, epNum, dubbed, requestedServer);
         }
-        case "allmanga":
         case "anikoto":
         case "animegg":
         case "anineko": {
@@ -4694,7 +4673,6 @@ async function fetchProviderFastWatch(
           const epNum = Number(epNumStr || "1");
           return fetchReanimeDirectWatchSession(anilistId, epNum, dubbed, requestedServer);
         }
-        case "allmanga":
         case "anikoto":
         case "animegg":
         case "anineko": {
@@ -4741,7 +4719,6 @@ function buildStreamProviderOrder(preferredProvider: ProviderId, activeProvider:
 function compactProviderLabel(provider: ProviderId): string {
   switch (provider) {
     case "reanime": return "Re";
-    case "allmanga": return "Manga";
     case "anikoto": return "Koto";
     case "animegg": return "GG";
     case "anineko": return "Neko";
@@ -4890,8 +4867,7 @@ function anivexaStreamTransport(stream: any): NonNullable<ServerOption["transpor
     type === "hls-redirect" ||
     server.startsWith("hls") ||
     /\.m3u8$/i.test(cleanUrl) ||
-    lowerUrl.includes("m3u8-proxy") ||
-    /\/stream\/2dhive\/\d+\/(?:sub|dub)\/\d+/i.test(cleanUrl)
+    lowerUrl.includes("m3u8-proxy")
   ) return "hls";
   if (type === "mp4" || /\.mp4$/i.test(cleanUrl)) return "mp4";
   if (type === "embed") return "embed";
