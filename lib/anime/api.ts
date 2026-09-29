@@ -5,6 +5,7 @@ import { measureAsync, recordCounter, recordLog } from "@/lib/observability";
 import { anilistTitle, getAnilistDetail, type AnilistMedia } from "@/lib/anilist/api";
 import { decryptEmbed } from "./reanime-decrypt";
 import { buildDashProxyUrl, createDashProxyToken } from "./dash-proxy";
+import { probeStreamHealth } from "./stream-health";
 import { normalizeEpisodeDescription, type EpisodeDisplayMetadata } from "./episode-metadata";
 import {
   ANIVEXA_STREAM_PROVIDERS,
@@ -23,6 +24,7 @@ import {
   type ProviderId,
   type SearchPageModel,
   type ServerOption,
+  type ServerHealthResult,
   type StreamSource,
   type SubtitleTrack,
   type WatchAttempt,
@@ -64,8 +66,8 @@ type AniviexaProvider = "reanime" | "anikoto" | "animegg" | "anineko";
 const ANIVEXA_PROVIDERS: AniviexaProvider[] = ["reanime", "anikoto", "animegg", "anineko"];
 const ANIVEXA_PROVIDER_SET = new Set<ProviderId>(ANIVEXA_PROVIDERS);
 const ANIVEXA_WORKER_PROVIDERS: AnivexaWorkerProvider[] = [...ANIVEXA_STREAM_PROVIDERS];
-const ANIVEXA_AUTO_SUB_PROVIDERS: AnivexaWorkerProvider[] = ["anikoto", "aniwaves", "animegg", "anineko"];
-const ANIVEXA_AUTO_DUB_PROVIDERS: AnivexaWorkerProvider[] = ["anikoto", "aniwaves", "animegg", "anineko"];
+const ANIVEXA_AUTO_SUB_PROVIDERS: AnivexaWorkerProvider[] = ["aniwaves", "anikoto"];
+const ANIVEXA_AUTO_DUB_PROVIDERS: AnivexaWorkerProvider[] = ["aniwaves", "anikoto"];
 const ANIVEXA_AVAILABILITY_PROVIDERS: AnivexaWorkerProvider[] = [
   "anikoto", "anineko",
 ];
@@ -4043,6 +4045,54 @@ export async function discoverAnivexaProviderServerOptions(input: {
   return checked.filter((option): option is ServerOption => Boolean(option));
 }
 
+export async function checkAnivexaServerHealth(input: {
+  anilistId: number;
+  episodeNumber: number;
+  dubbed: boolean;
+  uiProvider: ProviderId;
+  workerProvider: AnivexaWorkerProvider;
+  serverId: string;
+}): Promise<ServerHealthResult> {
+  const cacheKey = `anivexa-health:v1:${input.anilistId}:ep${input.episodeNumber}:${input.dubbed ? "dub" : "sub"}:${input.serverId}`;
+  return cacheFetch(cacheKey, async () => {
+    const aggregate = await fetchAnivexaAggregateData(
+      String(input.anilistId), input.episodeNumber, input.dubbed,
+      input.uiProvider, [input.workerProvider],
+    );
+    const entry = aggregate.buckets.flatMap((bucket) =>
+      buildAnivexaServerEntries(bucket, input.uiProvider, input.dubbed))
+      .find((candidate) => candidate.option.id === input.serverId);
+    if (!entry?.stream?.url) {
+      return { status: "unverified", reason: "Source is unavailable right now", checkedAt: Date.now() };
+    }
+    const stream = entry.stream;
+    const ownSubtitles = ensureArray(stream.__subtitles);
+    const result = await probeStreamHealth({
+      url: stream.url,
+      transport: entry.option.transport || "embed",
+      subType: entry.option.subType,
+      referer: String(stream.referer || stream.referrer || ""),
+      authorization: String(stream.headers?.Authorization || stream.headers?.authorization || ""),
+      playlistKey: stream.playlist_key || stream.key,
+      subtitles: ownSubtitles.length > 0 ? ownSubtitles : entry.bucket.subtitles,
+    });
+    recordLog("info", "anime.anivexa.health.checked", {
+      anilistId: input.anilistId,
+      episodeNumber: input.episodeNumber,
+      provider: input.workerProvider,
+      server: input.serverId,
+      status: result.status,
+      reason: result.reason,
+    });
+    return result;
+  }, {
+    freshMs: 60_000,
+    staleMs: 60_000,
+    expireMs: 60_000,
+    persistent: false,
+  });
+}
+
 async function fetchAnivexaProviderBucket(
   base: string,
   anilistId: string,
@@ -4114,7 +4164,7 @@ async function fetchFirstAnivexaAggregateData(
 
   const audio = dubbed ? "dub" : "sub";
   const autoProviders = dubbed ? ANIVEXA_AUTO_DUB_PROVIDERS : ANIVEXA_AUTO_SUB_PROVIDERS;
-  const cacheKey = `anivexa-first:v3:${anilistId}:ep${episodeNum}:${audio}`;
+  const cacheKey = `anivexa-first:v4:${anilistId}:ep${episodeNum}:${audio}`;
 
   return cacheFetch(cacheKey, async () => {
     recordLog("info", "anime.anivexa.aggregate.race", {

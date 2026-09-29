@@ -12,9 +12,7 @@ export const ANIVEXA_STREAM_PROVIDERS = [
 export type AnivexaWorkerProvider = (typeof ANIVEXA_STREAM_PROVIDERS)[number];
 
 export const ANIVEXA_DISCOVERY_PROVIDERS: readonly AnivexaWorkerProvider[] = [
-  "animegg", "anikoto", "aniwaves", "anineko", "anidbapp", "animenosub",
-  "anizone", "kaa", "animedunya", "reanime", "senshi", "anibd",
-  "animeonsen", "mkissa",
+  "aniwaves", "anikoto",
 ];
 
 export type ProviderId = (typeof PROVIDERS)[number] | "hianime";
@@ -181,6 +179,12 @@ export interface ServerOption {
   /** For HLS sub streams: "soft" = clean video + external VTT overlay;
    *  "hard" = subtitles burnt into the video (no VTT file). */
   subType?: "soft" | "hard" | "unknown";
+}
+
+export interface ServerHealthResult {
+  status: "working" | "failed" | "unverified";
+  reason: string;
+  checkedAt: number;
 }
 
 export interface WatchAttempt {

@@ -12,6 +12,8 @@ import {
   ServerButton,
   summarizeServerGroups,
 } from "@/components/anime/watch/WatchUiPrimitives";
+import { useServerHealth } from "@/components/anime/watch/useServerHealth";
+import { bestVerifiedServer, focusedServerCandidates, rankServerOptions, selectFocusedServers } from "@/lib/anime/server-selection";
 import {
   ANIVEXA_DISCOVERY_PROVIDERS,
   type AnimeSeasonEntry,
@@ -54,7 +56,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ExternalLink,
   Grid3X3,
   Images,
   Info,
@@ -915,7 +916,6 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   const [optimisticEpisodeNumber, setOptimisticEpisodeNumber] = useState<number | null>(null);
   const [, setWatchHistoryVersion] = useState(0);
   const [episodeView, setEpisodeView] = useState<"grid" | "list" | "cards">("cards");
-  const [showEmbedServers, setShowEmbedServers] = useState(() => Boolean(initialSession.activeServerId && isEmbedServerOption(initialSession.activeServerId)));
   const [focusMode, setFocusMode] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   // Keep the server render and the first client render identical. Persisted
@@ -925,6 +925,16 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   const [autoPlay, setAutoPlay] = useState(false);
   const [playerActivated, setPlayerActivated] = useState(false);
   const [loadedSurfaceKey, setLoadedSurfaceKey] = useState<string | null>(null);
+  const focusedCandidateOptions = useMemo(() => focusedServerCandidates(session.serverOptions), [session.serverOptions]);
+  const serverHealth = useServerHealth({
+    animeId: session.anime.id,
+    anilistId: session.anime.anilistId,
+    episodeNumber: session.episode.number,
+    uiProvider: session.provider,
+    serverOptions: focusedCandidateOptions,
+    playbackBusy: playerActivated && (!loadedSurfaceKey || isSessionLoading),
+  });
+  const focusedServers = selectFocusedServers(session.serverOptions, serverHealth.healthById);
   // Optimistic server selection: turns the button green immediately on click
   // before the embed has finished loading. Cleared when the session commits.
   const [optimisticServerId, setOptimisticServerId] = useState<string | null>(null);
@@ -933,9 +943,12 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   const pendingCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoverPrefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoverPrefetchKeyRef = useRef<string | null>(null);
+  const prewarmedPlaylistRef = useRef<Set<string>>(new Set());
   const pendingSessionKeyRef = useRef<string | null>(null);
   const nearEndPrefetchedRef = useRef<string | null>(null);
   const automaticEmbedFallbackRef = useRef<string | null>(null);
+  const automaticHealthFallbackRef = useRef<string | null>(null);
+  const manualServerRef = useRef<string | null>(null);
   const sessionRequestSeqRef = useRef(0);
   const userActivatedPlayerRef = useRef(false);
   const playbackProgressRef = useRef({
@@ -1312,8 +1325,8 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   const hasDubEpisode = session.episodes.some((episode) => episode.isDubbed === true);
   const hasSubEpisode = session.episodes.some((episode) => episode.isSubbed === true);
   const hasLanguageInfo = hasDubEpisode || hasSubEpisode;
-  const hasDubServer = session.serverOptions.some((entry) => entry.category === "dub");
-  const hasSubServer = session.serverOptions.some((entry) => entry.category === "sub" || !entry.category);
+  const hasDubServer = focusedServers.dub.length > 0;
+  const hasSubServer = focusedServers.hard.length > 0 || focusedServers.soft.length > 0;
   // The Dub control is for the current episode, so a series-wide count or a dub
   // flag on some other episode is not sufficient. Exact server discovery is
   // the source of truth; an already-playing dub session is also valid evidence.
@@ -1445,6 +1458,33 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
       cancelled = true;
     };
   }, [session.anime.anilistId, session.anime.id]);
+
+  useEffect(() => {
+    const source = session.source;
+    if (playerActivated || source?.kind !== "hls" || !source.proxiedUrl) return;
+    const playlistUrl = new URL(source.proxiedUrl, window.location.origin);
+    if (playlistUrl.origin !== window.location.origin || prewarmedPlaylistRef.current.has(playlistUrl.href)) return;
+    prewarmedPlaylistRef.current.add(playlistUrl.href);
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const response = await fetch(playlistUrl.href, { signal: controller.signal });
+        if (!response.ok) return;
+        const playlist = await response.text();
+        if (!/^#EXT-X-STREAM-INF:/m.test(playlist)) return;
+        const firstVariant = playlist.split(/\r?\n/).map((line) => line.trim())
+          .find((line) => Boolean(line) && !line.startsWith("#"));
+        if (!firstVariant) return;
+        const variantUrl = new URL(firstVariant, playlistUrl);
+        if (variantUrl.origin !== window.location.origin ||
+            variantUrl.pathname !== "/api/proxy/m3u8-streaming-proxy") return;
+        await fetch(variantUrl.href, { signal: controller.signal });
+      } catch {
+        prewarmedPlaylistRef.current.delete(playlistUrl.href);
+      }
+    })();
+    return () => controller.abort();
+  }, [playerActivated, session.source]);
 
   useEffect(() => {
     const anilistId = session.anime.anilistId;
@@ -1968,6 +2008,31 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
       .finally(() => undefined);
   };
 
+  useEffect(() => {
+    const activeId = session.activeServerId;
+    if (!activeId || manualServerRef.current === activeId || playerActivated || isSessionLoading ||
+        serverHealth.healthById[activeId]?.status !== "failed") return;
+    const category = session.dubbed ? "dub" : "sub";
+    const failedHealth = {
+      ...serverHealth.healthById,
+      [activeId]: { status: "failed" as const, reason: "Stream failed", checkedAt: Date.now() },
+    };
+    const focused = selectFocusedServers(session.serverOptions, failedHealth);
+    const choices = session.dubbed ? focused.dub : [...focused.hard, ...focused.soft];
+    const replacement = bestVerifiedServer(choices, failedHealth);
+    if (!replacement) return;
+    const key = `${session.anime.id}|${session.episode.number}|${category}|${activeId}|${replacement.id}`;
+    if (automaticHealthFallbackRef.current === key) return;
+    automaticHealthFallbackRef.current = key;
+    queueSession({
+      episodeNumber: session.episode.number,
+      provider: replacement.provider,
+      server: replacement.id,
+      dubbed: session.dubbed,
+    });
+  }, [session.anime.id, session.episode.number, session.activeServerId, session.dubbed,
+    session.serverOptions, playerActivated, isSessionLoading, serverHealth.healthById, queueSession]);
+
   const handlePlaybackError = () => {
     if (isSessionLoading) return;
 
@@ -1977,32 +2042,32 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     const failedKey = activeServerId
       ? `${session.anime.id}|${session.episode.number}|${language}|${activeServerId}`
       : null;
-    if (failedKey) failedServerIdsRef.current.add(failedKey);
+    if (failedKey && failedServerIdsRef.current.has(failedKey)) return;
+    if (failedKey) {
+      failedServerIdsRef.current.add(failedKey);
+      serverHealth.markFailed(activeServerId!);
+    }
 
-    const playableCandidates = session.serverOptions.filter((entry) => {
+    const failedHealth = activeServerId ? {
+      ...serverHealth.healthById,
+      [activeServerId]: { status: "failed" as const, reason: "Playback failed", checkedAt: Date.now() },
+    } : serverHealth.healthById;
+    const focused = selectFocusedServers(session.serverOptions, failedHealth);
+    const preferredCandidates = session.dubbed ? focused.dub : [...focused.hard, ...focused.soft];
+    const embedFallbacks = session.serverOptions.filter((entry) => isCustomEmbedServer(entry.id));
+    const playableCandidates = [...preferredCandidates, ...embedFallbacks].filter((entry) => {
       const sameLanguage = language === "dub"
         ? entry.category === "dub"
         : entry.category === "sub" || !entry.category;
       const failedCandidateKey = `${session.anime.id}|${session.episode.number}|${language}|${entry.id}`;
-      // A generic embed is a valid escape hatch from either hard- or soft-sub
-      // internal playback. Requiring the same subType previously excluded the
-      // working embeds and allowed Nova's broken iframe to win instead.
-      const sameSubMode = isCustomEmbedServer(entry.id) || language === "dub" || !activeServer?.subType || entry.subType === activeServer.subType;
       return sameLanguage &&
-        sameSubMode &&
         entry.id !== activeServerId &&
+        failedHealth[entry.id]?.status !== "failed" &&
         !failedServerIdsRef.current.has(failedCandidateKey);
-    }).sort((left, right) => {
-      const priority = (entry: ServerOption) => isCustomEmbedServer(entry.id) ? 0 : isEmbedServerOption(entry.id) ? 2 : 1;
-      return priority(left) - priority(right);
     });
+    const rankedCandidates = rankServerOptions(playableCandidates, failedHealth);
 
-    const currentIndex = playableCandidates.findIndex((entry) => entry.id === activeServerId);
-    const orderedCandidates =
-      currentIndex >= 0
-        ? [...playableCandidates.slice(currentIndex + 1), ...playableCandidates.slice(0, currentIndex)]
-        : playableCandidates;
-    const next = orderedCandidates[0];
+    const next = rankedCandidates[0];
 
     if (!next) {
       watchDebug("playback_error.no_candidate", {
@@ -2040,6 +2105,8 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   useEffect(() => {
     failedServerIdsRef.current.clear();
     automaticEmbedFallbackRef.current = null;
+    automaticHealthFallbackRef.current = null;
+    manualServerRef.current = null;
   }, [session.anime.id, session.episode.number, session.dubbed]);
 
   const prefetchEpisode = (episodeNumber: number) => {
@@ -2223,16 +2290,8 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   const effectiveActiveServerId = optimisticServerId || pendingSession?.activeServerId || session.activeServerId;
   const effectiveDubbed = optimisticDubbed ?? pendingSession?.dubbed ?? session.dubbed;
   const effectiveProvider = optimisticProvider ?? pendingSession?.provider ?? session.provider;
-  const activeIsEmbedServer = Boolean(effectiveActiveServerId && isEmbedServerOption(effectiveActiveServerId));
-
-  // Auto-open/close embed panel based on current active server type
-  useEffect(() => {
-    setShowEmbedServers(activeIsEmbedServer);
-  }, [activeIsEmbedServer]);
-
-  const embedServersOpen = showEmbedServers;
   const usableServerOptions = session.serverOptions;
-  const { subServers, softSubServers, hardSubServers, unknownSubServers, dubServers, hindiServers } = summarizeServerGroups(usableServerOptions);
+  const { hindiServers } = summarizeServerGroups(usableServerOptions);
   const effectiveActiveServer = session.serverOptions.find((entry) => entry.id === effectiveActiveServerId);
   const activeHasSoftSubtitles = !session.dubbed && session.subtitles.some((track) => Boolean(track.url));
   const activeIsHardSub = !activeHasSoftSubtitles && (
@@ -2315,14 +2374,9 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     });
   };
 
-  const internalHardSubServers = hardSubServers.filter((entry) => !isEmbedServerOption(entry.id));
-  const internalSoftSubServers = softSubServers.filter((entry) => !isEmbedServerOption(entry.id));
-  const internalUnknownSubServers = unknownSubServers.filter((entry) => !isEmbedServerOption(entry.id));
-  const internalDubServers = dubServers.filter((entry) => !isEmbedServerOption(entry.id));
-  const externalSubServers = subServers.filter((entry) => isEmbedServerOption(entry.id));
-  const externalDubServers = dubServers.filter((entry) => isEmbedServerOption(entry.id));
-  const internalServerCount = internalHardSubServers.length + internalSoftSubServers.length + internalUnknownSubServers.length + internalDubServers.length;
-  const externalServerCount = externalSubServers.length + externalDubServers.length;
+  const internalHardSubServers = focusedServers.hard;
+  const internalSoftSubServers = focusedServers.soft;
+  const internalDubServers = focusedServers.dub;
 
   const renderServerRow = (
     label: string,
@@ -2334,8 +2388,17 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
       <div className="grid gap-1.5 sm:grid-cols-[92px_1fr] sm:items-center sm:gap-2">
         <span className="text-[9px] font-black uppercase tracking-[0.12em] text-white/35 sm:text-right sm:text-[11px] sm:normal-case sm:tracking-normal">{label}</span>
         <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar sm:flex-wrap sm:overflow-visible sm:pb-0">
-          {entries.length > 0 ? entries.map((entry) => {
+          {entries.length > 0 ? entries.map((entry, index) => {
             const isEmbedEntry = isEmbedServerOption(entry.id);
+            const brand = entry.id.startsWith("anivexa2-aniwaves-") ? "Waves" :
+              entry.id.startsWith("anivexa2-anikoto-") ? "Solaris" : null;
+            const brandEntries = brand ? entries.filter((candidate) =>
+              candidate.id.startsWith(brand === "Waves" ? "anivexa2-aniwaves-" : "anivexa2-anikoto-")) : [];
+            const brandIndex = brand ? entries.slice(0, index).filter((candidate) =>
+              candidate.id.startsWith(brand === "Waves" ? "anivexa2-aniwaves-" : "anivexa2-anikoto-")).length + 1 : 0;
+            const displayLabel = brand
+              ? brandEntries.length > 1 ? `${brand} ${brandIndex}` : brand
+              : entry.label;
             // HLS is an implementation detail, not a useful choice for the
             // viewer. Keep the rarer MP4 distinction but remove the noisy HLS
             // badge from every normal server button.
@@ -2343,7 +2406,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
             return (
               <ServerButton
                 key={entry.id}
-                label={entry.label}
+                label={displayLabel}
                 subType={isEmbedEntry ? undefined : entry.subType}
                 tag={transportTag}
                 accentColor={options.accent || accentColor}
@@ -2355,6 +2418,10 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                     : Boolean(options.dubbed) === Boolean(effectiveDubbed) && (!options.dubbed || effectiveProvider !== "desidub"))
                 )}
                 onClick={() => {
+                  manualServerRef.current = entry.id;
+                  failedServerIdsRef.current.delete(
+                    `${session.anime.id}|${session.episode.number}|${options.dubbed ? "dub" : "sub"}|${entry.id}`,
+                  );
                   if (!options.dubbed && options.provider !== "desidub") {
                     playerPrefs.setPreferredSubServer(session.anime.id, entry.id);
                   }
@@ -2728,6 +2795,9 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                 isHardSubStream={activeIsHardSub}
                 onTimeUpdate={(time, duration) => {
                   if (!Number.isFinite(time) || time < 0) return;
+                  if (time >= 1 && session.activeServerId && !failedServerIdsRef.current.has(
+                    `${session.anime.id}|${session.episode.number}|${session.dubbed ? "dub" : "sub"}|${session.activeServerId}`,
+                  )) serverHealth.markWorking(session.activeServerId);
                   const current = playbackProgressRef.current;
                   current.animeId = session.anime.id;
                   current.episodeNumber = session.episode.number;
@@ -3017,10 +3087,19 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
               onClick={() => {
                 if ((effectiveDubbed || effectiveProvider === "desidub") && hasSub) {
                   const targetEpNum = getFallbackEpisodeForLanguage(false, session.episode.number);
+                  const savedServer = playerPrefs.getPreferredSubServer(session.anime.id);
+                  const focusedSub = [...focusedServers.hard, ...focusedServers.soft];
+                  const verifiedServer = bestVerifiedServer(
+                    focusedSub,
+                    serverHealth.healthById,
+                  );
                   queueSession({
                     episodeNumber: targetEpNum,
                     provider: effectiveProvider === "desidub" ? mainFallback : effectiveProvider,
-                    server: playerPrefs.getPreferredSubServer(session.anime.id),
+                    server: savedServer && focusedSub.some((entry) => entry.id === savedServer) &&
+                      serverHealth.healthById[savedServer]?.status !== "failed"
+                      ? savedServer
+                      : verifiedServer?.id || focusedSub[0]?.id || null,
                     dubbed: false,
                   });
                 }
@@ -3047,7 +3126,11 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
                   if (!effectiveDubbed && effectiveActiveServerId) {
                     playerPrefs.setPreferredSubServer(session.anime.id, effectiveActiveServerId);
                   }
-                  queueSession({ episodeNumber: targetEpNum, provider: effectiveProvider === "desidub" ? mainFallback : effectiveProvider, server: null, dubbed: true });
+                  const verifiedDub = bestVerifiedServer(
+                    focusedServers.dub,
+                    serverHealth.healthById,
+                  );
+                  queueSession({ episodeNumber: targetEpNum, provider: effectiveProvider === "desidub" ? mainFallback : effectiveProvider, server: verifiedDub?.id || focusedServers.dub[0]?.id || null, dubbed: true });
                 }
               }}
               className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 transition-colors ${
@@ -3116,57 +3199,14 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
           </div>
         </div>
 
-        {/* Server panel — Anivexa-style grouping, AnimePlay theme */}
-        <div className="space-y-3 rounded-xl border border-white/[0.07] bg-black/20 p-3 sm:space-y-4 sm:p-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <div
-              className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[10px] font-black uppercase tracking-wider sm:rounded-full sm:px-4 sm:py-2 sm:text-[11px] transition-all"
-              style={!activeIsEmbedServer
-                ? { color: accentColor, borderColor: accentStyle(0.45), background: accentStyle(0.12) }
-                : { color: "rgba(255,255,255,0.4)", borderColor: "rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.02)" }
-              }
-            >
-              <Tv2 className="h-3.5 w-3.5" aria-hidden="true" />
-              Internal
-              <span className="rounded-full px-2 py-0.5 text-[10px]" style={!activeIsEmbedServer ? { background: accentStyle(0.35), color: "#fff" } : { background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.4)" }}>
-                {internalServerCount}
-              </span>
-            </div>
-            {externalServerCount > 0 && (
-              <button
-                type="button"
-                onClick={() => setShowEmbedServers((value) => !value)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white/65 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white sm:rounded-full sm:px-4 sm:py-2 sm:text-[11px] btn-press-active"
-                aria-expanded={embedServersOpen}
-                aria-controls="embed-server-options"
-                title="External embed servers"
-                style={activeIsEmbedServer || embedServersOpen ? { color: accentColor, borderColor: accentStyle(0.35), background: accentStyle(0.08) } : undefined}
-              >
-                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-                Embed
-                <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/70">
-                  {externalServerCount}
-                </span>
-                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${embedServersOpen ? "rotate-180" : ""}`} aria-hidden="true" />
-              </button>
-            )}
-          </div>
-
-          <div className="space-y-2.5 sm:space-y-3">
+        {(internalHardSubServers.length > 0 || internalSoftSubServers.length > 0 || internalDubServers.length > 0 || showHindi) && (
+          <div className="space-y-2.5 border-t border-white/[0.06] pt-2.5 sm:space-y-3">
             {renderServerRow("Hard Subs", internalHardSubServers)}
             {renderServerRow("Soft Subs", internalSoftSubServers)}
-            {renderServerRow("Subs", internalUnknownSubServers)}
             {hasDub && renderServerRow("Dub", internalDubServers, { dubbed: true, accent: "#4ade80" })}
             {showHindi && renderServerRow("Hindi", hindiServers, { dubbed: true, provider: "desidub", accent: "#ff5500" })}
           </div>
-
-          {externalServerCount > 0 && embedServersOpen && (
-            <div id="embed-server-options" className="space-y-3 border-t border-white/[0.06] pt-3">
-              {renderServerRow("Sub Embeds", externalSubServers)}
-              {hasDub && renderServerRow("Dub Embeds", externalDubServers, { dubbed: true, accent: "#4ade80" })}
-            </div>
-          )}
-        </div>
+        )}
 
         {/* Playback message */}
         {playbackMessage && (
