@@ -146,7 +146,7 @@ async function fetchAndMaybeStore<T>(
       return data;
     }
 
-    void storeValue(
+    runAfterResponse(storeValue(
       key,
       data,
       {
@@ -155,7 +155,7 @@ async function fetchAndMaybeStore<T>(
         expireMs: options.expireMs,
         persistent: options.persistent,
       },
-    );
+    ));
     recordCounter("cache.store", 1, {
       namespace,
       source: options.source,
@@ -180,7 +180,20 @@ function scheduleStaleRefresh(task: () => Promise<unknown>): void {
     }
   };
 
-  const refresh = run();
+  // Already running; runAfterResponse only keeps it alive past the response.
+  runAfterResponse(run());
+}
+
+/**
+ * Keeps `work` alive after the response has been sent, when the runtime supports it.
+ *
+ * On Cloudflare Workers, in-flight work is cancelled once the response finishes unless
+ * it is registered with waitUntil, so a "fire and forget" promise silently never
+ * completes. Next exposes the request's waitUntil through its request context; outside
+ * a Next request (tests, scripts, plain Node) there is none, and the already-running
+ * promise simply continues on its own.
+ */
+export function runAfterResponse(work: Promise<unknown>): void {
   try {
     const requestContextStore = (
       globalThis as unknown as Record<symbol, {
@@ -189,16 +202,14 @@ function scheduleStaleRefresh(task: () => Promise<unknown>): void {
     )[Symbol.for("@next/request-context")];
     const waitUntil = requestContextStore?.get?.()?.waitUntil;
     if (waitUntil) {
-      waitUntil(refresh);
+      waitUntil(work);
       return;
     }
   } catch {
     // Non-Next callers do not expose a request lifecycle.
   }
 
-  // The promise is already running and intentionally does not block stale
-  // responses in tests, scripts, or runtimes without waitUntil support.
-  void refresh;
+  void work;
 }
 
 /** Get-or-fetch with memory-first, KV-backed stale-until-expiry semantics. */
@@ -220,7 +231,7 @@ export async function cacheFetch<T>(
   if (memoryValue) {
     if (!canStore(memoryValue.data, shouldCache)) {
       store.delete(key);
-      if (persistent) void kvDelete(key);
+      if (persistent) runAfterResponse(kvDelete(key));
       recordCounter("cache.invalidate", 1, { namespace, scope: "invalid" });
     } else if (memoryValue.expiresAt <= now) {
       store.delete(key);
@@ -259,9 +270,9 @@ export async function cacheFetch<T>(
         recordCounter("cache.hit", 1, { namespace, state: "kv-legacy" });
         return kvValue;
       }
-      if (persistent) void kvDelete(key);
+      if (persistent) runAfterResponse(kvDelete(key));
     } else if (!canStore(kvValue.data, shouldCache)) {
-      if (persistent) void kvDelete(key);
+      if (persistent) runAfterResponse(kvDelete(key));
       recordCounter("cache.invalidate", 1, { namespace, scope: "invalid" });
     } else if (kvValue.expiresAt <= now) {
       recordCounter("cache.expired", 1, { namespace });
@@ -312,12 +323,12 @@ export function cacheStore<T>(
     return;
   }
 
-  void storeValue(key, data, {
+  runAfterResponse(storeValue(key, data, {
     freshMs: options?.freshMs ?? DEFAULT_FRESH_MS,
     staleMs: options?.staleMs ?? DEFAULT_STALE_MS,
     expireMs: options?.expireMs ?? DEFAULT_EXPIRE_MS,
     persistent: options?.persistent ?? true,
-  });
+  }));
   recordCounter("cache.store", 1, {
     namespace: cacheNamespace(key),
     source: "manual",
@@ -358,7 +369,7 @@ export function cacheInvalidate(
   options?: { persistent?: boolean },
 ): void {
   store.delete(key);
-  if (options?.persistent ?? true) void kvDelete(key);
+  if (options?.persistent ?? true) runAfterResponse(kvDelete(key));
   recordCounter("cache.invalidate", 1, {
     namespace: cacheNamespace(key),
     scope: "single",
@@ -373,7 +384,7 @@ export function cacheInvalidatePrefix(
   for (const key of store.keys()) {
     if (key.startsWith(prefix)) store.delete(key);
   }
-  if (options?.persistent ?? true) void kvDeletePrefix(prefix);
+  if (options?.persistent ?? true) runAfterResponse(kvDeletePrefix(prefix));
   recordCounter("cache.invalidate", 1, {
     namespace: cacheNamespace(prefix),
     scope: "prefix",

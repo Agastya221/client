@@ -1,6 +1,6 @@
 import { cache } from "react";
 import { Prisma } from "@prisma/client";
-import { cacheFetch, cacheInvalidatePrefix } from "@/lib/cache";
+import { cacheFetch, cacheInvalidatePrefix, runAfterResponse } from "@/lib/cache";
 import { measureAsync, recordCounter, recordLog } from "@/lib/observability";
 import { anilistTitle, getAnilistDetail, type AnilistMedia } from "@/lib/anilist/api";
 import { decryptEmbed } from "./reanime-decrypt";
@@ -4186,6 +4186,9 @@ export async function resolveFocusedServerOptions(input: {
   if (timer) clearTimeout(timer);
 
   if (outcome === "timeout") {
+    // The lookups that missed the budget are what warm the shared cache for the next
+    // visitor. On Workers they are cancelled with the response unless registered here.
+    runAfterResponse(Promise.allSettled(lookups));
     recordCounter("anime.anivexa.ssr_server_options.timeout", 1, {
       uiProvider: input.uiProvider,
       partial: collected.length > 0 ? "partial" : "empty",
