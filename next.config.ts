@@ -16,7 +16,7 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "static.tvmaze.com" },
       { protocol: "https", hostname: "static.wikia.nocookie.net" },
       { protocol: "https", hostname: "gogocdn.net" },
-      { protocol: "https", hostname: "artworks.thetvdb.com", pathname: "/banners/**" },
+      { protocol: "https", hostname: "artworks.thetvdb.com" },
       { protocol: "https", hostname: "placehold.co" },
     ],
   },

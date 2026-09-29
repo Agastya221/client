@@ -118,21 +118,28 @@ async function AnilistDetailContent({
     .filter(Boolean)
     .slice(0, 8) as AnilistDetailMedia[];
 
+  // AniList omits bannerImage for many movies/older titles; fall back to the
+  // portrait cover so the hero never collapses to just the accent glow.
+  // coverImage.extraLarge is typed `string` but the normalizer defaults missing
+  // values to "", so these must be truthiness checks, not null checks.
+  const heroBackground = media.bannerImage || media.coverImage.extraLarge || media.coverImage.large;
+  const heroIsCover = !media.bannerImage;
+
   return (
     <>
       <ThemeAccentSource color={accentColor} />
       {/* Hero Section */}
       <section className="relative overflow-hidden">
         {/* Banner bg */}
-        {media.bannerImage && (
+        {heroBackground && (
           <div className="absolute inset-0 z-0">
             <Image
-              src={media.bannerImage}
+              src={heroBackground}
               alt={title}
               fill
               priority
               quality={75}
-              className="object-cover opacity-30"
+              className={`object-cover opacity-30 ${heroIsCover ? "object-top" : ""}`}
               sizes="100vw"
             />
             <div className="absolute inset-0 bg-gradient-to-b from-[#0a0b0c]/60 via-[#0a0b0c]/80 to-[#0a0b0c]" />

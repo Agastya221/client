@@ -8,7 +8,7 @@ import type { HomeViewMode } from "@/lib/home-view";
 import Navbar from "@/components/ui/Navbar";
 import SiteFooter from "@/components/ui/SiteFooter";
 import { getCatalogAvailabilityForMedia, getWatchHrefsFromAvailability } from "@/lib/anilist/availability";
-import { getAnilistHeroAssets } from "@/lib/anilist/hero-assets";
+import { getAnilistHeroAssets, type AnilistHeroAssets } from "@/lib/anilist/hero-assets";
 import {
   getAnilistTrending,
   getAnilistSeasonal,
@@ -26,6 +26,13 @@ import { CalendarDays, ChevronDown, ChevronRight, Flame, Megaphone, Radio, Star,
 
 // Cache home page for 5 minutes — serves from ISR on repeat visits instead of 4 fresh AniList API calls
 export const revalidate = 300;
+
+// How many hero slides get their logo/backdrop resolved on the server. The carousel
+// seeds from initialHeroAssets and fetches anything missing client-side, so this is a
+// pure latency trade: every extra slide is another parallel lookup that can widen the
+// cold-cache tail of the homepage render. Four covers the opening slide plus the next
+// few a viewer can reach before a client fetch would have landed.
+const HERO_ASSET_SEED_COUNT = 4;
 
 
 // Section header component
@@ -279,7 +286,16 @@ export default async function Home({
     .slice(0, 8)
     .concat(trending.filter((m) => !m.bannerImage).slice(0, 3));
   const heroSlidesForCarousel = heroSlides.slice(0, 10);
-  const [availabilityHints, initialHeroAsset] = await Promise.all([
+  // Server-render hero assets for the first few slides so their logos are in the
+  // initial HTML instead of popping in after a client-side fetch. These run in
+  // parallel with each other AND with the availability batch below, so they add no
+  // sequential await to the page's critical path — only the slowest of the group
+  // matters. getAnilistHeroAssets is memory+KV cached for 7 days, so this is almost
+  // always warm; the per-slide catch keeps a cold-cache failure from taking down the
+  // batch (its internal catches cover the asset fetches but not the prequel lookup or
+  // the KV read itself).
+  const heroAssetSeedSlides = heroSlidesForCarousel.slice(0, HERO_ASSET_SEED_COUNT);
+  const [availabilityHints, seededHeroAssetEntries] = await Promise.all([
     getCatalogAvailabilityForMedia([
       ...heroSlidesForCarousel,
       ...newAiring,
@@ -288,14 +304,20 @@ export default async function Home({
       ...comingSoonMedia,
       ...popular,
     ]),
-    heroSlidesForCarousel[0]
-      ? getAnilistHeroAssets(heroSlidesForCarousel[0].id)
-      : Promise.resolve({ logo: null, backdrop: null }),
+    Promise.all(
+      heroAssetSeedSlides.map(
+        async (slide): Promise<[number, AnilistHeroAssets]> => [
+          slide.id,
+          await getAnilistHeroAssets(slide.id).catch(() => ({ logo: null, backdrop: null })),
+        ],
+      ),
+    ),
   ]);
   const watchHrefs = getWatchHrefsFromAvailability(availabilityHints);
-  const initialHeroAssets = heroSlidesForCarousel[0]
-    ? { [heroSlidesForCarousel[0].id]: initialHeroAsset }
-    : {};
+  const initialHeroAssets: Record<number, AnilistHeroAssets> = {};
+  for (const [anilistId, assets] of seededHeroAssetEntries) {
+    initialHeroAssets[anilistId] = assets;
+  }
 
   return (
     <main className="min-h-screen bg-[#0a0b0c] text-[#eaeaea]">

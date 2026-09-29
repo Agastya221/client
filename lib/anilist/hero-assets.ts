@@ -2,6 +2,12 @@ import "server-only";
 
 import { cacheFetch } from "@/lib/cache";
 import { CUSTOM_TITLE_LOGOS, CUSTOM_TVDB_MAPPINGS } from "@/lib/custom-logos";
+import {
+  type FanartLogoSelection,
+  type FanartPayload,
+  NO_FANART_LOGOS,
+  selectFanartLogos,
+} from "@/lib/anilist/logo-selection";
 
 interface AniZipImage {
   coverType?: string;
@@ -13,22 +19,6 @@ interface AniZipPayload {
   mappings?: {
     thetvdb_id?: number | string | null;
   };
-}
-
-interface FanartImage {
-  url?: string;
-  lang?: string;
-  likes?: string;
-}
-
-interface FanartPayload {
-  hdtvlogo?: FanartImage[];
-  clearlogo?: FanartImage[];
-}
-
-interface SelectedFanartLogo {
-  url: string;
-  language: string;
 }
 
 interface RelationEdge {
@@ -68,8 +58,6 @@ const EMPTY_ASSETS: AnilistHeroAssets = {
   backdrop: null,
 };
 
-const PREFERRED_LOGO_LANGUAGES = ["en", "ja", "ko", "00", ""] as const;
-
 function httpsImage(images: AniZipImage[] | undefined, coverType: string): string | null {
   const candidate = images?.find(
     (image) => image.coverType?.trim().toLowerCase() === coverType,
@@ -84,52 +72,15 @@ function httpsImage(images: AniZipImage[] | undefined, coverType: string): strin
   }
 }
 
-function safeHttpsUrl(candidate: string | undefined): string | null {
-  if (!candidate) return null;
-
-  try {
-    const url = new URL(candidate);
-    return url.protocol === "https:" ? url.toString() : null;
-  } catch {
-    return null;
-  }
-}
-
-function selectFanartLogo(payload: FanartPayload): SelectedFanartLogo | null {
-  const candidates = [...(payload.hdtvlogo || []), ...(payload.clearlogo || [])]
-    .map((image) => ({
-      ...image,
-      url: safeHttpsUrl(image.url),
-      language: (image.lang || "").toLowerCase(),
-      likes: Number.parseInt(image.likes || "0", 10) || 0,
-    }))
-    .filter((image): image is typeof image & { url: string } => Boolean(image.url));
-
-  candidates.sort((left, right) => {
-    const leftLanguage = PREFERRED_LOGO_LANGUAGES.indexOf(
-      left.language as (typeof PREFERRED_LOGO_LANGUAGES)[number],
-    );
-    const rightLanguage = PREFERRED_LOGO_LANGUAGES.indexOf(
-      right.language as (typeof PREFERRED_LOGO_LANGUAGES)[number],
-    );
-    const leftRank = leftLanguage === -1 ? PREFERRED_LOGO_LANGUAGES.length : leftLanguage;
-    const rightRank = rightLanguage === -1 ? PREFERRED_LOGO_LANGUAGES.length : rightLanguage;
-    return leftRank - rightRank || right.likes - left.likes;
-  });
-
-  const selected = candidates[0];
-  return selected ? { url: selected.url, language: selected.language } : null;
-}
-
 function tvdbIdFrom(payload: AniZipPayload, anilistId: number): number | null {
   const id = Number(payload.mappings?.thetvdb_id);
   if (Number.isInteger(id) && id > 0) return id;
   return CUSTOM_TVDB_MAPPINGS[anilistId] || null;
 }
 
-async function fetchFanartLogo(tvdbId: number): Promise<SelectedFanartLogo | null> {
+async function fetchFanartLogo(tvdbId: number): Promise<FanartLogoSelection> {
   const apiKey = process.env.FANART_TV_API_KEY?.trim();
-  if (!apiKey || tvdbId <= 0) return null;
+  if (!apiKey || tvdbId <= 0) return NO_FANART_LOGOS;
 
   const response = await fetch(`https://webservice.fanart.tv/v3.2/tv/${tvdbId}`, {
     headers: {
@@ -140,9 +91,9 @@ async function fetchFanartLogo(tvdbId: number): Promise<SelectedFanartLogo | nul
     cache: "no-store",
     signal: AbortSignal.timeout(3_000),
   });
-  if (!response.ok) return null;
+  if (!response.ok) return NO_FANART_LOGOS;
 
-  return selectFanartLogo((await response.json()) as FanartPayload);
+  return selectFanartLogos((await response.json()) as FanartPayload);
 }
 
 async function fetchDirectAssets(
@@ -162,14 +113,17 @@ async function fetchDirectAssets(
   const payload = (await response.json()) as AniZipPayload;
   const anizipLogo = httpsImage(payload.images, "clearlogo");
   const tvdbId = tvdbIdFrom(payload, anilistId);
-  const fanartLogo = !anizipLogo && fetchPreferredFanartLogo
-    ? await fetchFanartLogo(tvdbId || 0).catch(() => null)
-    : null;
+  // Fanart is queried even when AniZip already has a logo: AniZip images carry
+  // no language tag, so Fanart is the only language-aware source. When the
+  // Fanart API key is unset this resolves without a network round trip.
+  const fanartLogos = fetchPreferredFanartLogo
+    ? await fetchFanartLogo(tvdbId || 0).catch(() => NO_FANART_LOGOS)
+    : NO_FANART_LOGOS;
 
   return {
-    // AniZip stays authoritative. Within the Fanart fallback, English artwork
-    // is selected ahead of Japanese/native alternatives when available.
-    logo: anizipLogo || fanartLogo?.url || null,
+    // Order: an explicitly English Fanart logo, then the AniZip clearlogo
+    // (language unknown), then the best-ranked Fanart logo of any language.
+    logo: fanartLogos.english?.url || anizipLogo || fanartLogos.best?.url || null,
     backdrop: httpsImage(payload.images, "fanart"),
   };
 }
@@ -295,7 +249,7 @@ export async function getAnilistHeroAssets(anilistId: number): Promise<AnilistHe
   const customLogo = CUSTOM_TITLE_LOGOS[anilistId] || null;
   const artworkTier = process.env.FANART_TV_API_KEY?.trim() ? "fanart" : "base";
   const cached = await cacheFetch(
-    `anizip:hero-assets:v5:${artworkTier}:${anilistId}`,
+    `anizip:hero-assets:v6:${artworkTier}:${anilistId}`,
     async () => {
       let assets = await fetchDirectAssets(anilistId, true).catch(() => EMPTY_ASSETS);
       let relationId = anilistId;
@@ -324,7 +278,7 @@ export async function getAnilistHeroAssets(anilistId: number): Promise<AnilistHe
   );
 
   return {
-    logo: cached.logo || customLogo,
+    logo: customLogo || cached.logo,
     backdrop: cached.backdrop,
   };
 }

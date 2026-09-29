@@ -43,6 +43,16 @@
   --duration-exit: 150ms;
   --duration-enter: 210ms;
   --duration-move: 400ms;
+
+  /*
+   * Carousel timings are deliberately shorter than the page-level ones and
+   * carry no enter delay: the incoming slide must start appearing on the same
+   * frame as the click, or the nav buttons feel unresponsive.
+   */
+  --carousel-enter: 200ms;
+  --carousel-exit: 160ms;
+  --carousel-move: 280ms;
+  --carousel-artwork: 320ms;
 }
 
 body {
@@ -171,29 +181,29 @@ h1, h2, h3 {
 ::view-transition-new(.slide-from-right) {
   --slide-offset: 60px;
   animation:
-    var(--duration-enter) ease-out var(--duration-exit) both fade,
-    var(--duration-move) ease-in-out both slide;
+    var(--carousel-enter) ease-out both fade,
+    var(--carousel-move) ease-out both slide;
 }
 
 ::view-transition-old(.slide-to-left) {
   --slide-offset: -60px;
   animation:
-    var(--duration-exit) ease-in both fade reverse,
-    var(--duration-move) ease-in-out both slide reverse;
+    var(--carousel-exit) ease-in both fade reverse,
+    var(--carousel-move) ease-out both slide reverse;
 }
 
 ::view-transition-new(.slide-from-left) {
   --slide-offset: -60px;
   animation:
-    var(--duration-enter) ease-out var(--duration-exit) both fade,
-    var(--duration-move) ease-in-out both slide;
+    var(--carousel-enter) ease-out both fade,
+    var(--carousel-move) ease-out both slide;
 }
 
 ::view-transition-old(.slide-to-right) {
   --slide-offset: 60px;
   animation:
-    var(--duration-exit) ease-in both fade reverse,
-    var(--duration-move) ease-in-out both slide reverse;
+    var(--carousel-exit) ease-in both fade reverse,
+    var(--carousel-move) ease-out both slide reverse;
 }
 
 /*
@@ -222,19 +232,19 @@ h1, h2, h3 {
 }
 
 ::view-transition-new(.carousel-artwork-from-right) {
-  animation: 520ms cubic-bezier(0.22, 1, 0.36, 1) both carousel-artwork-from-right;
+  animation: var(--carousel-artwork) cubic-bezier(0.22, 1, 0.36, 1) both carousel-artwork-from-right;
 }
 
 ::view-transition-old(.carousel-artwork-to-left) {
-  animation: 520ms cubic-bezier(0.22, 1, 0.36, 1) both carousel-artwork-to-left;
+  animation: var(--carousel-artwork) cubic-bezier(0.22, 1, 0.36, 1) both carousel-artwork-to-left;
 }
 
 ::view-transition-new(.carousel-artwork-from-left) {
-  animation: 520ms cubic-bezier(0.22, 1, 0.36, 1) both carousel-artwork-from-left;
+  animation: var(--carousel-artwork) cubic-bezier(0.22, 1, 0.36, 1) both carousel-artwork-from-left;
 }
 
 ::view-transition-old(.carousel-artwork-to-right) {
-  animation: 520ms cubic-bezier(0.22, 1, 0.36, 1) both carousel-artwork-to-right;
+  animation: var(--carousel-artwork) cubic-bezier(0.22, 1, 0.36, 1) both carousel-artwork-to-right;
 }
 
 ::view-transition-group(carousel-desktop-dots),
@@ -259,6 +269,110 @@ h1, h2, h3 {
 .carousel-persistent-control {
   opacity: 1;
   isolation: isolate;
+}
+
+/*
+ * Reduced motion: carousel slide and artwork changes collapse to instant
+ * swaps. Scoped to the carousel's own view-transition classes so page-level
+ * navigation keeps its (already short) motion.
+ */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-new(.slide-from-right),
+  ::view-transition-old(.slide-to-left),
+  ::view-transition-new(.slide-from-left),
+  ::view-transition-old(.slide-to-right),
+  ::view-transition-new(.carousel-artwork-from-right),
+  ::view-transition-old(.carousel-artwork-to-left),
+  ::view-transition-new(.carousel-artwork-from-left),
+  ::view-transition-old(.carousel-artwork-to-right) {
+    animation: none !important;
+  }
+}
+
+/*
+ * Hero title fallback treatment, used on the ~10% of slides that have no
+ * transparent title-logo artwork. The carousel sets --hero-accent inline on
+ * the title container from the anime's cover art; every rule below reads it
+ * with the brand orange as a fallback so a missing property still renders
+ * sensibly. These are static treatments — deliberately unanimated.
+ */
+.hero-title-kicker {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  text-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.8),
+    0 0 14px color-mix(in srgb, var(--hero-accent, #ff5500) 30%, transparent);
+}
+
+/*
+ * Short accent bar above the title. It occupies the visual mass a logo would
+ * have supplied, so the text block still reads as anchored rather than as a
+ * floating paragraph. flex: none keeps it from being stretched or collapsed
+ * by whatever flow the component drops it into.
+ */
+.hero-title-rule {
+  display: block;
+  flex: none;
+  width: 2.75rem;
+  height: 0.1875rem;
+  border-radius: 999px;
+  background-image: linear-gradient(
+    90deg,
+    var(--hero-accent, #ff5500) 0%,
+    color-mix(in srgb, var(--hero-accent, #ff5500) 28%, transparent) 100%
+  );
+  box-shadow: 0 0 12px color-mix(in srgb, var(--hero-accent, #ff5500) 45%, transparent);
+}
+
+/*
+ * Gradient title fill. Two things about this rule are easy to get wrong:
+ *
+ * 1. Shadow mechanism. With `background-clip: text` the visible glyph colour
+ *    IS the element background, and the transparent `color` contributes
+ *    nothing. Paint order inside a box is background first, then the inline
+ *    content layer — and text-shadow lives in that content layer, above the
+ *    background. So a text-shadow here is never "behind" the visible fill: it
+ *    is smeared across the top of the gradient, muddying the glyph interiors.
+ *    `filter: drop-shadow()` instead takes the element's already-composited
+ *    output (the glyph-shaped alpha of the clipped gradient) as its input and
+ *    draws the blurred copy underneath it, which is the layer we actually
+ *    want. Hence filter, not text-shadow. Black carries legibility over bright
+ *    artwork; the accent pass is only a faint bloom.
+ *
+ * 2. Support gating is positive, not `@supports not (...)`. A browser with no
+ *    background-clip: text would otherwise still apply `color: transparent`
+ *    and render an invisible headline — the worst possible failure — and a
+ *    browser with no @supports at all would ignore a negated block entirely.
+ *    Guarding the gradient behind support means the base rule (solid white)
+ *    is what everything else gets.
+ *
+ * No font-size, font-weight or line-height here: the component owns those via
+ * its character-count tiers and line-clamp-2.
+ */
+.hero-title-accent {
+  color: #ffffff;
+  filter:
+    drop-shadow(0 2px 4px rgba(0, 0, 0, 0.85))
+    drop-shadow(0 6px 18px rgba(0, 0, 0, 0.5))
+    drop-shadow(0 0 24px color-mix(in srgb, var(--hero-accent, #ff5500) 35%, transparent));
+}
+
+@supports ((background-clip: text) or (-webkit-background-clip: text)) {
+  .hero-title-accent {
+    background-image: linear-gradient(
+      98deg,
+      color-mix(in srgb, var(--hero-accent, #ff5500) 85%, white) 0%,
+      color-mix(in srgb, var(--hero-accent, #ff5500) 34%, white) 26%,
+      #ffffff 62%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+  }
 }
 
 ::view-transition-old(.nav-forward) {

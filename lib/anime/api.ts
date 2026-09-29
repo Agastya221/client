@@ -312,6 +312,40 @@ function cloneCatalogAnime(anime: CatalogAnime, providerIds: Partial<Record<Prov
   };
 }
 
+/**
+ * Presentation fields for which the AniList-derived seed is the authority.
+ * Everything else (episode data, provider ids, stream/server/playback fields)
+ * stays with the provider bundle that actually serves playback.
+ */
+const SEED_PRESENTATION_FIELDS = ["poster", "banner", "title", "description"] as const;
+
+/**
+ * Field-wise merge of a provider bundle's anime with the AniList-derived seed.
+ *
+ * The provider bundle remains the base (so playback/episode fields are
+ * untouched), but for the presentation fields above the seed wins whenever it
+ * actually has a non-empty value. If the seed value is absent or blank we keep
+ * the provider value, so a field that used to render never goes blank.
+ */
+function mergePresentationFields(
+  providerAnime: CatalogAnime,
+  seedAnime: CatalogAnime | null | undefined,
+  providerIds: Partial<Record<ProviderId, string>>,
+  routeId?: string,
+): CatalogAnime {
+  const merged = withProviderIds(providerAnime, providerIds, routeId);
+  if (!seedAnime || seedAnime === providerAnime) return merged;
+
+  for (const field of SEED_PRESENTATION_FIELDS) {
+    const seedValue = seedAnime[field];
+    if (typeof seedValue === "string" && seedValue.trim().length > 0) {
+      merged[field] = seedValue;
+    }
+  }
+
+  return merged;
+}
+
 function parseAnilistPassthroughId(providerId: string): number | null {
   if (providerId.startsWith("anilist:")) {
     return numberOrNull(providerId.slice("anilist:".length));
@@ -2968,7 +3002,19 @@ export async function getAnimeDetailOverviewModel(
     };
   }
 
-  const mergedAnime = withProviderIds(activeBundle.anime, providerIds, routeId);
+  // Field-wise merge: the active provider bundle stays the authority for
+  // playback/episode data, but presentation fields (poster/banner/title/
+  // description) come from the seed — the route's own base bundle or the
+  // AniList seed — so a fallback scraper's low-res art and raw title string
+  // never clobber richer metadata we already resolved.
+  const mergedAnime = mergePresentationFields(
+    activeBundle.anime,
+    // Only a genuinely resolved seed — never the humanized-provider-id stub,
+    // whose placeholder title would clobber the provider's real one.
+    anilistSeed?.anime || baseBundle?.anime || null,
+    providerIds,
+    routeId,
+  );
   const availableProviders = collectResolvedProviders(providerIds);
 
   return {
@@ -3874,7 +3920,13 @@ async function fetchAnivexaAggregateData(
   const providerScope = providers.join(",");
   const cacheKey = `anivexa-aggregate:${anilistId}:ep${episodeNum}:${audio}:${providerScope}:${uiProvider}`;
 
+  // Set by the loader when any provider in this scope failed. The partial
+  // aggregate is still served to the current request, but caching it under the
+  // full-provider-scope key would mask the healthy providers for 90s.
+  let anyProviderErrored = false;
+
   return cacheFetch(cacheKey, async () => {
+    anyProviderErrored = false;
     recordLog("info", "anime.anivexa.aggregate.fetch", {
       anilistId,
       episodeNumber: episodeNum,
@@ -3891,6 +3943,10 @@ async function fetchAnivexaAggregateData(
         provider,
         provider === "mkissa" ? 30_000 : 12_000,
       )),
+    );
+
+    anyProviderErrored = providerResults.some(
+      (result) => result.status !== "fulfilled" || !result.value,
     );
 
     const buckets = providerResults
@@ -3923,7 +3979,11 @@ async function fetchAnivexaAggregateData(
     staleMs: 45 * 1000,
     expireMs: 90 * 1000,
     persistent: false,
+    // A partially-failed aggregate is fine to serve but must not be cached
+    // under this provider-scope key, or the providers that did work stay
+    // hidden for the full 90s expiry.
     shouldCache: (value) => {
+      if (anyProviderErrored) return false;
       const aggregate = value as AnivexaAggregateData;
       return Array.isArray(aggregate?.buckets) &&
         aggregate.buckets.some((bucket) => bucket.internal.length > 0 || bucket.embed.length > 0);
@@ -4157,6 +4217,11 @@ export async function getAnivexaEpisodeAvailabilityMetadata(
 ): Promise<EpisodeDisplayMetadata[]> {
   if (!ANIVEXA_WORKER_URL || !Number.isInteger(anilistId) || anilistId <= 0) return [];
 
+  // Set by the loader when any provider group failed. The partial result is
+  // still returned to the caller (a degraded page beats an empty one), but it
+  // must not be written to the 6h/24h cache.
+  let anyGroupErrored = false;
+
   return cacheFetch(
     `anivexa-episode-availability:confirmed-audio-v2:${anilistId}`,
     async () => {
@@ -4166,7 +4231,13 @@ export async function getAnivexaEpisodeAvailabilityMetadata(
         ANIVEXA_AVAILABILITY_PROVIDERS.slice(0, 2),
         ANIVEXA_AVAILABILITY_PROVIDERS.slice(2),
       ].filter((group) => group.length > 0);
-      const payloads: JsonValue[] = await Promise.all(providerGroups.map(async (providers): Promise<JsonValue> => {
+      // A group that fails must not be silently collapsed to `{}` — that would
+      // make every episode it alone knows about look unavailable, and the
+      // partial map would then be cached for six hours.
+      const groupResults = await Promise.all(providerGroups.map(async (providers): Promise<{
+        payload: JsonValue;
+        errored: boolean;
+      }> => {
         const response = await fetch(
           `${ANIVEXA_WORKER_URL}/episodes/${providers.join("/")}/${anilistId}?map=false`,
           {
@@ -4178,8 +4249,22 @@ export async function getAnivexaEpisodeAvailabilityMetadata(
             signal: AbortSignal.timeout(12_000),
           },
         ).catch(() => null);
-        return response?.ok ? response.json() as Promise<JsonValue> : {} as JsonValue;
+        if (!response?.ok) return { payload: {} as JsonValue, errored: true };
+        try {
+          return { payload: await response.json() as JsonValue, errored: false };
+        } catch {
+          return { payload: {} as JsonValue, errored: true };
+        }
       }));
+      const payloads: JsonValue[] = groupResults.map((result) => result.payload);
+      anyGroupErrored = groupResults.some((result) => result.errored);
+      if (anyGroupErrored) {
+        recordLog("warn", "anime.anivexa.availability.partial", {
+          anilistId,
+          failedGroups: groupResults.filter((result) => result.errored).length,
+          totalGroups: groupResults.length,
+        });
+      }
       const entriesByNumber = new Map<number, EpisodeDisplayMetadata>();
 
       for (const providerName of ANIVEXA_AVAILABILITY_PROVIDERS) {
@@ -4221,7 +4306,9 @@ export async function getAnivexaEpisodeAvailabilityMetadata(
     {
       freshMs: 6 * 60 * 60 * 1000,
       expireMs: 24 * 60 * 60 * 1000,
-      shouldCache: (value) => Array.isArray(value) && value.length > 0,
+      // Never persist a partial availability map: it would hide every episode
+      // that only the failed group knows about for the next six hours.
+      shouldCache: (value) => !anyGroupErrored && Array.isArray(value) && value.length > 0,
     },
   );
 }
@@ -4353,12 +4440,21 @@ async function fetchAnivexaAggregateWatchSession(
     };
   }
 
+  // DASH playback needs an encrypted proxy token, which needs AUTH_SECRET. If
+  // that secret is missing, DASH simply is not a usable transport — skip it in
+  // auto-selection rather than letting the whole session fall over.
+  const dashProxyAvailable = Boolean(process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET);
+  const transportUsable = (entry: AnivexaServerEntry) =>
+    dashProxyAvailable || entry.option.transport !== "dash";
+
   const selectedEntry = exactEntry || legacyEntry ||
     entries.find((entry) =>
       entry.option.transport !== "embed" &&
+      transportUsable(entry) &&
       (!requestedTransport || entry.option.transport === requestedTransport) &&
       (dubbed || !requestedMode || entry.option.subType === requestedMode)) ||
-    entries.find((entry) => entry.option.transport !== "embed") ||
+    entries.find((entry) => entry.option.transport !== "embed" && transportUsable(entry)) ||
+    entries.find(transportUsable) ||
     entries[0] || null;
   const selectedBucket = selectedEntry?.bucket || null;
   const selectedStream = selectedEntry?.stream || null;
@@ -4367,13 +4463,25 @@ async function fetchAnivexaAggregateWatchSession(
 
   const selectedReferer = selectedStream?.referer || selectedStream?.referrer ||
     (selectedBucket?.provider === "reanime" ? "https://flixcloud.cc/" : null);
-  const dashProxyToken = selectedType === "dash" && selectedStream?.url
-    ? createDashProxyToken(
+  // createDashProxyToken throws when AUTH_SECRET/NEXTAUTH_SECRET is unset.
+  // Degrade to "no DASH stream" instead of taking down the whole session.
+  let dashProxyToken: string | null = null;
+  if (selectedType === "dash" && selectedStream?.url) {
+    try {
+      dashProxyToken = createDashProxyToken(
         selectedStream.url,
         String(selectedStream.headers?.Authorization || selectedStream.headers?.authorization || ""),
         String(selectedReferer || ""),
-      )
-    : null;
+      );
+    } catch (error) {
+      recordLog("warn", "anime.anivexa.dash_proxy_token_failed", {
+        anilistId,
+        episodeNumber: episodeNum,
+        reason: error instanceof Error ? error.message : "DASH proxy token creation failed",
+      });
+      dashProxyToken = null;
+    }
+  }
   const streamProxyUrl = (assetUrl: string, referer?: string | null) =>
     dashProxyToken
       ? buildDashProxyUrl(assetUrl, dashProxyToken)
