@@ -8,6 +8,7 @@ import { buildDashProxyUrl, createDashProxyToken } from "./dash-proxy";
 import { probeStreamHealth } from "./stream-health";
 import { normalizeEpisodeDescription, type EpisodeDisplayMetadata } from "./episode-metadata";
 import {
+  ANIVEXA_DISCOVERY_PROVIDERS,
   ANIVEXA_STREAM_PROVIDERS,
   PROVIDERS,
   type AnivexaWorkerProvider,
@@ -3977,6 +3978,10 @@ async function fetchAnivexaAggregateData(
       fetchedAt: Date.now(),
     };
   }, {
+    // Deliberately memory-only and short-lived: the buckets held here carry
+    // resolved stream URLs, which expire. The durable, KV-backed cache is the
+    // derived server-option list in `discoverAnivexaProviderServerOptions`,
+    // which holds no URLs.
     freshMs: 45 * 1000,
     staleMs: 45 * 1000,
     expireMs: 90 * 1000,
@@ -3993,6 +3998,36 @@ async function fetchAnivexaAggregateData(
   });
 }
 
+/*
+ * Server-option lists are cheap, stable metadata: ids, labels, transport and
+ * sub type. They contain no stream URL, so unlike `anivexa-aggregate` and
+ * `anivexa-first` (which carry resolved, expiring stream URLs and therefore
+ * stay memory-only) they are safe to persist to Cloudflare KV and share
+ * between instances.
+ *
+ * The upstream API caches a watch response for 3 hours in Upstash Redis, so a
+ * provider's variant list barely moves inside a 30 minute window. 15 minutes
+ * fresh keeps the SSR picker warm across cold isolates; the stale window to 30
+ * minutes revalidates in the background so a server render never waits on a
+ * refresh, and a variant that genuinely disappears upstream is gone from the
+ * picker within 30 minutes at worst. Anything shorter than that and every new
+ * Cloudflare instance pays the 3-5s cold upstream miss again.
+ */
+const SERVER_OPTIONS_FRESH_MS = 15 * 60 * 1000;
+const SERVER_OPTIONS_EXPIRE_MS = 30 * 60 * 1000;
+
+/**
+ * Overall budget for resolving the focused picker during SSR.
+ *
+ * A warm upstream response is ~140ms and these lookups run concurrently with
+ * `getQuickWatchSession` (~600ms warm), so in the warm case they add nothing
+ * to TTFB at all. 800ms leaves roughly 5x headroom over the warm path for a KV
+ * read plus a slow-ish upstream, while capping the worst case at ~200ms over
+ * the session resolve that is already in flight. A cold upstream miss is 3-5s
+ * and is cut off well before it can reach the response.
+ */
+export const SSR_SERVER_OPTIONS_TIMEOUT_MS = 800;
+
 export async function discoverAnivexaProviderServerOptions(input: {
   anilistId: number;
   episodeNumber: number;
@@ -4000,6 +4035,36 @@ export async function discoverAnivexaProviderServerOptions(input: {
   uiProvider: ProviderId;
   workerProvider: AnivexaWorkerProvider;
 }): Promise<ServerOption[]> {
+  if (input.workerProvider !== "mkissa") {
+    const audio = input.dubbed ? "dub" : "sub";
+    // The UI provider is deliberately absent from the key. It affects only the
+    // `provider` field, which is re-stamped below, never the server ids - so
+    // keying on it would fragment the shared cache for no gain and leave the
+    // SSR path cold whenever the route's provider param differs.
+    const cacheKey = `anivexa-server-options:v1:${input.anilistId}:ep${input.episodeNumber}:${audio}:${input.workerProvider}`;
+    const cached = await cacheFetch(cacheKey, async () => {
+      const aggregate = await fetchAnivexaAggregateData(
+        String(input.anilistId),
+        input.episodeNumber,
+        input.dubbed,
+        input.uiProvider,
+        [input.workerProvider],
+      );
+      return aggregate.serverOptions;
+    }, {
+      freshMs: SERVER_OPTIONS_FRESH_MS,
+      staleMs: SERVER_OPTIONS_FRESH_MS,
+      expireMs: SERVER_OPTIONS_EXPIRE_MS,
+      persistent: true,
+      refreshStale: true,
+      // An empty list means this provider failed or returned nothing for the
+      // episode. Caching that would hide a healthy provider for 30 minutes,
+      // mirroring the partial-result guard on the aggregate itself.
+      shouldCache: (value) => Array.isArray(value) && value.length > 0,
+    });
+    return cached.map((option) => ({ ...option, provider: input.uiProvider }));
+  }
+
   const aggregate = await fetchAnivexaAggregateData(
     String(input.anilistId),
     input.episodeNumber,
@@ -4007,7 +4072,6 @@ export async function discoverAnivexaProviderServerOptions(input: {
     input.uiProvider,
     [input.workerProvider],
   );
-  if (input.workerProvider !== "mkissa") return aggregate.serverOptions;
 
   const entries = aggregate.buckets.flatMap((bucket) =>
     buildAnivexaServerEntries(bucket, input.uiProvider, input.dubbed));
@@ -4043,6 +4107,92 @@ export async function discoverAnivexaProviderServerOptions(input: {
     }
   }));
   return checked.filter((option): option is ServerOption => Boolean(option));
+}
+
+export interface FocusedServerOptionsResult {
+  serverOptions: ServerOption[];
+  /**
+   * True when every lookup produced a definitive answer inside the budget, so
+   * the picker rendered from this result is the final one. False means at
+   * least one lookup was still in flight when the budget ran out and the
+   * client must finish discovery - the UI keeps its placeholders until then.
+   */
+  complete: boolean;
+}
+
+/**
+ * Resolve the focused Waves/Solaris picker for the initial server render.
+ *
+ * Both discovery providers are asked for both audio modes at once, each with
+ * its own catch so a single failing provider cannot break the page, and the
+ * whole batch is capped by `SSR_SERVER_OPTIONS_TIMEOUT_MS`. Lookups that miss
+ * the budget keep running: their `cacheFetch` entry still lands in KV, so the
+ * next render of the same episode is warm.
+ *
+ * Ranking and the Waves/Solaris narrowing are not done here - callers hand the
+ * raw options to `lib/anime/server-selection.ts`, which owns that decision.
+ */
+export async function resolveFocusedServerOptions(input: {
+  anilistId: number | null | undefined;
+  episodeNumber: number;
+  uiProvider: ProviderId;
+  dubbed: boolean;
+  timeoutMs?: number;
+}): Promise<FocusedServerOptionsResult> {
+  const anilistId = input.anilistId;
+  if (!anilistId || !ANIVEXA_WORKER_URL) {
+    // Nothing to discover on this route, so the empty picker is already final
+    // and must not be reported as "still loading".
+    return { serverOptions: [], complete: true };
+  }
+
+  const combinations = ANIVEXA_DISCOVERY_PROVIDERS.flatMap((workerProvider) => [
+    { workerProvider, dubbed: input.dubbed },
+    { workerProvider, dubbed: !input.dubbed },
+  ]);
+
+  const collected: ServerOption[] = [];
+  const seen = new Set<string>();
+  let lookupFailed = false;
+  const lookups = combinations.map((combination) =>
+    discoverAnivexaProviderServerOptions({
+      anilistId,
+      episodeNumber: input.episodeNumber,
+      dubbed: combination.dubbed,
+      uiProvider: input.uiProvider,
+      workerProvider: combination.workerProvider,
+    })
+      .then((options) => {
+        for (const option of options) {
+          if (seen.has(option.id)) continue;
+          seen.add(option.id);
+          collected.push({ ...option, provider: input.uiProvider });
+        }
+      })
+      .catch(() => {
+        // One provider failing is a missing row, never a failed page render -
+        // but it is also not an answer, so the client keeps discovery running.
+        lookupFailed = true;
+      }));
+
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const budget = new Promise<"timeout">((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), input.timeoutMs ?? SSR_SERVER_OPTIONS_TIMEOUT_MS);
+  });
+  const outcome = await Promise.race([
+    Promise.all(lookups).then(() => "complete" as const),
+    budget,
+  ]);
+  if (timer) clearTimeout(timer);
+
+  if (outcome === "timeout") {
+    recordCounter("anime.anivexa.ssr_server_options.timeout", 1, {
+      uiProvider: input.uiProvider,
+      partial: collected.length > 0 ? "partial" : "empty",
+    });
+  }
+
+  return { serverOptions: collected, complete: outcome === "complete" && !lookupFailed };
 }
 
 export async function checkAnivexaServerHealth(input: {
@@ -4220,6 +4370,8 @@ async function fetchFirstAnivexaAggregateData(
       dubbed,
     );
   }, {
+    // Same reasoning as the aggregate cache: this is stream *source*
+    // resolution, so it stays in memory and expires quickly.
     freshMs: 45 * 1000,
     staleMs: 45 * 1000,
     expireMs: 90 * 1000,

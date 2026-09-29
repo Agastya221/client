@@ -10,6 +10,7 @@ import {
   EpisodeNumberGrid,
   SeasonRail,
   ServerButton,
+  ServerButtonSkeleton,
   summarizeServerGroups,
 } from "@/components/anime/watch/WatchUiPrimitives";
 import { useServerHealth } from "@/components/anime/watch/useServerHealth";
@@ -211,6 +212,15 @@ function EpisodeMicIcon({ className = "" }: { className?: string }) {
 
 interface WatchExperienceProps {
   initialSession: WatchSessionModel;
+  /**
+   * True when the server render already resolved every Waves/Solaris lookup,
+   * so `initialSession.serverOptions` is the final picker. False means the
+   * answer is still outstanding and the picker renders placeholders until
+   * background discovery finishes. This is deliberately a third state rather
+   * than inferring "no servers" from an empty list - collapsing the two is
+   * exactly what makes the rows pop into existence one at a time.
+   */
+  initialServerDiscoveryComplete?: boolean;
   initialEpisodeMetadata?: EpisodeDisplayMetadata[];
   recommendations?: AnilistMedia[] | null;
   related?: RelatedAnimeEntry[] | null;
@@ -856,6 +866,39 @@ function WatchPreferenceToggle({
   );
 }
 
+/**
+ * Identifies one background-discovery run. Everything in it is a dependency of
+ * the discovery effect, so a change here means the current server list is no
+ * longer an answer to the question being asked and the picker goes back to
+ * showing placeholders.
+ */
+function serverDiscoveryScopeKey(input: {
+  anilistId: number | null | undefined;
+  animeId: string;
+  episodeNumber: number;
+  dubbed: boolean;
+  provider: ProviderId;
+}): string {
+  return [
+    input.anilistId ?? "none",
+    input.animeId,
+    input.episodeNumber,
+    input.dubbed ? "dub" : "sub",
+    input.provider,
+  ].join("|");
+}
+
+/*
+ * Placeholder counts follow the shape this picker actually settles into, as
+ * recorded in HANDOFF.md: one Waves hard-sub choice, up to four numbered
+ * Solaris soft-sub choices, and Waves plus Solaris for dub. Widths are sized
+ * for the labels those rows render ("Waves", "Solaris 1"), so the real pills
+ * land close to where the placeholders stood.
+ */
+const HARD_SUB_SKELETON_WIDTHS = ["6.5rem"];
+const SOFT_SUB_SKELETON_WIDTHS = ["7.5rem", "7.5rem", "7.5rem"];
+const DUB_SKELETON_WIDTHS = ["5rem", "5.75rem"];
+
 function mergeServerOptionLists(previous: ServerOption[], next: ServerOption[]): ServerOption[] {
   const nextById = new Map(next.map((option) => [option.id, option]));
   const previousIds = new Set(previous.map((option) => option.id));
@@ -900,7 +943,7 @@ function mergeWatchSessions(previous: WatchSessionModel, next: WatchSessionModel
 /* ════════════════════════════════════════════════
    MAIN: WatchExperience
    ════════════════════════════════════════════════ */
-export default function WatchExperience({ initialSession, initialEpisodeMetadata = [], recommendations = null, related = null, currentUserId }: WatchExperienceProps) {
+export default function WatchExperience({ initialSession, initialServerDiscoveryComplete = false, initialEpisodeMetadata = [], recommendations = null, related = null, currentUserId }: WatchExperienceProps) {
   const initialRecommendations = recommendations ?? null;
   const initialRelated = related ?? null;
   const [session, setSession] = useState(initialSession);
@@ -934,7 +977,39 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     serverOptions: focusedCandidateOptions,
     playbackBusy: playerActivated && (!loadedSurfaceKey || isSessionLoading),
   });
-  const focusedServers = selectFocusedServers(session.serverOptions, serverHealth.healthById);
+  const initialDiscoveryScope = serverDiscoveryScopeKey({
+    anilistId: initialSession.anime.anilistId,
+    animeId: initialSession.anime.id,
+    episodeNumber: initialSession.episode.number,
+    dubbed: initialSession.dubbed,
+    provider: initialSession.provider,
+  });
+  // Tri-state, the same shape the hero carousel uses for its title logo: this
+  // holds the scope whose discovery has actually been answered. While it does
+  // not match the current scope the question is still open, which is a
+  // different thing from "answered, and there are no servers".
+  const [resolvedDiscoveryScope, setResolvedDiscoveryScope] = useState<string | null>(
+    initialServerDiscoveryComplete ? initialDiscoveryScope : null,
+  );
+  // The scope the server render answered in full *and* actually filled. The
+  // background loop exists to close a gap; with no gap it must not run, or it
+  // replays the same four requests and reintroduces the staggered fill this
+  // path was built to remove. A complete-but-empty answer is still treated as
+  // resolved for rendering - no placeholders, nothing to shift - yet the loop
+  // is left free to retry quietly in case a provider simply blipped.
+  const ssrSeededScopeRef = useRef<string | null>(
+    initialServerDiscoveryComplete && focusedServerCandidates(initialSession.serverOptions).length > 0
+      ? initialDiscoveryScope
+      : null,
+  );
+  const serverDiscoveryScope = serverDiscoveryScopeKey({
+    anilistId: session.anime.anilistId,
+    animeId: session.anime.id,
+    episodeNumber: session.episode.number,
+    dubbed: session.dubbed,
+    provider: session.provider,
+  });
+  const serverDiscoveryPending = resolvedDiscoveryScope !== serverDiscoveryScope;
   // Optimistic server selection: turns the button green immediately on click
   // before the embed has finished loading. Cleared when the session commits.
   const [optimisticServerId, setOptimisticServerId] = useState<string | null>(null);
@@ -1286,6 +1361,20 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
       session.fallbackHistory.some((entry) => /animekai:\s*No provider mapping available/i.test(entry)));
   const [pendingSession, setPendingSession] = useState<WatchSessionModel | null>(null);
   const pendingEmbedUrl = pendingSession?.source?.kind === "iframe" ? pendingSession.source.iframeUrl : null;
+
+  /* ── Server buttons helper ───────────────────── */
+  // Priority: optimistic click → pending staged session → committed session
+  const effectiveActiveServerId = optimisticServerId || pendingSession?.activeServerId || session.activeServerId;
+  const effectiveDubbed = optimisticDubbed ?? pendingSession?.dubbed ?? session.dubbed;
+  const effectiveProvider = optimisticProvider ?? pendingSession?.provider ?? session.provider;
+  // Failed servers are hidden, except the one currently selected: a manual
+  // pick has to survive a failed probe so the viewer can still press Play and
+  // let real playback have the final word.
+  const focusedServers = selectFocusedServers(
+    session.serverOptions,
+    serverHealth.healthById,
+    { keepId: effectiveActiveServerId },
+  );
   const animeGenresKey = session.anime.genres.join("|");
   const playerType = directAvailable ? "hls" : "iframe";
   const activePlayerSurfaceKey = [
@@ -1337,6 +1426,10 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     canUseEmbed ||
     hasSubEpisode ||
     hasSubServer;
+  // Only reserve the Dub row while discovery is open if something independent
+  // of discovery says a dub exists. Reserving it unconditionally would trade
+  // one layout shift for another on every sub-only title.
+  const dubLikely = hasDub || hasDubEpisode || session.dubbed || (dubCount ?? 0) > 0;
 
   // Cap episode list by dubCount when in dub mode (for synthetic episodes).
   // If dubCount is null (anime not found in Anikoto), show all episodes.
@@ -1488,11 +1581,22 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
 
   useEffect(() => {
     const anilistId = session.anime.anilistId;
-    if (!anilistId) return;
     const animeId = session.anime.id;
     const episodeNumber = session.episode.number;
     const dubbed = session.dubbed;
     const uiProvider = session.provider;
+    const scopeKey = serverDiscoveryScopeKey({ anilistId, animeId, episodeNumber, dubbed, provider: uiProvider });
+    if (!anilistId) {
+      // No AniList id means no discovery will ever run, so the picker is
+      // already final. Leaving it "pending" would show placeholders forever.
+      setResolvedDiscoveryScope(scopeKey);
+      return;
+    }
+    if (ssrSeededScopeRef.current === scopeKey) {
+      // Server-rendered in full. Nothing to discover and nothing to shift.
+      setResolvedDiscoveryScope(scopeKey);
+      return;
+    }
     const controller = new AbortController();
     const requests = ANIVEXA_DISCOVERY_PROVIDERS.flatMap((workerProvider) => [
       { workerProvider, dubbed },
@@ -1536,7 +1640,9 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     };
 
     const timer = setTimeout(() => {
-      void Promise.all([discover(), discover()]);
+      void Promise.all([discover(), discover()]).then(() => {
+        if (!cancelled) setResolvedDiscoveryScope(scopeKey);
+      });
     }, 1200);
     return () => {
       cancelled = true;
@@ -2285,11 +2391,6 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     });
   }, [isSessionLoading, session.anime.id, session.dubbed, session.episode.number, session.serverOptions, session.source, session.stale]);
 
-  /* ── Server buttons helper ───────────────────── */
-  // Priority: optimistic click → pending staged session → committed session
-  const effectiveActiveServerId = optimisticServerId || pendingSession?.activeServerId || session.activeServerId;
-  const effectiveDubbed = optimisticDubbed ?? pendingSession?.dubbed ?? session.dubbed;
-  const effectiveProvider = optimisticProvider ?? pendingSession?.provider ?? session.provider;
   const usableServerOptions = session.serverOptions;
   const { hindiServers } = summarizeServerGroups(usableServerOptions);
   const effectiveActiveServer = session.serverOptions.find((entry) => entry.id === effectiveActiveServerId);
@@ -2381,14 +2482,28 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   const renderServerRow = (
     label: string,
     entries: ServerOption[],
-    options: { dubbed?: boolean; provider?: ProviderId; emptyLabel?: string; accent?: string } = {},
+    options: {
+      dubbed?: boolean;
+      provider?: ProviderId;
+      emptyLabel?: string;
+      accent?: string;
+      /** Widths of the placeholder pills to hold this row's space open. */
+      skeletonWidths?: string[];
+    } = {},
   ) => {
-    if (entries.length === 0 && !options.emptyLabel) return null;
+    // Three states, not two. Entries win; otherwise an unanswered row holds
+    // its space with placeholders and an answered-but-empty row disappears.
+    const showSkeleton = entries.length === 0 &&
+      serverDiscoveryPending &&
+      Boolean(options.skeletonWidths?.length);
+    if (entries.length === 0 && !showSkeleton && !options.emptyLabel) return null;
     return (
       <div className="grid gap-1.5 sm:grid-cols-[92px_1fr] sm:items-center sm:gap-2">
         <span className="text-[9px] font-black uppercase tracking-[0.12em] text-white/35 sm:text-right sm:text-[11px] sm:normal-case sm:tracking-normal">{label}</span>
         <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar sm:flex-wrap sm:overflow-visible sm:pb-0">
-          {entries.length > 0 ? entries.map((entry, index) => {
+          {showSkeleton ? options.skeletonWidths!.map((width, index) => (
+            <ServerButtonSkeleton key={`skeleton-${index}`} width={width} />
+          )) : entries.length > 0 ? entries.map((entry, index) => {
             const isEmbedEntry = isEmbedServerOption(entry.id);
             const brand = entry.id.startsWith("anivexa2-aniwaves-") ? "Waves" :
               entry.id.startsWith("anivexa2-anikoto-") ? "Solaris" : null;
@@ -3199,11 +3314,11 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
           </div>
         </div>
 
-        {(internalHardSubServers.length > 0 || internalSoftSubServers.length > 0 || internalDubServers.length > 0 || showHindi) && (
+        {(internalHardSubServers.length > 0 || internalSoftSubServers.length > 0 || internalDubServers.length > 0 || showHindi || serverDiscoveryPending) && (
           <div className="space-y-2.5 border-t border-white/[0.06] pt-2.5 sm:space-y-3">
-            {renderServerRow("Hard Subs", internalHardSubServers)}
-            {renderServerRow("Soft Subs", internalSoftSubServers)}
-            {hasDub && renderServerRow("Dub", internalDubServers, { dubbed: true, accent: "#4ade80" })}
+            {renderServerRow("Hard Subs", internalHardSubServers, { skeletonWidths: HARD_SUB_SKELETON_WIDTHS })}
+            {renderServerRow("Soft Subs", internalSoftSubServers, { skeletonWidths: SOFT_SUB_SKELETON_WIDTHS })}
+            {(hasDub || (serverDiscoveryPending && dubLikely)) && renderServerRow("Dub", internalDubServers, { dubbed: true, accent: "#4ade80", skeletonWidths: DUB_SKELETON_WIDTHS })}
             {showHindi && renderServerRow("Hindi", hindiServers, { dubbed: true, provider: "desidub", accent: "#ff5500" })}
           </div>
         )}

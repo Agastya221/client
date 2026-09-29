@@ -55,12 +55,24 @@ export function focusedServerCandidates(options: ServerOption[]): ServerOption[]
   return [...hard.slice(0, 4), ...soft.slice(0, 4), ...waveDub, ...solarisDub];
 }
 
+/**
+ * A server that failed its health check is hidden outright rather than greyed
+ * out - a dead pill is noise, not a choice.
+ *
+ * `keepId` is the one exception: the server the viewer is currently on stays
+ * in the picker even after a failed probe. A probe is not playback, and a
+ * manually chosen source has to remain visible and selected so it can still be
+ * tested with Play. Callers looking for a *replacement* pass no `keepId`, so
+ * the fallback search never proposes a known-failed server.
+ */
 export function selectFocusedServers(
   options: ServerOption[],
   healthById: Record<string, ServerHealthResult>,
+  keep?: { keepId?: string | null },
 ): { hard: ServerOption[]; soft: ServerOption[]; dub: ServerOption[] } {
+  const keepId = keep?.keepId || null;
   const available = focusedServerCandidates(options).filter((option) =>
-    healthById[option.id]?.status !== "failed");
+    option.id === keepId || healthById[option.id]?.status !== "failed");
   return {
     hard: available.filter((option) => option.category === "sub" && option.subType === "hard"),
     soft: available.filter((option) => option.category === "sub" && option.subType === "soft"),

@@ -115,6 +115,27 @@ export function ServerButton({
   );
 }
 
+/**
+ * Placeholder pill used while the server list for a row is still unknown.
+ *
+ * It matches `ServerButton`'s box model exactly - same radius, border, padding
+ * and text metrics - so a real server can replace it without moving anything
+ * around it. The width is driven by a label-length hint rather than a fixed
+ * value so the row does not visibly re-flow when short names like "Waves" and
+ * longer ones like "Solaris 2" arrive.
+ */
+export function ServerButtonSkeleton({ width = "5rem" }: { width?: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-flex max-w-full shrink-0 items-center rounded-full border border-white/[0.07] bg-white/[0.035] px-3 py-1.5 text-[10px] font-bold sm:text-[11px]"
+      style={{ width }}
+    >
+      <span className="h-[0.7em] w-full animate-pulse rounded-full bg-white/10" />
+    </span>
+  );
+}
+
 export function SeasonRail({ seasons, activeHref, accentColor = "#ff5500" }: { seasons: AnimeSeasonEntry[]; activeHref: string; accentColor?: string }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const accentRgb = (() => {

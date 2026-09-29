@@ -6,8 +6,10 @@ import {
   getKitsuEpisodeMetadataRange,
   getQuickWatchSession,
   getTvMazeEpisodeMetadataRange,
+  resolveFocusedServerOptions,
 } from "@/lib/anime/api";
 import { normalizeProviderParam } from "@/lib/anime/fallback";
+import type { ServerOption, WatchSessionModel } from "@/lib/anime/types";
 import {
   mergeEpisodeDisplayMetadataSources,
   mergeEpisodeMetadataIntoWatchSession,
@@ -91,6 +93,27 @@ async function loadInitialEpisodeMetadata(
   );
 }
 
+/**
+ * Merge the server-rendered picker into the session that resolved playback.
+ *
+ * The session's own options come first: they include the source actually
+ * selected and the invisible custom-embed fallbacks. Discovery only adds the
+ * Waves/Solaris entries it found; nothing is padded or invented, so a single
+ * real hard-sub stream stays a single pill.
+ */
+function withDiscoveredServerOptions(
+  session: WatchSessionModel,
+  discovered: ServerOption[],
+): WatchSessionModel {
+  if (discovered.length === 0) return session;
+  const known = new Set(session.serverOptions.map((option) => option.id));
+  const additions = discovered
+    .filter((option) => !known.has(option.id))
+    .map((option) => ({ ...option, provider: session.provider }));
+  if (additions.length === 0) return session;
+  return { ...session, serverOptions: [...session.serverOptions, ...additions] };
+}
+
 async function loadWatchPageData({
   idPromise,
   searchParamsPromise,
@@ -106,31 +129,49 @@ async function loadWatchPageData({
     ? Number.parseInt(id.slice("anilist~".length), 10)
     : Number.NaN;
   const anilistId = Number.isInteger(parsedAnilistId) && parsedAnilistId > 0 ? parsedAnilistId : null;
-  const [rawSession, initialEpisodeMetadata] = await Promise.all([
+  const uiProvider = normalizeProviderParam(firstParam(query.provider));
+  // The focused picker resolves alongside the playing source rather than after
+  // it, so it costs no extra sequential await. It is internally capped by
+  // SSR_SERVER_OPTIONS_TIMEOUT_MS, and every lookup inside it has its own
+  // catch: a cold upstream or a dead provider degrades to the client discovery
+  // path instead of holding up TTFB or failing the render.
+  const [rawSession, initialEpisodeMetadata, focusedServerOptions] = await Promise.all([
     getQuickWatchSession({
       animeId: id,
       episodeNumber: requestedEpisode,
-      provider: normalizeProviderParam(firstParam(query.provider)),
+      provider: uiProvider,
       episodeId: firstParam(query.episodeId) || null,
       dubbed,
       server: firstParam(query.server) || null,
     }),
     loadInitialEpisodeMetadata(anilistId, requestedEpisode),
+    resolveFocusedServerOptions({
+      anilistId,
+      episodeNumber: requestedEpisode,
+      uiProvider: uiProvider || "animekai",
+      dubbed,
+    }).catch(() => ({ serverOptions: [], complete: false })),
   ]);
-  const session = mergeEpisodeMetadataIntoWatchSession(rawSession, initialEpisodeMetadata);
+  const session = withDiscoveredServerOptions(
+    mergeEpisodeMetadataIntoWatchSession(rawSession, initialEpisodeMetadata),
+    focusedServerOptions.serverOptions,
+  );
 
   return {
     session,
     initialEpisodeMetadata,
+    serverDiscoveryComplete: focusedServerOptions.complete,
   };
 }
 
 function WatchContent({
   session,
   initialEpisodeMetadata,
+  serverDiscoveryComplete,
 }: {
   session: Awaited<ReturnType<typeof getQuickWatchSession>>;
   initialEpisodeMetadata: EpisodeDisplayMetadata[];
+  serverDiscoveryComplete: boolean;
 }) {
   const accentColor = session.anime.color || "#ff5500";
 
@@ -161,6 +202,7 @@ function WatchContent({
           session.activeServerId || "",
         ].join("|")}
         initialSession={session}
+        initialServerDiscoveryComplete={serverDiscoveryComplete}
         initialEpisodeMetadata={initialEpisodeMetadata}
       />
     </>
@@ -174,7 +216,7 @@ export default async function WatchPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { session, initialEpisodeMetadata } = await loadWatchPageData({
+  const { session, initialEpisodeMetadata, serverDiscoveryComplete } = await loadWatchPageData({
     idPromise: params,
     searchParamsPromise: searchParams,
   });
@@ -185,7 +227,11 @@ export default async function WatchPage({
       <section className="relative flex-1 overflow-x-clip px-0 pb-12 pt-[4.75rem] sm:px-4 sm:pt-20 md:px-6">
         <div className="absolute inset-0" style={{ background: 'radial-gradient(circle at top center, rgba(255,255,255,0.02), transparent 50%)' }} />
         <div className="relative mx-auto max-w-[110rem]">
-          <WatchContent session={session} initialEpisodeMetadata={initialEpisodeMetadata} />
+          <WatchContent
+            session={session}
+            initialEpisodeMetadata={initialEpisodeMetadata}
+            serverDiscoveryComplete={serverDiscoveryComplete}
+          />
         </div>
       </section>
 
