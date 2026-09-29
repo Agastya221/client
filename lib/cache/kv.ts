@@ -1,8 +1,12 @@
 /**
- * Cloudflare KV REST API cache helper
+ * Cloudflare KV cache helper
  *
- * Works in any Node.js / edge runtime by hitting the KV REST API.
- * Required environment variables:
+ * Two backends, picked at call time:
+ *
+ *  1. The native `APP_CACHE_KV` binding, when running inside a Cloudflare Worker
+ *     (see wrangler.jsonc). Needs no token, and avoids an HTTPS round trip to
+ *     api.cloudflare.com for every cache operation.
+ *  2. The KV REST API everywhere else (Node hosts, Vercel), which needs:
  *   CF_KV_ACCOUNT_ID   – Cloudflare account ID
  *   CF_KV_NAMESPACE_ID – KV namespace ID (create one in CF dashboard)
  *   CF_KV_API_TOKEN    – API token with KV:Edit permission
@@ -16,6 +20,34 @@
  *     await kvSet("my-key", fresh, 300); // TTL 300s
  *   }
  */
+
+import { getCloudflareContext } from "@opennextjs/cloudflare";
+
+/** The subset of the Workers KV binding this module uses. */
+interface KvBinding {
+  get(key: string, type: "text"): Promise<string | null>;
+  put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
+  delete(key: string): Promise<void>;
+  list(options: {
+    prefix?: string;
+    limit?: number;
+    cursor?: string;
+  }): Promise<{ keys: Array<{ name: string }>; list_complete: boolean; cursor?: string }>;
+}
+
+/**
+ * Resolved per call, never cached at module scope: the Cloudflare context only
+ * exists while a request is being handled. Returns null outside a Worker, where
+ * getCloudflareContext() throws.
+ */
+function nativeKv(): KvBinding | null {
+  try {
+    const env = getCloudflareContext().env as unknown as { APP_CACHE_KV?: KvBinding };
+    return env.APP_CACHE_KV ?? null;
+  } catch {
+    return null;
+  }
+}
 
 const NAMESPACE_BASE = () => {
   const accountId = process.env.CF_KV_ACCOUNT_ID;
@@ -75,17 +107,29 @@ export function isKvRuntimeEnabled(): boolean {
 }
 
 export function isKvConfigured(): boolean {
-  return isKvRuntimeEnabled()
-    && Boolean(
-      process.env.CF_KV_ACCOUNT_ID
-      && process.env.CF_KV_NAMESPACE_ID
-      && process.env.CF_KV_API_TOKEN,
-    );
+  if (!isKvRuntimeEnabled()) return false;
+  if (nativeKv()) return true;
+  return Boolean(
+    process.env.CF_KV_ACCOUNT_ID
+    && process.env.CF_KV_NAMESPACE_ID
+    && process.env.CF_KV_API_TOKEN,
+  );
 }
 
 /** Read a JSON value from KV. Returns null on miss or error. */
 export async function kvGet<T = unknown>(key: string): Promise<T | null> {
   if (!isKvConfigured()) return null;
+
+  const binding = nativeKv();
+  if (binding) {
+    try {
+      const text = await binding.get(key, "text");
+      return text === null ? null : (JSON.parse(text) as T);
+    } catch {
+      return null;
+    }
+  }
+
   const base = NAMESPACE_BASE();
   const token = TOKEN();
   if (!base || !token) return null;
@@ -107,6 +151,19 @@ export async function kvGet<T = unknown>(key: string): Promise<T | null> {
 /** Write a JSON value to KV with an optional TTL in seconds. */
 export async function kvSet(key: string, value: unknown, ttlSeconds = 300): Promise<void> {
   if (!isKvConfigured()) return;
+
+  const binding = nativeKv();
+  if (binding) {
+    try {
+      await binding.put(key, JSON.stringify(value), {
+        expirationTtl: Math.max(60, Math.ceil(ttlSeconds)),
+      });
+    } catch {
+      // best-effort; don't throw on cache write failure
+    }
+    return;
+  }
+
   const base = NAMESPACE_BASE();
   const token = TOKEN();
   if (!base || !token) return;
@@ -129,6 +186,17 @@ export async function kvSet(key: string, value: unknown, ttlSeconds = 300): Prom
 /** Delete a key from KV. */
 export async function kvDelete(key: string): Promise<void> {
   if (!isKvConfigured()) return;
+
+  const binding = nativeKv();
+  if (binding) {
+    try {
+      await binding.delete(key);
+    } catch {
+      // best-effort
+    }
+    return;
+  }
+
   const base = NAMESPACE_BASE();
   const token = TOKEN();
   if (!base || !token) return;
@@ -153,6 +221,22 @@ type KvKeyListResponse = {
 /** Delete all keys matching a prefix, including paginated KV listings. */
 export async function kvDeletePrefix(prefix: string): Promise<void> {
   if (!isKvConfigured() || !prefix) return;
+
+  const binding = nativeKv();
+  if (binding) {
+    try {
+      let cursor: string | undefined;
+      do {
+        const page = await binding.list({ prefix, limit: 1000, cursor });
+        await Promise.all(page.keys.map((entry) => binding.delete(entry.name)));
+        cursor = page.list_complete ? undefined : page.cursor;
+      } while (cursor);
+    } catch {
+      // Cache invalidation is best-effort and must not break playback.
+    }
+    return;
+  }
+
   const base = NAMESPACE_BASE();
   const token = TOKEN();
   if (!base || !token) return;
