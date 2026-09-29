@@ -1,9 +1,9 @@
 "use client";
 
-import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import BrowseExperience from "@/components/search/BrowseExperience";
 import type { HomeViewMode } from "@/lib/home-view";
+import { useHydrated } from "@/lib/use-hydrated";
 
 interface HomeBrowseShellProps {
   initialMode: HomeViewMode;
@@ -14,21 +14,14 @@ interface HomeBrowseShellProps {
 
 /**
  * The homepage is served from a cached, pre-rendered copy, so the server cannot know
- * whether the URL asks for `?view=browse`. The Suspense fallback is what goes into the
- * cached HTML (the normal home view); in the browser the search-params-aware version
- * takes over and switches to browse mode when the URL asks for it.
+ * whether the URL asks for `?view=browse`. The cached HTML is always the home view; the
+ * URL's mode is applied as soon as the page hydrates (client navigations are already
+ * hydrated, so they switch immediately).
  */
 export default function HomeBrowseShell(props: HomeBrowseShellProps) {
-  return (
-    <Suspense fallback={<HomeBrowseView {...props} mode={props.initialMode} />}>
-      <HomeBrowseShellWithParams {...props} />
-    </Suspense>
-  );
-}
-
-function HomeBrowseShellWithParams(props: HomeBrowseShellProps) {
   const searchParams = useSearchParams();
-  const viewParam = searchParams.get("view");
+  const hydrated = useHydrated();
+  const viewParam = hydrated ? searchParams.get("view") : null;
   const mode: HomeViewMode = viewParam === "browse" ? "browse" : viewParam === "home" ? "home" : props.initialMode;
   return <HomeBrowseView {...props} mode={mode} />;
 }
