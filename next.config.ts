@@ -70,6 +70,17 @@ const nextConfig: NextConfig = {
   // Suppress hydration warnings from browser extensions that inject attributes
   // like bis_skin_checked="1" (Honey, CouponFollow, etc.) into the DOM.
   reactStrictMode: true,
+  /**
+   * `pg` (used by @prisma/adapter-pg) does `require("pg-cloudflare")` to reach
+   * Cloudflare's socket API. That package's exports map serves a real
+   * implementation only under the `workerd` condition and an empty stub under
+   * `default`. Next's file tracer resolves with Node's conditions, so it keeps
+   * only the empty stub and the Cloudflare bundle then fails with
+   * "Could not resolve pg-cloudflare". Force the whole package into the trace.
+   */
+  outputFileTracingIncludes: {
+    "/*": ["./node_modules/pg-cloudflare/**/*"],
+  },
 };
 
 export default nextConfig;

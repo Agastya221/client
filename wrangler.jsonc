@@ -17,10 +17,18 @@
   // `services[].service` self-reference below.
   "name": "tatakai-anime-website",
 
-  "main": ".open-next/worker.js",
+  "main": "worker.ts",
 
   // Pinned to the workerd build shipped with the installed wrangler
   // (1.20260926.1). Do not set a date newer than your wrangler's workerd.
+  // Runs the `scheduled` handler in worker.ts: pings the Render API so it never sleeps.
+  "triggers": { "crons": ["*/10 * * * *"] },
+
+  // Non-secret. AniList blocks Cloudflare's egress IPs, so its GraphQL traffic is routed
+  // through the Anivexa API on Render (lib/anilist/endpoint.ts). ANILIST_PROXY_KEY is the
+  // matching shared secret and is set as a secret, never here.
+  "vars": { "ANILIST_PROXY_URL": "https://tatakai-anivexa-api.onrender.com/anilist" },
+
   "compatibility_date": "2026-09-26",
 
   // nodejs_compat is REQUIRED:
@@ -33,6 +41,8 @@
   // global_fetch_strictly_public makes same-origin fetch() from inside the
   // Worker go out over the public internet instead of short-circuiting, which
   // is what the app's own /api/proxy/* routes expect.
+  // Shrinks the uploaded bundle; needed to stay under the 3 MiB free-plan limit.
+  "minify": true,
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
 
   // Your Cloudflare account ID. Leave commented and export CLOUDFLARE_ACCOUNT_ID
@@ -60,7 +70,7 @@
       // Create with:
       //   npx wrangler kv namespace create NEXT_INC_CACHE_KV
       "binding": "NEXT_INC_CACHE_KV",
-      "id": "<PLACEHOLDER_REPLACE_WITH_NEXT_INC_CACHE_KV_ID>"
+      "id": "cbea7bdc142b440383b615d7255bb256"
     },
     {
       // Application-level L2 API cache. lib/cache/kv.ts currently talks to the
@@ -72,7 +82,7 @@
       // Reuse your existing CF_KV_NAMESPACE_ID here, or create a new one:
       //   npx wrangler kv namespace create APP_CACHE_KV
       "binding": "APP_CACHE_KV",
-      "id": "<PLACEHOLDER_REPLACE_WITH_APP_CACHE_KV_ID>"
+      "id": "aae53844f57a4849a1b42e1f6d524c1b"
     }
   ],
 

@@ -3,6 +3,10 @@
 
 generator client {
   provider = "prisma-client-js"
+  // The default "fast" query compiler is 4.7 MB of base64 wasm (~1.7 MiB gzipped) and
+  // alone pushes the Cloudflare Worker past the 3 MiB free-plan limit. "small" is
+  // ~0.9 MiB gzipped, at the cost of slower query compilation (see DEPLOY-CLOUDFLARE.md).
+  compilerBuild = "small"
 }
 
 datasource db {
