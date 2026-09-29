@@ -1,0 +1,120 @@
+/**
+ * Cloudflare Workers configuration for the Tatakai anime site.
+ *
+ * This file is PREPARATION ONLY — nothing here has been deployed. Every
+ * `<PLACEHOLDER>` must be replaced with a real value from your own Cloudflare
+ * account before `npm run deploy` will work. See DEPLOY-CLOUDFLARE.md.
+ *
+ * Build pipeline: `opennextjs-cloudflare build` compiles `.next/` into
+ * `.open-next/worker.js` + `.open-next/assets/`, which is what `main` and
+ * `assets.directory` below point at.
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+
+  // Worker name. Also used for the workers.dev subdomain
+  // (https://<name>.<your-subdomain>.workers.dev) and MUST match the
+  // `services[].service` self-reference below.
+  "name": "tatakai-anime-website",
+
+  "main": ".open-next/worker.js",
+
+  // Pinned to the workerd build shipped with the installed wrangler
+  // (1.20260926.1). Do not set a date newer than your wrangler's workerd.
+  "compatibility_date": "2026-09-26",
+
+  // nodejs_compat is REQUIRED:
+  //   - lib/anime/dash-proxy.ts uses node:crypto (createCipheriv/randomBytes)
+  //   - app/api/proxy/m3u8-streaming-proxy/route.ts uses Buffer
+  //   - @prisma/adapter-pg + pg need node:net / node:tls / node:stream
+  // With compatibility_date >= 2025-04-01 this flag also auto-populates
+  // process.env from vars and secrets.
+  //
+  // global_fetch_strictly_public makes same-origin fetch() from inside the
+  // Worker go out over the public internet instead of short-circuiting, which
+  // is what the app's own /api/proxy/* routes expect.
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+
+  // Your Cloudflare account ID. Leave commented and export CLOUDFLARE_ACCOUNT_ID
+  // instead if you prefer not to commit it (it is not a secret, but it is
+  // account-identifying).
+  // "account_id": "<YOUR_CLOUDFLARE_ACCOUNT_ID>",
+
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+
+  // Worker logs / traces in the Cloudflare dashboard. head_sampling_rate 1
+  // logs everything; lower it (e.g. 0.1) once traffic is real.
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+
+  "kv_namespaces": [
+    {
+      // Next.js incremental (ISR/fetch) cache. Read by the KV incremental
+      // cache override wired up in open-next.config.ts. The binding name is
+      // fixed by the adapter — do not rename it.
+      // Create with:
+      //   npx wrangler kv namespace create NEXT_INC_CACHE_KV
+      "binding": "NEXT_INC_CACHE_KV",
+      "id": "<PLACEHOLDER_REPLACE_WITH_NEXT_INC_CACHE_KV_ID>"
+    },
+    {
+      // Application-level L2 API cache. lib/cache/kv.ts currently talks to the
+      // SAME namespace over the Cloudflare REST API using CF_KV_* credentials.
+      // Once deployed on Workers this binding is faster and free of REST
+      // subrequest cost — see the "KV: REST to native binding" follow-up in
+      // DEPLOY-CLOUDFLARE.md. Binding is declared now so the migration is a
+      // code-only change later.
+      // Reuse your existing CF_KV_NAMESPACE_ID here, or create a new one:
+      //   npx wrangler kv namespace create APP_CACHE_KV
+      "binding": "APP_CACHE_KV",
+      "id": "<PLACEHOLDER_REPLACE_WITH_APP_CACHE_KV_ID>"
+    }
+  ],
+
+  "services": [
+    {
+      // Self-reference, required by the adapter for cache revalidation.
+      // `service` must equal `name` above.
+      // https://opennext.js.org/cloudflare/caching
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "tatakai-anime-website"
+    }
+  ]
+
+  // ---------------------------------------------------------------------
+  // OPTIONAL BINDINGS — all commented out on purpose. A placeholder ID in an
+  // active binding makes `wrangler deploy` fail, so uncomment only after the
+  // resource exists.
+  // ---------------------------------------------------------------------
+
+  // Hyperdrive: pooled, edge-cached Postgres for lib/db.ts.
+  // Workers cannot hold a long-lived TCP pool, so raw `pg` to Neon opens a new
+  // connection per isolate. Hyperdrive fixes that and is free on both plans.
+  // Create with:
+  //   npx wrangler hyperdrive create tatakai-db --connection-string="<YOUR_NEON_DIRECT_URL>"
+  // Then uncomment. lib/db.ts reads the resulting connection string from
+  // HYPERDRIVE_DATABASE_URL (or DATABASE_URL) with no code change.
+  //
+  // "hyperdrive": [
+  //   {
+  //     "binding": "HYPERDRIVE",
+  //     "id": "<PLACEHOLDER_REPLACE_WITH_HYPERDRIVE_ID>"
+  //   }
+  // ],
+
+  // Cloudflare Images binding. Uncomment ONLY if you also remove
+  // `images.unoptimized: true` from next.config.ts. The adapter's built-in
+  // /_next/image handler uses env.IMAGES when present. Billed as Images
+  // Transformations: 5,000 unique transformations/month free, then
+  // $0.50 per 1,000. See the image-optimization section of
+  // DEPLOY-CLOUDFLARE.md before enabling.
+  //
+  // "images": {
+  //   "binding": "IMAGES"
+  // }
+}
