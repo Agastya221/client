@@ -1,3 +1,4 @@
+import { watchPartyUnavailable } from "@/lib/features";
 import { prisma } from "@/lib/db";
 import { NextRequest } from "next/server";
 
@@ -7,6 +8,8 @@ export const runtime = "nodejs";
 // GET /api/watch-party/stream?code=ANIM4X&memberId=uuid
 // Long-lived SSE endpoint. Polls new events every 800ms and pushes them.
 export async function GET(req: NextRequest) {
+  const unavailable = watchPartyUnavailable();
+  if (unavailable) return unavailable;
   const code = req.nextUrl.searchParams.get("code")?.toUpperCase();
   const memberId = req.nextUrl.searchParams.get("memberId");
 

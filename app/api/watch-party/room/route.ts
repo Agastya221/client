@@ -1,3 +1,4 @@
+import { watchPartyUnavailable } from "@/lib/features";
 import { prisma } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -18,6 +19,8 @@ function getRoomExpiry(): Date {
 
 // POST /api/watch-party/room — create a room
 export async function POST(req: NextRequest) {
+  const unavailable = watchPartyUnavailable();
+  if (unavailable) return unavailable;
   try {
     const body = await req.json() as {
       hostId: string;
@@ -69,6 +72,8 @@ export async function POST(req: NextRequest) {
 
 // GET /api/watch-party/room?code=ANIM4X — fetch room state
 export async function GET(req: NextRequest) {
+  const unavailable = watchPartyUnavailable();
+  if (unavailable) return unavailable;
   const code = req.nextUrl.searchParams.get("code");
   if (!code) return NextResponse.json({ error: "Missing code" }, { status: 400 });
 
@@ -87,6 +92,8 @@ export async function GET(req: NextRequest) {
 
 // DELETE /api/watch-party/room?code=ANIM4X&hostId=xxx — destroy room (host only)
 export async function DELETE(req: NextRequest) {
+  const unavailable = watchPartyUnavailable();
+  if (unavailable) return unavailable;
   const code = req.nextUrl.searchParams.get("code")?.toUpperCase();
   const hostId = req.nextUrl.searchParams.get("hostId");
   if (!code || !hostId) return NextResponse.json({ error: "Missing params" }, { status: 400 });

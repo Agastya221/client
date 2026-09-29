@@ -1,8 +1,11 @@
+import { watchPartyUnavailable } from "@/lib/features";
 import { prisma } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 
 // POST /api/watch-party/join — add a member to a room
 export async function POST(req: NextRequest) {
+  const unavailable = watchPartyUnavailable();
+  if (unavailable) return unavailable;
   try {
     const body = await req.json() as { code: string; memberId: string; memberName: string };
     const { code, memberId, memberName } = body;
@@ -55,6 +58,8 @@ export async function POST(req: NextRequest) {
 
 // DELETE /api/watch-party/join?code=XXX&memberId=YYY — leave a room
 export async function DELETE(req: NextRequest) {
+  const unavailable = watchPartyUnavailable();
+  if (unavailable) return unavailable;
   const code = req.nextUrl.searchParams.get("code")?.toUpperCase();
   const memberId = req.nextUrl.searchParams.get("memberId");
   const memberName = req.nextUrl.searchParams.get("memberName") ?? "Someone";

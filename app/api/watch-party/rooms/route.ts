@@ -1,8 +1,11 @@
+import { watchPartyUnavailable } from "@/lib/features";
 import { prisma } from "@/lib/db";
 import { NextResponse } from "next/server";
 
 // GET /api/watch-party/rooms — list all active (non-expired) rooms
 export async function GET() {
+  const unavailable = watchPartyUnavailable();
+  if (unavailable) return unavailable;
   try {
     const now = new Date();
     const rooms = await prisma.watchPartyRoom.findMany({

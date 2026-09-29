@@ -77,6 +77,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ThemeAccentSource from "@/components/ui/ThemeAccentSource";
 
+import { WATCH_PARTY_ENABLED } from "@/lib/features";
 const WatchPartyModal = dynamic(() => import("@/components/anime/WatchPartyModal"), { ssr: false });
 const WatchPartyPanel = dynamic(() => import("@/components/anime/WatchParty"), { ssr: false });
 const BugReportModal = dynamic(() => import("@/components/anime/watch/BugReportModal"), { ssr: false });
@@ -1057,7 +1058,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
   // ── Watch Party ────────────────────────────────────────────────────
   const [partyModalOpen, setPartyModalOpen] = useState(false);
   const [partyRoomCode, setPartyRoomCode] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
+    if (!WATCH_PARTY_ENABLED || typeof window === "undefined") return null;
     return sessionStorage.getItem("watch-party-active-room-code");
   });
   const [partyIsHost, setPartyIsHost] = useState<boolean>(() => {
@@ -3283,6 +3284,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
           </div>
 
           {/* Watch Together pill — aligned to the right side, prominent */}
+          {WATCH_PARTY_ENABLED && (
           <div className="flex items-center ml-auto shrink-0">
             <button
               type="button"
@@ -3312,6 +3314,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
               )}
             </button>
           </div>
+          )}
         </div>
 
         {(internalHardSubServers.length > 0 || internalSoftSubServers.length > 0 || internalDubServers.length > 0 || showHindi || serverDiscoveryPending) && (

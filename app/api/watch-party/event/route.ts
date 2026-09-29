@@ -1,8 +1,11 @@
+import { watchPartyUnavailable } from "@/lib/features";
 import { prisma } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 
 // POST /api/watch-party/event — broadcast a sync event
 export async function POST(req: NextRequest) {
+  const unavailable = watchPartyUnavailable();
+  if (unavailable) return unavailable;
   try {
     const body = await req.json() as {
       code: string;
