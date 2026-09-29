@@ -8,8 +8,8 @@ import {
   type FollowedReleaseListEntry,
   type FollowedReleaseMedia,
 } from "@/lib/anilist/release-updates";
+import { anilistFetch } from "@/lib/anilist/endpoint";
 
-const ANILIST_URL = "https://graphql.anilist.co";
 
 const MEDIA_BATCH_QUERY = `
   query MediaBatch($ids: [Int]) {
@@ -135,7 +135,7 @@ export async function POST(req: Request) {
 
     const uniqueIds = Array.from(new Set(ids)).slice(0, 50);
 
-    const res = await fetch(ANILIST_URL, {
+    const res = await anilistFetch({
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({

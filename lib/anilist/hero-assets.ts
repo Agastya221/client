@@ -8,6 +8,7 @@ import {
   NO_FANART_LOGOS,
   selectFanartLogos,
 } from "@/lib/anilist/logo-selection";
+import { anilistFetch } from "@/lib/anilist/endpoint";
 
 interface AniZipImage {
   coverType?: string;
@@ -194,7 +195,7 @@ async function fetchKitsuPrequelId(anilistId: number): Promise<number | null> {
 
 async function fetchPrequelId(anilistId: number): Promise<number | null> {
   try {
-    const response = await fetch("https://graphql.anilist.co", {
+    const response = await anilistFetch({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

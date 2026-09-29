@@ -7,6 +7,7 @@ import {
   ANILIST_LIST_ENTRY_CACHE_TTL_SECONDS,
   anilistListEntryCacheKey,
 } from "@/lib/anilist/list-entry-cache";
+import { anilistFetch } from "@/lib/anilist/endpoint";
 
 type AniListSession = {
   accessToken?: string;
@@ -76,7 +77,7 @@ export async function POST(request: Request) {
         .trim();
       if (searchTerm) {
         try {
-          const searchRes = await fetch("https://graphql.anilist.co", {
+          const searchRes = await anilistFetch({
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -167,7 +168,7 @@ export async function POST(request: Request) {
           }
         }
       `;
-      const currentEntryResponse = await fetch("https://graphql.anilist.co", {
+      const currentEntryResponse = await anilistFetch({
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -207,7 +208,7 @@ export async function POST(request: Request) {
     if (resolvedProgress !== undefined) variables.progress = resolvedProgress;
     if (score !== undefined && score !== null) variables.score = Number(score);
 
-    const res = await fetch("https://graphql.anilist.co", {
+    const res = await anilistFetch({
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -308,7 +309,7 @@ export async function DELETE(request: Request) {
       }
     `;
 
-    const getRes = await fetch("https://graphql.anilist.co", {
+    const getRes = await anilistFetch({
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -344,7 +345,7 @@ export async function DELETE(request: Request) {
       }
     `;
 
-    const deleteRes = await fetch("https://graphql.anilist.co", {
+    const deleteRes = await anilistFetch({
       method: "POST",
       headers: {
         "Content-Type": "application/json",

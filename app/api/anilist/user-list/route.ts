@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { cacheFetch } from "@/lib/cache";
 import { ANILIST_USER_LIST_CACHE_TTL_SECONDS } from "@/lib/anilist/list-entry-cache";
+import { anilistFetch } from "@/lib/anilist/endpoint";
 
 export async function GET(request: Request) {
   try {
@@ -89,7 +90,7 @@ export async function GET(request: Request) {
     const lists = await cacheFetch(
       cacheKey,
       async () => {
-        let res = await fetch("https://graphql.anilist.co", {
+        let res = await anilistFetch({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ query, variables: queryVariables }),
@@ -100,7 +101,7 @@ export async function GET(request: Request) {
 
         // Fallback: If query by userId failed, try session.user.name
         if ((!res.ok || data.errors || !data?.data?.MediaListCollection) && session?.user?.name && queryVariables.userName !== session.user.name) {
-          res = await fetch("https://graphql.anilist.co", {
+          res = await anilistFetch({
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ query, variables: { userName: session.user.name } }),

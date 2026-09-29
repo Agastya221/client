@@ -6,7 +6,8 @@
  *  2. Updating episode progress when the user watches an episode
  */
 
-const ANILIST_URL = "https://graphql.anilist.co";
+import { anilistFetch } from "@/lib/anilist/endpoint";
+
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -120,7 +121,7 @@ async function anilistUserQuery<T>(
   query: string,
   variables?: Record<string, unknown>,
 ): Promise<T> {
-  const res = await fetch(ANILIST_URL, {
+  const res = await anilistFetch({
     method: "POST",
     headers: {
       "Content-Type": "application/json",

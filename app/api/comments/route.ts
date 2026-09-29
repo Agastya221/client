@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimit, getRateLimitHeaders } from "@/lib/rate-limit";
 import { unstable_cache } from "next/cache";
+import { anilistFetch } from "@/lib/anilist/endpoint";
 
 // TTL for AniList comment cache (5 min)
 const CACHE_TTL_SECONDS = 5 * 60;
@@ -37,7 +38,7 @@ async function _fetchFromAniList(animeId: string, rawId: number, episodeNumber?:
   `;
 
   try {
-    const res = await fetch("https://graphql.anilist.co", {
+    const res = await anilistFetch({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query: threadQuery, variables: { mediaId: rawId } }),
@@ -121,7 +122,7 @@ async function _fetchFromAniList(animeId: string, rawId: number, episodeNumber?:
       `;
 
       try {
-        const resComments = await fetch("https://graphql.anilist.co", {
+        const resComments = await anilistFetch({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ query: commentQuery, variables: { threadId: targetThread.id } }),

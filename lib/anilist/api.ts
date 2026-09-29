@@ -4,11 +4,11 @@
  * Our Railway Python API is used ONLY for watch session / stream resolution.
  */
 
-const ANILIST_URL = "https://graphql.anilist.co";
 
 import { cache } from "react";
 import { cacheFetch } from "@/lib/cache";
 import { recordCounter, recordLog } from "@/lib/observability";
+import { anilistFetch } from "@/lib/anilist/endpoint";
 
 const ANILIST_REQUEST_TIMEOUT_MS = 12_000;
 const DEFAULT_ANILIST_USER_AGENT = "Tatakai/1.0 (Next.js server; AniList catalog integration)";
@@ -103,7 +103,7 @@ async function anilistQuery<T>(query: string, variables?: Record<string, unknown
   }
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const res = await fetch(ANILIST_URL, {
+    const res = await anilistFetch({
       method: "POST",
       headers: buildAnilistHeaders(),
       body: JSON.stringify({ query, variables }),

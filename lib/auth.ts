@@ -2,6 +2,7 @@ import NextAuth from "next-auth";
 import type { OAuthConfig, OAuthUserConfig } from "next-auth/providers";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/lib/db";
+import { anilistFetch } from "@/lib/anilist/endpoint";
 
 // AniList OAuth2 provider
 function AniList(options: OAuthUserConfig<{ id: number; name: string; avatar: { large: string }; bannerImage: string | null }>): OAuthConfig<{ id: number; name: string; avatar: { large: string }; bannerImage: string | null }> {
@@ -20,7 +21,7 @@ function AniList(options: OAuthUserConfig<{ id: number; name: string; avatar: { 
     userinfo: {
       url: "https://graphql.anilist.co",
       async request({ tokens }: { tokens: { access_token?: string } }) {
-        const res = await fetch("https://graphql.anilist.co", {
+        const res = await anilistFetch({
           method: "POST",
           headers: {
             "Content-Type": "application/json",
