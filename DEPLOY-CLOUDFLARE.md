@@ -13,6 +13,28 @@ runtime at all, so no route changes were needed.
 
 ---
 
+
+## Deployed state (free plan)
+
+Live at `https://tatakai-anime-website.tatakai-anime.workers.dev` on the Workers **free** plan.
+
+| Thing | State |
+|---|---|
+| Bundle | ~2,719 KiB gzipped, under the 3,072 KiB limit. Needs Prisma `compilerBuild = "small"` (default is +0.8 MiB) and wrangler `minify`. |
+| Build | Must run on **Linux** (WSL, CI). OpenNext creates symlinks, which fail on Windows without Developer Mode. Deploy the result with `wrangler deploy`; secrets persist between deploys. |
+| AniList | AniList blocks Cloudflare's egress IPs (403 "manually blocked"). `ANILIST_PROXY_URL` routes all GraphQL through `POST /anilist` on the Render API, guarded by `ANILIST_PROXY_KEY` (set on Render **and** as a Worker secret). |
+| Cache | `lib/cache/kv.ts` uses the native `APP_CACHE_KV` binding. No API token needed. |
+| Keep-warm | `worker.ts` `scheduled()` pings the Render API every 10 minutes (see `triggers.crons`). ~720 of Render's 750 free hours/month: only safe while it is the account's single free service. |
+| Watch Party | Off (`NEXT_PUBLIC_WATCH_PARTY_ENABLED`); to be rebuilt on Durable Objects. |
+
+Gotchas found while deploying:
+
+- **Fire-and-forget promises are cancelled when the response is sent.** Use `runAfterResponse()` (`lib/cache.ts`), which registers work with `waitUntil`. A bare `void promise` silently never finishes on Workers.
+- **`process.env` is populated per request**, so never read it at module scope.
+- **`public/` is published as static assets.** Do not leave compiled worker files there (`final_worker.js` and `temp_worker.js` had to be stripped from the deploy).
+- **Not proxied:** the AniList OAuth token exchange (`anilist.co/api/v2/oauth/token`) happens inside Auth.js. If AniList also blocks it from Workers, sign-in will fail and needs a separate fix.
+- **Free-plan limits still to watch:** 10 ms CPU per request, 50 subrequests per request, 1,000 KV writes/day.
+
 ## 1. Version pinning — read this first
 
 | Package | Installed | Why this exact version |
