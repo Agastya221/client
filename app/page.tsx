@@ -86,6 +86,22 @@ function scheduleDateKey(date: Date): string {
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
+/*
+ * Module scope, not inside the component: this reads the wall clock, and calling
+ * an impure function during render is what `react-hooks/purity` flags. It closes
+ * over nothing from Home, so hoisting is a pure move. The page is ISR'd at
+ * `revalidate = 300`, so "now" is the render time of the cached HTML.
+ */
+function isUnreleased(m: AnilistMedia): boolean {
+  const status = String(m.status || "").toUpperCase().replace(/[ -]+/g, "_");
+  if (status === "NOT_YET_RELEASED" || status === "UPCOMING") return true;
+  if (status === "RELEASING" || status === "FINISHED") return false;
+
+  const { year, month, day } = m.startDate || {};
+  if (!year || !month || !day) return false;
+  return Date.UTC(year, month - 1, day) > Date.now();
+}
+
 function buildAiringScheduleDays(media: AnilistMedia[]): AiringScheduleDay[] {
   const now = Date.now();
   const weekdayFormatter = new Intl.DateTimeFormat("en-US", { timeZone: AIRING_TIME_ZONE, weekday: "short" });
@@ -247,16 +263,6 @@ export default async function Home({
     Array.isArray(query.view) ? query.view[0] : query.view
   ) === "browse" ? "browse" : "home";
 
-  const isUnreleased = (m: AnilistMedia) => {
-    const status = String(m.status || "").toUpperCase().replace(/[ -]+/g, "_");
-    if (status === "NOT_YET_RELEASED" || status === "UPCOMING") return true;
-    if (status === "RELEASING" || status === "FINISHED") return false;
-
-    const { year, month, day } = m.startDate || {};
-    if (!year || !month || !day) return false;
-    return Date.UTC(year, month - 1, day) > Date.now();
-  };
-
   // 1. Pure Coming Soon media
   const upcomingRaw = upcomingResult.media || [];
   const comingSoonFromOther = [...trendingRaw, ...seasonalRaw].filter(isUnreleased);
@@ -268,7 +274,6 @@ export default async function Home({
   const trending = trendingRaw.filter((m) => !isUnreleased(m));
   const airingMedia = airingResult.media.filter((media) => !isUnreleased(media));
   const popular = airingMedia.slice(0, 8);
-  const upcoming = upcomingResult.media.slice(0, 5);
   const airingScheduleDays = buildAiringScheduleDays(airingMedia);
 
   const seasonalClean = seasonalRaw.filter((m) => !isUnreleased(m));
