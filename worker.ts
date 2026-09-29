@@ -13,6 +13,7 @@
  */
 import openNext from "./.open-next/worker.js";
 export { DOQueueHandler, DOShardedTagCache, BucketCachePurge } from "./.open-next/worker.js";
+import { maybeHandleFastSegment } from "./lib/proxy/fast-segment";
 
 interface ScheduledEnv {
   ANIVEXA_API_BASE_URL?: string;
@@ -23,7 +24,14 @@ interface ExecutionContextLike {
 }
 
 export default {
-  fetch: openNext.fetch as (request: Request, env: unknown, ctx: unknown) => Promise<Response>,
+  /**
+   * Video segments skip Next.js entirely (see lib/proxy/fast-segment.ts): ~150 per
+   * episode, and Next's per-request overhead alone exceeded the free plan's 10 ms CPU.
+   */
+  fetch(request: Request, env: unknown, ctx: unknown): Promise<Response> {
+    return maybeHandleFastSegment(request)
+      ?? (openNext.fetch as (request: Request, env: unknown, ctx: unknown) => Promise<Response>)(request, env, ctx);
+  },
 
   /**
    * Keep-warm ping. The Anivexa API runs on Render's free plan, which sleeps after
