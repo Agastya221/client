@@ -40,7 +40,9 @@ export default defineCloudflareConfig({
    * Left at the default (false). Cache interception must stay off if PPR is
    * ever enabled, and it is not needed for time-based ISR.
    */
-  enableCacheInterception: false,
+  // Serve cached (ISR/static) pages straight from the incremental cache without starting
+  // the Next.js server: faster after idle, and far less CPU per request.
+  enableCacheInterception: true,
 
   // Optional cost/latency tuning for later — NOT enabled yet:
   //

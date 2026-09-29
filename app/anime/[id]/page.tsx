@@ -19,9 +19,17 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import AddToListButton from "@/components/anime/AddToListButton";
 import AniListStatusModal from "@/components/anime/AniListStatusModal";
-import WatchIntentLink from "@/components/anime/WatchIntentLink";
+import AiringAwareWatchLink from "@/components/anime/AiringAwareWatchLink";
 import ExpandableSynopsis from "@/components/anime/ExpandableSynopsis";
 import ThemeAccentSource from "@/components/ui/ThemeAccentSource";
+
+// Served from a cached, pre-rendered copy per anime, rebuilt in the background at most
+// every 6 hours (an anime's details rarely change within a day). force-static is needed
+// because the AniList fetches use cache: "no-store". Pages are generated on first visit,
+// so this adds at most ~4 KV writes a day per anime that is actually being viewed.
+// Note: non-AniList legacy routes (AnimeKaiDetailPage) now see empty search params.
+export const dynamic = "force-static";
+export const revalidate = 21600;
 
 
 
@@ -55,10 +63,6 @@ export async function generateMetadata({
   }
 }
 
-function firstParam(value: string | string[] | undefined): string {
-  return Array.isArray(value) ? value[0] || "" : value || "";
-}
-
 function MetaBadge({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-1 bg-white/5 rounded-xl p-4 border border-white/5">
@@ -82,13 +86,7 @@ function CharacterCard({ char }: { char: { name: { full: string }; image: { medi
   );
 }
 
-async function AnilistDetailContent({
-  anilistId,
-  searchParams,
-}: {
-  anilistId: number;
-  searchParams: Record<string, string | string[] | undefined>;
-}) {
+async function AnilistDetailContent({ anilistId }: { anilistId: number }) {
   const media = await getAnilistDetail(anilistId);
   const title = anilistTitle(media);
   const rating = anilistRating(media);
@@ -101,13 +99,10 @@ async function AnilistDetailContent({
   const routeId = encodeAnilistRouteId(anilistId);
   const selfHref = `/anime/${routeId}`;
   
-  const fromAiring = firstParam(searchParams.from) === "airing";
   const latestEpisode = media.status === "RELEASING" && media.nextAiringEpisode
     ? Math.max(1, media.nextAiringEpisode.episode - 1)
     : 1;
 
-  // All anime are watchable via MegaPlay using the AniList ID directly — no scraper needed
-  const watchHref = `/anime/${routeId}/watch?ep=${fromAiring ? latestEpisode : 1}`;
 
   const relations = media.relations.edges.filter(
     (e) => e.relationType === "SEQUEL" || e.relationType === "PREQUEL" || e.relationType === "SIDE_STORY"
@@ -241,10 +236,10 @@ async function AnilistDetailContent({
 
               {/* CTAs */}
               <div className="order-3 mb-5 grid w-full grid-cols-2 gap-3 sm:flex sm:w-auto lg:order-5 lg:mb-0 lg:pt-2">
-                <WatchIntentLink
-                  href={watchHref}
+                <AiringAwareWatchLink
+                  routeId={routeId}
+                  latestEpisode={latestEpisode}
                   animeId={routeId}
-                  episodeNumber={fromAiring ? latestEpisode : 1}
                   className="flex h-12 items-center justify-center gap-2 rounded-full border px-3 sm:px-6 text-xs sm:text-sm font-black shadow-lg backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 hover:brightness-125 w-full sm:w-auto text-center whitespace-nowrap"
                   style={{
                     backgroundColor: `${accentColor}22`,
@@ -255,7 +250,7 @@ async function AnilistDetailContent({
                 >
                   <Play className="w-4 h-4 fill-current shrink-0" />
                   <span>WATCH NOW</span>
-                </WatchIntentLink>
+                </AiringAwareWatchLink>
                 <div className="w-full sm:w-auto min-w-0">
                   <AddToListButton
                     animeId={`anilist~${anilistId}`}
@@ -390,11 +385,9 @@ export default async function AnilistDetailPage({
   const anilistId = parseInt(id.replace("anilist~", ""), 10);
   if (isNaN(anilistId)) return notFound();
 
-  const resolvedSearchParams = await searchParams;
-
   return (
     <main className="min-h-screen bg-[#0a0b0c] text-[#eaeaea]">
-      <AnilistDetailContent anilistId={anilistId} searchParams={resolvedSearchParams} />
+      <AnilistDetailContent anilistId={anilistId} />
       <SiteFooter />
     </main>
   );

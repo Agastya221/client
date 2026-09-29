@@ -4,6 +4,11 @@ import ScheduleClient, { type WeekDayInfo, type ScheduleItem } from "@/component
 import { getWeeklyAiringSchedule, encodeAnilistRouteId } from "@/lib/anilist/api";
 import { getCatalogAvailabilityForMedia, getWatchHrefsFromAvailability } from "@/lib/anilist/availability";
 
+// Served from a cached, pre-rendered copy, rebuilt in the background at most every 1 hour.
+// force-static is needed because the AniList fetches use cache: "no-store".
+export const dynamic = "force-static";
+export const revalidate = 3600;
+
 export const metadata = {
   title: "Anime Schedule & Airing Updates | Yorumi",
   description: "Weekly anime airing schedule for currently releasing anime.",

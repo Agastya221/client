@@ -5,6 +5,11 @@ import { ArrowRight, Zap } from "lucide-react";
 import Link from "next/link";
 import type { Metadata } from "next";
 
+// Served from a cached, pre-rendered copy, rebuilt in the background at most every 6 hours.
+// force-static is needed because the AniList fetches use cache: "no-store".
+export const dynamic = "force-static";
+export const revalidate = 21600;
+
 export const metadata: Metadata = {
   title: "Browse by Genre | Yorumi",
   description: "Explore anime by genre. Find Action, Romance, Fantasy, Sci-Fi, Comedy and more — all sourced live from AniList.",

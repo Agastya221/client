@@ -1,24 +1,44 @@
 "use client";
 
+import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import BrowseExperience from "@/components/search/BrowseExperience";
 import type { HomeViewMode } from "@/lib/home-view";
 
-export default function HomeBrowseShell({
-  initialMode,
-  hero,
-  genres,
-  children,
-}: {
+interface HomeBrowseShellProps {
   initialMode: HomeViewMode;
   hero: React.ReactNode;
   genres: string[];
   children: React.ReactNode;
-}) {
+}
+
+/**
+ * The homepage is served from a cached, pre-rendered copy, so the server cannot know
+ * whether the URL asks for `?view=browse`. The Suspense fallback is what goes into the
+ * cached HTML (the normal home view); in the browser the search-params-aware version
+ * takes over and switches to browse mode when the URL asks for it.
+ */
+export default function HomeBrowseShell(props: HomeBrowseShellProps) {
+  return (
+    <Suspense fallback={<HomeBrowseView {...props} mode={props.initialMode} />}>
+      <HomeBrowseShellWithParams {...props} />
+    </Suspense>
+  );
+}
+
+function HomeBrowseShellWithParams(props: HomeBrowseShellProps) {
   const searchParams = useSearchParams();
   const viewParam = searchParams.get("view");
-  const mode: HomeViewMode = viewParam === "browse" ? "browse" : viewParam === "home" ? "home" : initialMode;
+  const mode: HomeViewMode = viewParam === "browse" ? "browse" : viewParam === "home" ? "home" : props.initialMode;
+  return <HomeBrowseView {...props} mode={mode} />;
+}
 
+function HomeBrowseView({
+  mode,
+  hero,
+  genres,
+  children,
+}: HomeBrowseShellProps & { mode: HomeViewMode }) {
   return (
     <div data-home-view={mode} className="relative overflow-clip">
       <div

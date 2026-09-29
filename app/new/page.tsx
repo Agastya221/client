@@ -6,6 +6,11 @@ import { searchAnilist } from "@/lib/anilist/api";
 import { Sparkles, ChevronRight } from "lucide-react";
 import Link from "next/link";
 
+// Served from a cached, pre-rendered copy, rebuilt in the background at most every 1 hour.
+// force-static is needed because the AniList fetches use cache: "no-store".
+export const dynamic = "force-static";
+export const revalidate = 3600;
+
 export const metadata = {
   title: "New Releases | Yorumi",
   description: "Discover the latest anime releases and newly added series on Yorumi.",

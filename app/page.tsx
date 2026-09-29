@@ -24,8 +24,13 @@ import Link from "next/link";
 import Image from "next/image";
 import { CalendarDays, ChevronDown, ChevronRight, Flame, Megaphone, Radio, Star, TrendingUp, Zap } from "lucide-react";
 
-// Cache home page for 5 minutes — serves from ISR on repeat visits instead of 4 fresh AniList API calls
-export const revalidate = 300;
+// Served from a cached, pre-rendered copy and rebuilt in the background at most every
+// 30 minutes. force-static is required because the AniList fetches use cache: "no-store",
+// which would otherwise make the page render on every request. The KV-backed data caches
+// underneath keep the rebuild cheap. 30 minutes (not 5) keeps rebuilds to ~48 KV writes a
+// day against the free plan's 1,000.
+export const dynamic = "force-static";
+export const revalidate = 1800;
 
 // How many hero slides get their logo/backdrop resolved on the server. The carousel
 // seeds from initialHeroAssets and fetches anything missing client-side, so this is a
@@ -90,7 +95,7 @@ function scheduleDateKey(date: Date): string {
  * Module scope, not inside the component: this reads the wall clock, and calling
  * an impure function during render is what `react-hooks/purity` flags. It closes
  * over nothing from Home, so hoisting is a pure move. The page is ISR'd at
- * `revalidate = 300`, so "now" is the render time of the cached HTML.
+ * `revalidate = 1800`, so "now" is the render time of the cached HTML.
  */
 function isUnreleased(m: AnilistMedia): boolean {
   const status = String(m.status || "").toUpperCase().replace(/[ -]+/g, "_");
@@ -246,22 +251,16 @@ function SidebarMediaPanel({
   );
 }
 
-export default async function Home({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  const [query, trendingRaw, seasonalRaw, airingResult, upcomingResult, genres] = await Promise.all([
-    searchParams,
+export default async function Home() {
+  const [trendingRaw, seasonalRaw, airingResult, upcomingResult, genres] = await Promise.all([
     getAnilistTrending(16),
     getAnilistSeasonal(30),
     searchAnilist({ sort: ["POPULARITY_DESC"], status: "RELEASING", perPage: 50 }),
     searchAnilist({ sort: ["POPULARITY_DESC"], status: "NOT_YET_RELEASED", perPage: 15 }),
     getAnilistGenres().catch(() => [] as string[]),
   ]);
-  const initialMode: HomeViewMode = (
-    Array.isArray(query.view) ? query.view[0] : query.view
-  ) === "browse" ? "browse" : "home";
+  // `?view=browse` is applied in the browser by HomeBrowseShell (the page is cached).
+  const initialMode: HomeViewMode = "home";
 
   // 1. Pure Coming Soon media
   const upcomingRaw = upcomingResult.media || [];
