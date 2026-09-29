@@ -90,5 +90,6 @@ test("focused choices keep Waves and Solaris variants and exclude Nexus", () => 
   const focused = selectFocusedServers(options, health);
   assert.deepEqual(focused.hard.map((option) => option.label), ["Waves Vidplay"]);
   assert.deepEqual(focused.soft.map((option) => option.label), ["Solaris Vidstream-1 beta"]);
-  assert.deepEqual(focused.dub.map((option) => option.label), ["Waves Vidplay", "Solaris Vidstream-2"]);
+  // Solaris is the default dub provider, so it leads the dub row; Waves follows.
+  assert.deepEqual(focused.dub.map((option) => option.label), ["Solaris Vidstream-2", "Waves Vidplay"]);
 });

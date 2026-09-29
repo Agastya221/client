@@ -3,7 +3,8 @@ import type { ServerHealthResult, ServerOption } from "./types";
 function providerRank(option: ServerOption): number {
   const provider = option.id.match(/^anivexa2-([a-z0-9]+)-/)?.[1];
   if (option.category === "dub") {
-    return { aniwaves: 0, anikoto: 1, animegg: 2 }[provider || ""] ?? 3;
+    // Solaris is the default dub provider; Waves is the fallback.
+    return { anikoto: 0, aniwaves: 1, animegg: 2 }[provider || ""] ?? 3;
   }
   if (option.subType === "soft") return provider === "anikoto" ? 0 : 1;
   if (option.subType === "hard") {
@@ -52,7 +53,8 @@ export function focusedServerCandidates(options: ServerOption[]): ServerOption[]
   const waveDub = waves.filter((option) => option.category === "dub").slice(0, 2);
   const solarisDub = solaris.filter((option) => option.category === "dub")
     .slice(0, 4 - waveDub.length);
-  return [...hard.slice(0, 4), ...soft.slice(0, 4), ...waveDub, ...solarisDub];
+  // Solaris first: it is the default dub, so it leads its row.
+  return [...hard.slice(0, 4), ...soft.slice(0, 4), ...solarisDub, ...waveDub];
 }
 
 /**
@@ -78,4 +80,32 @@ export function selectFocusedServers(
     soft: available.filter((option) => option.category === "sub" && option.subType === "soft"),
     dub: available.filter((option) => option.category === "dub"),
   };
+}
+
+/**
+ * Instant "gateway" buttons, shown while an episode's real server list is still loading
+ * (as on master, instead of grey placeholders). They are clickable straight away: the
+ * `anivexa-{provider}-{ssub|hsub|dub}` id is resolved by the server to that provider's
+ * best matching stream, so no exact server id has to be guessed. When the real list
+ * arrives it replaces them in the same row; a provider without the episode disappears.
+ */
+export const GATEWAY_SERVERS: Record<"soft" | "hard" | "dub", Array<Omit<ServerOption, "provider">>> = {
+  soft: [{ id: "anivexa-anikoto-ssub", label: "Solaris", category: "sub", subType: "soft", transport: "hls" }],
+  hard: [{ id: "anivexa-aniwaves-hsub", label: "Waves", category: "sub", subType: "hard", transport: "hls" }],
+  dub: [
+    { id: "anivexa-anikoto-dub", label: "Solaris", category: "dub", transport: "hls" },
+    { id: "anivexa-aniwaves-dub", label: "Waves", category: "dub", transport: "hls" },
+  ],
+};
+
+/** True when the playing server came from the provider/mode a gateway button stands for. */
+export function gatewayMatchesServer(gatewayId: string, serverId: string | null | undefined): boolean {
+  if (!serverId) return false;
+  if (serverId === gatewayId) return true;
+  const gateway = gatewayId.match(/^anivexa-([a-z0-9]+)-(ssub|hsub|dub)$/);
+  if (!gateway) return false;
+  const [, provider, mode] = gateway;
+  const real = serverId.match(/^anivexa2-([a-z0-9]+)-[a-z0-9]+-(?:s\d+-)?([a-z]+)$/);
+  if (!real || real[1] !== provider) return false;
+  return mode === "ssub" ? real[2] === "soft" : mode === "hsub" ? real[2] === "hard" : real[2] === "dub";
 }

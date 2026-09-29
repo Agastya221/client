@@ -67,8 +67,15 @@ type AniviexaProvider = "reanime" | "anikoto" | "animegg" | "anineko";
 const ANIVEXA_PROVIDERS: AniviexaProvider[] = ["reanime", "anikoto", "animegg", "anineko"];
 const ANIVEXA_PROVIDER_SET = new Set<ProviderId>(ANIVEXA_PROVIDERS);
 const ANIVEXA_WORKER_PROVIDERS: AnivexaWorkerProvider[] = [...ANIVEXA_STREAM_PROVIDERS];
-const ANIVEXA_AUTO_SUB_PROVIDERS: AnivexaWorkerProvider[] = ["aniwaves", "anikoto"];
-const ANIVEXA_AUTO_DUB_PROVIDERS: AnivexaWorkerProvider[] = ["aniwaves", "anikoto"];
+// Default playback order: Solaris (soft subs, dub) first, Waves only as the fallback.
+const ANIVEXA_AUTO_SUB_PROVIDERS: AnivexaWorkerProvider[] = ["anikoto", "aniwaves"];
+const ANIVEXA_AUTO_DUB_PROVIDERS: AnivexaWorkerProvider[] = ["anikoto", "aniwaves"];
+/**
+ * How long default playback waits for the preferred provider (Solaris) before settling
+ * for a fallback that already answered. Long enough to cover a normal Render cache miss
+ * (~1.5-3.5 s measured), short enough that a dead provider cannot stall first playback.
+ */
+const ANIVEXA_PREFERRED_PROVIDER_WAIT_MS = 3_000;
 const ANIVEXA_AVAILABILITY_PROVIDERS: AnivexaWorkerProvider[] = [
   "anikoto", "anineko",
 ];
@@ -4376,7 +4383,7 @@ async function fetchFirstAnivexaAggregateData(
 
   const audio = dubbed ? "dub" : "sub";
   const autoProviders = dubbed ? ANIVEXA_AUTO_DUB_PROVIDERS : ANIVEXA_AUTO_SUB_PROVIDERS;
-  const cacheKey = `anivexa-first:v4:${anilistId}:ep${episodeNum}:${audio}`;
+  const cacheKey = `anivexa-first:v5:${anilistId}:ep${episodeNum}:${audio}`;
 
   return cacheFetch(cacheKey, async () => {
     recordLog("info", "anime.anivexa.aggregate.race", {
@@ -4386,16 +4393,35 @@ async function fetchFirstAnivexaAggregateData(
       providers: autoProviders.join(","),
     });
 
+    // All providers start at once so a fallback is ready if it is needed, but the choice
+    // is by priority, not speed: the first provider in the list (Solaris) wins whenever
+    // it answers with a playable stream within ANIVEXA_PREFERRED_PROVIDER_WAIT_MS.
+    const buckets = autoProviders.map((provider) =>
+      fetchAnivexaProviderBucket(base, anilistId, episodeNum, dubbed, provider).catch(() => null));
+    // Not a type guard on purpose: a bucket that fails this check may still hold embeds.
+    const playable = (bucket: AnivexaAggregateBucket | null | undefined): boolean =>
+      Boolean(bucket && bucket.internal.length > 0);
+
+    let waitTimer: ReturnType<typeof setTimeout> | null = null;
+    const preferred = await Promise.race([
+      buckets[0],
+      new Promise<undefined>((resolve) => {
+        waitTimer = setTimeout(() => resolve(undefined), ANIVEXA_PREFERRED_PROVIDER_WAIT_MS);
+      }),
+    ]).finally(() => { if (waitTimer) clearTimeout(waitTimer); });
+    if (preferred && playable(preferred)) return createAnivexaAggregateData([preferred], uiProvider, dubbed);
+
+    // The preferred provider failed, has no internal stream, or is slow: take the first
+    // playable answer in priority order among the rest (and the preferred one, if it is
+    // still pending), with the same short HLS-over-MP4 preference as before.
     const pending = new Map<number, Promise<{ index: number; bucket: AnivexaAggregateBucket | null }>>();
-    autoProviders.forEach((provider, index) => {
-      pending.set(
-        index,
-        fetchAnivexaProviderBucket(base, anilistId, episodeNum, dubbed, provider)
-          .then((bucket) => ({ index, bucket })),
-      );
+    buckets.forEach((bucket, index) => {
+      if (index === 0 && preferred !== undefined) return;
+      pending.set(index, bucket.then((value) => ({ index, bucket: value })));
     });
 
     const embedFallbacks: AnivexaAggregateBucket[] = [];
+    if (preferred && preferred.embed.length > 0) embedFallbacks.push(preferred);
     let fallbackInternal: AnivexaAggregateBucket | null = null;
     let fallbackDeadline = 0;
     while (pending.size > 0) {
@@ -4413,7 +4439,7 @@ async function fetchFirstAnivexaAggregateData(
       const bucket: AnivexaAggregateBucket | null = completed.bucket;
       if (!bucket) continue;
 
-      if (bucket.internal.length > 0) {
+      if (playable(bucket)) {
         if (anivexaStreamTransport(bucket.internal[0]) === "hls") {
           return createAnivexaAggregateData([bucket], uiProvider, dubbed);
         }

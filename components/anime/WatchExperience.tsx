@@ -10,11 +10,10 @@ import {
   EpisodeNumberGrid,
   SeasonRail,
   ServerButton,
-  ServerButtonSkeleton,
   summarizeServerGroups,
 } from "@/components/anime/watch/WatchUiPrimitives";
 import { useServerHealth } from "@/components/anime/watch/useServerHealth";
-import { bestVerifiedServer, focusedServerCandidates, rankServerOptions, selectFocusedServers } from "@/lib/anime/server-selection";
+import { bestVerifiedServer, focusedServerCandidates, GATEWAY_SERVERS, gatewayMatchesServer, rankServerOptions, selectFocusedServers } from "@/lib/anime/server-selection";
 import {
   ANIVEXA_DISCOVERY_PROVIDERS,
   type AnimeSeasonEntry,
@@ -897,9 +896,6 @@ function serverDiscoveryScopeKey(input: {
  * for the labels those rows render ("Waves", "Solaris 1"), so the real pills
  * land close to where the placeholders stood.
  */
-const HARD_SUB_SKELETON_WIDTHS = ["6.5rem"];
-const SOFT_SUB_SKELETON_WIDTHS = ["7.5rem", "7.5rem", "7.5rem"];
-const DUB_SKELETON_WIDTHS = ["5rem", "5.75rem"];
 
 function mergeServerOptionLists(previous: ServerOption[], next: ServerOption[]): ServerOption[] {
   const nextById = new Map(next.map((option) => [option.id, option]));
@@ -2500,23 +2496,24 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
       provider?: ProviderId;
       emptyLabel?: string;
       accent?: string;
-      /** Widths of the placeholder pills to hold this row's space open. */
-      skeletonWidths?: string[];
+      /** Clickable stand-ins shown while this row's real servers are still loading. */
+      gateways?: Array<Omit<ServerOption, "provider">>;
     } = {},
   ) => {
-    // Three states, not two. Entries win; otherwise an unanswered row holds
-    // its space with placeholders and an answered-but-empty row disappears.
-    const showSkeleton = entries.length === 0 &&
+    // Three states, not two. Real entries win; while still unanswered the row shows its
+    // gateway buttons; an answered-but-empty row disappears.
+    const showGateways = entries.length === 0 &&
       serverDiscoveryPending &&
-      Boolean(options.skeletonWidths?.length);
-    if (entries.length === 0 && !showSkeleton && !options.emptyLabel) return null;
+      Boolean(options.gateways?.length);
+    if (showGateways) {
+      entries = options.gateways!.map((gateway) => ({ ...gateway, provider: session.provider }));
+    }
+    if (entries.length === 0 && !options.emptyLabel) return null;
     return (
       <div className="grid gap-1.5 sm:grid-cols-[92px_1fr] sm:items-center sm:gap-2">
         <span className="text-[9px] font-black uppercase tracking-[0.12em] text-white/35 sm:text-right sm:text-[11px] sm:normal-case sm:tracking-normal">{label}</span>
         <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar sm:flex-wrap sm:overflow-visible sm:pb-0">
-          {showSkeleton ? options.skeletonWidths!.map((width, index) => (
-            <ServerButtonSkeleton key={`skeleton-${index}`} width={width} />
-          )) : entries.length > 0 ? entries.map((entry, index) => {
+          {entries.length > 0 ? entries.map((entry, index) => {
             const isEmbedEntry = isEmbedServerOption(entry.id);
             const brand = entry.id.startsWith("anivexa2-aniwaves-") ? "Waves" :
               entry.id.startsWith("anivexa2-anikoto-") ? "Solaris" : null;
@@ -2540,7 +2537,9 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
                 accentColor={options.accent || accentColor}
                 isHostLocked={isPartyHostLocked}
                 active={Boolean(
-                  effectiveActiveServerId === entry.id &&
+                  (showGateways
+                    ? gatewayMatchesServer(entry.id, effectiveActiveServerId)
+                    : effectiveActiveServerId === entry.id) &&
                   (options.provider === "desidub"
                     ? effectiveProvider === "desidub"
                     : Boolean(options.dubbed) === Boolean(effectiveDubbed) && (!options.dubbed || effectiveProvider !== "desidub"))
@@ -3331,9 +3330,9 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
 
         {(internalHardSubServers.length > 0 || internalSoftSubServers.length > 0 || internalDubServers.length > 0 || showHindi || serverDiscoveryPending) && (
           <div className="space-y-2.5 border-t border-white/[0.06] pt-2.5 sm:space-y-3">
-            {renderServerRow("Hard Subs", internalHardSubServers, { skeletonWidths: HARD_SUB_SKELETON_WIDTHS })}
-            {renderServerRow("Soft Subs", internalSoftSubServers, { skeletonWidths: SOFT_SUB_SKELETON_WIDTHS })}
-            {(hasDub || (serverDiscoveryPending && dubLikely)) && renderServerRow("Dub", internalDubServers, { dubbed: true, accent: "#4ade80", skeletonWidths: DUB_SKELETON_WIDTHS })}
+            {renderServerRow("Soft Subs", internalSoftSubServers, { gateways: GATEWAY_SERVERS.soft })}
+            {renderServerRow("Hard Subs", internalHardSubServers, { gateways: GATEWAY_SERVERS.hard })}
+            {(hasDub || (serverDiscoveryPending && dubLikely)) && renderServerRow("Dub", internalDubServers, { dubbed: true, accent: "#4ade80", gateways: GATEWAY_SERVERS.dub })}
             {showHindi && renderServerRow("Hindi", hindiServers, { dubbed: true, provider: "desidub", accent: "#ff5500" })}
           </div>
         )}
