@@ -119,24 +119,6 @@ export function bestTitleMatch<T extends { title?: string | null; name?: string 
   return winner;
 }
 
-export function buildProxyUrl(
-  apiBaseUrl: string,
-  targetUrl: string,
-  referer?: string | null,
-  kind: "asset" | "playlist" | "video" = "asset",
-  playlistKey?: string | null,
-): string {
-  // Use relative path for all client/browser requests to hit local Next.js proxy route,
-  // avoiding CORS and off-line backend server (404) blocks.
-  const url = new URL("/api/proxy/m3u8-streaming-proxy", "http://localhost:3000");
-  url.searchParams.set("url", targetUrl);
-  if (referer) url.searchParams.set("referer", referer);
-  if (kind === "video") url.searchParams.set("type", "video");
-  if (kind === "playlist") url.searchParams.set("type", "playlist");
-  if (playlistKey && kind === "playlist") url.searchParams.set("playlist_key", playlistKey);
-  return url.pathname + url.search;
-}
-
 export function pickFirstNonEmpty(...values: Array<string | null | undefined>): string {
   return values.find((value) => Boolean(String(value || "").trim()))?.trim() || "";
 }

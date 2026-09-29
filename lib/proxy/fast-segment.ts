@@ -12,8 +12,11 @@
  * GET, `type=video`, and no `unwrap` (FlixCloud image segments must be decoded, which
  * stays in the route). Everything else returns null and falls through to Next.js.
  *
- * Keep this file free of Next.js and Node-only imports: it runs outside Next.
+ * Keep this file free of Next.js imports: it runs outside Next (node:crypto is fine
+ * under nodejs_compat).
  */
+import { unsignedProxyResponse, verifyProxyParams } from "./signature";
+
 export const SEGMENT_PROXY_PATH = "/api/proxy/m3u8-streaming-proxy";
 
 const CORS_HEADERS: Record<string, string> = {
@@ -29,12 +32,16 @@ const USER_AGENT =
 const PASSTHROUGH_HEADERS = ["accept-ranges", "content-length", "content-range", "content-disposition"];
 
 /** Returns a response for a plain video-segment proxy request, or null to fall through. */
-export function maybeHandleFastSegment(request: Request): Promise<Response> | null {
+export function maybeHandleFastSegment(
+  request: Request,
+  env?: Record<string, unknown>,
+): Promise<Response> | null {
   if (request.method !== "GET") return null;
   const url = new URL(request.url);
   if (url.pathname !== SEGMENT_PROXY_PATH) return null;
   const params = url.searchParams;
   if (params.get("type") !== "video" || params.get("unwrap") === "flix-segment") return null;
+  if (!verifyProxyParams(params, env)) return Promise.resolve(unsignedProxyResponse());
   return proxySegment(request, params);
 }
 

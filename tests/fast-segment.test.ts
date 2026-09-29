@@ -2,6 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { GET as routeGET } from "../app/api/proxy/m3u8-streaming-proxy/route.ts";
 import { maybeHandleFastSegment } from "../lib/proxy/fast-segment.ts";
+import { signProxyParams } from "../lib/proxy/signature.ts";
+
+process.env.AUTH_SECRET = "test-secret-for-proxy-signatures";
+
+/** Signs a proxy URL the way the server does when it hands one out. */
+function signed(raw: string): string {
+  const u = new URL(raw);
+  signProxyParams(u.searchParams);
+  return u.toString();
+}
 
 // Differential test: the fast path must give exactly what the Next.js route gives.
 
@@ -45,7 +55,7 @@ async function compare(url: string, upstream: Upstream[], requestHeaders: Record
 
 const BASE = "https://site.example/api/proxy/m3u8-streaming-proxy";
 const seg = (target: string, extra = "") =>
-  `${BASE}?url=${encodeURIComponent(target)}&referer=${encodeURIComponent("https://play.example/")}&type=video${extra}`;
+  signed(`${BASE}?url=${encodeURIComponent(target)}&referer=${encodeURIComponent("https://play.example/")}&type=video${extra}`);
 
 test("a normal .ts segment matches the route exactly (headers, body, upstream call)", async () => {
   const out = await compare(seg("https://cdn.example/a/seg-001.ts", "&as_ts=1"), [
@@ -92,8 +102,8 @@ test("network failure matches the route's 500", async () => {
 
 test("bad and missing target urls match", async () => {
   await compare(`${BASE}?type=video`, [{ status: 200 }]);
-  await compare(`${BASE}?url=${encodeURIComponent("ftp://evil.example/x")}&type=video`, [{ status: 200 }]);
-  await compare(`${BASE}?url=not-a-url&type=video`, [{ status: 200 }]);
+  await compare(signed(`${BASE}?url=${encodeURIComponent("ftp://evil.example/x")}&type=video`), [{ status: 200 }]);
+  await compare(signed(`${BASE}?url=not-a-url&type=video`), [{ status: 200 }]);
 });
 
 test("falls through to Next for everything the fast path must not handle", () => {

@@ -1,3 +1,4 @@
+import { signProxyParams, unsignedProxyResponse, verifyProxyParams } from "@/lib/proxy/signature";
 export const dynamic = "force-dynamic";
 
 const flixImageSegmentXorKey = Uint8Array.from([
@@ -47,6 +48,9 @@ export async function GET(request: Request) {
   const serveAsTs = searchParams.get("as_ts") === "1";
   const isVideo = searchParams.get("type") === "video";
   const forcePlaylist = searchParams.get("type") === "playlist";
+
+  // Only links this server signed may be proxied (see lib/proxy/signature.ts).
+  if (!verifyProxyParams(searchParams)) return unsignedProxyResponse();
 
   if (!targetUrl) {
     return new Response("Missing url parameter", { status: 400 });
@@ -201,6 +205,7 @@ export async function GET(request: Request) {
           proxied.searchParams.set("as_ts", "1");
         }
         if (isFlixImageSegment && !hasAesKey) proxied.searchParams.set("unwrap", "flix-segment");
+        signProxyParams(proxied.searchParams);
         return proxied.pathname + proxied.search;
       } catch {
         return urlStr;

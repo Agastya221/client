@@ -34,7 +34,6 @@ import {
 import {
   bestTitleMatch,
   buildProviderOrder,
-  buildProxyUrl,
   decodeAnimeId,
   encodeAnimeId,
   ensureArray,
@@ -45,6 +44,7 @@ import {
   pickFirstNonEmpty,
   uniqueStrings,
 } from "./utils";
+import { buildProxyUrl } from "@/lib/proxy/build";
 
 export const LOCAL_ANIME_API_BASE_URL = "http://localhost:5000";
 export const PRODUCTION_ANIME_API_BASE_URL = "https://animekai-api-production-a143.up.railway.app";

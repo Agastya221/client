@@ -29,7 +29,7 @@ export default {
    * episode, and Next's per-request overhead alone exceeded the free plan's 10 ms CPU.
    */
   fetch(request: Request, env: unknown, ctx: unknown): Promise<Response> {
-    return maybeHandleFastSegment(request)
+    return maybeHandleFastSegment(request, env as Record<string, unknown>)
       ?? (openNext.fetch as (request: Request, env: unknown, ctx: unknown) => Promise<Response>)(request, env, ctx);
   },
 
