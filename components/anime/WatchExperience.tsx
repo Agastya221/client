@@ -55,6 +55,7 @@ import {
   CalendarDays,
   Captions,
   ChevronDown,
+  ExternalLink,
   ChevronLeft,
   ChevronRight,
   Grid3X3,
@@ -1056,6 +1057,8 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
   const [shareStatus, setShareStatus] = useState<"idle" | "shared" | "copied" | "error">("idle");
 
   // ── Watch Party ────────────────────────────────────────────────────
+  // Embed section toggle. null = follow the active server (open while an embed plays).
+  const [embedServersToggle, setEmbedServersToggle] = useState<boolean | null>(null);
   const [partyModalOpen, setPartyModalOpen] = useState(false);
   const [partyRoomCode, setPartyRoomCode] = useState<string | null>(() => {
     if (!WATCH_PARTY_ENABLED || typeof window === "undefined") return null;
@@ -2479,6 +2482,15 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
   const internalHardSubServers = focusedServers.hard;
   const internalSoftSubServers = focusedServers.soft;
   const internalDubServers = focusedServers.dub;
+  // Embed servers stay in the session as a fallback; this section lets users pick one
+  // directly. Kept separate from the focused Waves/Solaris rows above.
+  const externalSubServers = usableServerOptions.filter((entry) =>
+    isEmbedServerOption(entry.id) && entry.category !== "dub" && entry.provider !== "desidub");
+  const externalDubServers = usableServerOptions.filter((entry) =>
+    isEmbedServerOption(entry.id) && entry.category === "dub" && entry.provider !== "desidub");
+  const externalServerCount = externalSubServers.length + externalDubServers.length;
+  const activeIsEmbedServer = Boolean(effectiveActiveServerId && isEmbedServerOption(effectiveActiveServerId));
+  const embedServersOpen = embedServersToggle ?? activeIsEmbedServer;
 
   const renderServerRow = (
     label: string,
@@ -3323,6 +3335,33 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
             {renderServerRow("Soft Subs", internalSoftSubServers, { skeletonWidths: SOFT_SUB_SKELETON_WIDTHS })}
             {(hasDub || (serverDiscoveryPending && dubLikely)) && renderServerRow("Dub", internalDubServers, { dubbed: true, accent: "#4ade80", skeletonWidths: DUB_SKELETON_WIDTHS })}
             {showHindi && renderServerRow("Hindi", hindiServers, { dubbed: true, provider: "desidub", accent: "#ff5500" })}
+          </div>
+        )}
+
+        {externalServerCount > 0 && (
+          <div className="space-y-2.5 border-t border-white/[0.06] pt-2.5 sm:space-y-3">
+            <button
+              type="button"
+              onClick={() => setEmbedServersToggle(!embedServersOpen)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white/65 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white sm:rounded-full sm:px-4 sm:py-2 sm:text-[11px] btn-press-active"
+              aria-expanded={embedServersOpen}
+              aria-controls="embed-server-options"
+              title="External embed servers"
+              style={activeIsEmbedServer || embedServersOpen ? { color: accentColor, borderColor: accentStyle(0.35), background: accentStyle(0.08) } : undefined}
+            >
+              <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+              Embed
+              <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/70">
+                {externalServerCount}
+              </span>
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${embedServersOpen ? "rotate-180" : ""}`} aria-hidden="true" />
+            </button>
+            {embedServersOpen && (
+              <div id="embed-server-options" className="space-y-2.5 sm:space-y-3">
+                {renderServerRow("Sub Embeds", externalSubServers)}
+                {externalDubServers.length > 0 && renderServerRow("Dub Embeds", externalDubServers, { dubbed: true, accent: "#4ade80" })}
+              </div>
+            )}
           </div>
         )}
 
