@@ -4028,6 +4028,52 @@ const SERVER_OPTIONS_EXPIRE_MS = 30 * 60 * 1000;
  */
 export const SSR_SERVER_OPTIONS_TIMEOUT_MS = 800;
 
+type ServerOptionsBundle = Record<string, ServerOption[]>;
+
+function serverOptionsComboKey(workerProvider: AnivexaWorkerProvider, dubbed: boolean): string {
+  return `${workerProvider}:${dubbed ? "dub" : "sub"}`;
+}
+
+/**
+ * Every focused server list for one episode, stored as ONE cache entry.
+ *
+ * The picker needs all of them together (each discovery provider, sub and dub), and they
+ * used to be four separate entries: four KV writes per new episode, repeated on every
+ * refresh while it was being watched. KV writes are the free plan's tightest limit
+ * (1,000/day), so they are fetched together and written once.
+ *
+ * An empty list is stored but treated as "unknown" by readers, never trusted: it may be a
+ * provider hiccup rather than a missing dub. That matches the previous per-entry rule of
+ * never caching empty results. A bundle with nothing in it is not cached at all.
+ */
+function getServerOptionsBundle(
+  anilistId: number,
+  episodeNumber: number,
+  uiProvider: ProviderId,
+): Promise<ServerOptionsBundle> {
+  // The UI provider is deliberately absent from the key. It affects only the `provider`
+  // field, which callers re-stamp, never the server ids - keying on it would fragment the
+  // shared cache and leave SSR cold whenever the route's provider param differs.
+  return cacheFetch(`anivexa-server-options:v2:${anilistId}:ep${episodeNumber}`, async () => {
+    const combos = ANIVEXA_DISCOVERY_PROVIDERS.flatMap((workerProvider) =>
+      [false, true].map((dubbed) => ({ workerProvider, dubbed })));
+    const lists = await Promise.all(combos.map(({ workerProvider, dubbed }) =>
+      fetchAnivexaAggregateData(String(anilistId), episodeNumber, dubbed, uiProvider, [workerProvider])
+        .then((aggregate) => aggregate.serverOptions)
+        .catch(() => [] as ServerOption[])));
+    return Object.fromEntries(combos.map(({ workerProvider, dubbed }, index) =>
+      [serverOptionsComboKey(workerProvider, dubbed), lists[index]]));
+  }, {
+    freshMs: SERVER_OPTIONS_FRESH_MS,
+    staleMs: SERVER_OPTIONS_FRESH_MS,
+    expireMs: SERVER_OPTIONS_EXPIRE_MS,
+    persistent: true,
+    refreshStale: true,
+    shouldCache: (value) => Boolean(value) && Object.values(value as ServerOptionsBundle)
+      .some((list) => Array.isArray(list) && list.length > 0),
+  });
+}
+
 export async function discoverAnivexaProviderServerOptions(input: {
   anilistId: number;
   episodeNumber: number;
@@ -4035,12 +4081,25 @@ export async function discoverAnivexaProviderServerOptions(input: {
   uiProvider: ProviderId;
   workerProvider: AnivexaWorkerProvider;
 }): Promise<ServerOption[]> {
+  const restamp = (options: ServerOption[]) =>
+    options.map((option) => ({ ...option, provider: input.uiProvider }));
+
+  if (ANIVEXA_DISCOVERY_PROVIDERS.includes(input.workerProvider)) {
+    const bundle = await getServerOptionsBundle(input.anilistId, input.episodeNumber, input.uiProvider);
+    const cached = bundle[serverOptionsComboKey(input.workerProvider, input.dubbed)];
+    if (cached && cached.length > 0) return restamp(cached);
+    // Empty or missing: not trusted (see getServerOptionsBundle). Ask live; the aggregate
+    // has its own short in-memory cache, so repeat lookups stay cheap and write nothing.
+    const aggregate = await fetchAnivexaAggregateData(
+      String(input.anilistId), input.episodeNumber, input.dubbed, input.uiProvider, [input.workerProvider],
+    );
+    return restamp(aggregate.serverOptions);
+  }
+
   if (input.workerProvider !== "mkissa") {
+    // Providers outside the focused picker are only requested explicitly, one at a time,
+    // so they keep a per-provider entry.
     const audio = input.dubbed ? "dub" : "sub";
-    // The UI provider is deliberately absent from the key. It affects only the
-    // `provider` field, which is re-stamped below, never the server ids - so
-    // keying on it would fragment the shared cache for no gain and leave the
-    // SSR path cold whenever the route's provider param differs.
     const cacheKey = `anivexa-server-options:v1:${input.anilistId}:ep${input.episodeNumber}:${audio}:${input.workerProvider}`;
     const cached = await cacheFetch(cacheKey, async () => {
       const aggregate = await fetchAnivexaAggregateData(
@@ -4062,7 +4121,7 @@ export async function discoverAnivexaProviderServerOptions(input: {
       // mirroring the partial-result guard on the aggregate itself.
       shouldCache: (value) => Array.isArray(value) && value.length > 0,
     });
-    return cached.map((option) => ({ ...option, provider: input.uiProvider }));
+    return restamp(cached);
   }
 
   const aggregate = await fetchAnivexaAggregateData(
