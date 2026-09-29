@@ -72,10 +72,12 @@ const ANIVEXA_AUTO_SUB_PROVIDERS: AnivexaWorkerProvider[] = ["anikoto", "aniwave
 const ANIVEXA_AUTO_DUB_PROVIDERS: AnivexaWorkerProvider[] = ["anikoto", "aniwaves"];
 /**
  * How long default playback waits for the preferred provider (Solaris) before settling
- * for a fallback that already answered. Long enough to cover a normal Render cache miss
- * (~1.5-3.5 s measured), short enough that a dead provider cannot stall first playback.
+ * for a fallback that already answered. A cold (uncached) Solaris lookup on Render was
+ * measured at 2.8-5.1 s; 3 s fell back to Waves on most first visits, so wait up to 6 s.
+ * Warm lookups answer in well under a second, and a provider that errors falls back
+ * immediately; only a genuinely slow Solaris is waited on.
  */
-const ANIVEXA_PREFERRED_PROVIDER_WAIT_MS = 3_000;
+const ANIVEXA_PREFERRED_PROVIDER_WAIT_MS = 6_000;
 const ANIVEXA_AVAILABILITY_PROVIDERS: AnivexaWorkerProvider[] = [
   "anikoto", "anineko",
 ];

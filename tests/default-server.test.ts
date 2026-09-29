@@ -31,6 +31,12 @@ let nextId = 770000;
 const resolve = (overrides: { dubbed?: boolean; server?: string } = {}) =>
   resolveStreamSource({ animeId: `anilist~${nextId++}`, episodeNumber: 1, ...overrides });
 
+test("a cold Solaris (~5 s, as measured on Render) still wins over a fast Waves", async () => {
+  stubProviders({ anikoto: { delayMs: 5000, sub: "soft" }, aniwaves: { delayMs: 20, sub: "hard" } });
+  const result = await resolve();
+  assert.match(result.activeServerId || "", /^anivexa2-anikoto-hls-.*soft$/);
+});
+
 test("Solaris soft sub is the default even when Waves answers first", async () => {
   stubProviders({ anikoto: { delayMs: 400, sub: "soft" }, aniwaves: { delayMs: 20, sub: "hard" } });
   const result = await resolve();
@@ -57,13 +63,13 @@ test("falls back to Waves when Solaris errors", async () => {
   assert.match(result.activeServerId || "", /^anivexa2-aniwaves-/);
 });
 
-test("a slow Solaris cannot stall playback: Waves is used after the ~3 s cap", async () => {
-  stubProviders({ anikoto: { delayMs: 6000, sub: "soft" }, aniwaves: { delayMs: 20, sub: "hard" } });
+test("a slow Solaris cannot stall playback: Waves is used after the ~6 s cap", async () => {
+  stubProviders({ anikoto: { delayMs: 7500, sub: "soft" }, aniwaves: { delayMs: 20, sub: "hard" } });
   const startedAt = Date.now();
   const result = await resolve();
   const elapsed = Date.now() - startedAt;
   assert.match(result.activeServerId || "", /^anivexa2-aniwaves-/);
-  assert.ok(elapsed >= 2900 && elapsed < 4500, `waited ${elapsed} ms (expected ~3000)`);
+  assert.ok(elapsed >= 5900 && elapsed < 7400, `waited ${elapsed} ms (expected ~6000)`);
 });
 
 test("gateway buttons resolve to that provider's stream without knowing its exact id", async () => {
