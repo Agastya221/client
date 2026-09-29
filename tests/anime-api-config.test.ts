@@ -62,6 +62,8 @@ test("Prism classification follows the selected stream subtitle URL", () => {
   assert.equal(classifyAnivexaStreamSubType("anineko", burnedIn), "hard");
   assert.equal(classifyAnivexaStreamSubType("anineko", softSub), "soft");
   assert.equal(classifyAnivexaStreamSubType("animegg", softSub), "hard");
+  assert.equal(classifyAnivexaStreamSubType("aniwaves", { server: "Vidplay" }), "hard");
+  assert.equal(classifyAnivexaStreamSubType("aniwaves", { server: "MyCloud" }), "unknown");
 });
 
 test("subtitle defaults prefer exactly one English track", () => {

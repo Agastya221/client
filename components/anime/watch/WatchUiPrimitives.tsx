@@ -55,8 +55,8 @@ export function ServerButton({
   label: string;
   active: boolean;
   onClick: () => void;
-  /** If set, shows a S-SUB or H-SUB badge chip on the button */
-  subType?: "soft" | "hard";
+  /** If set, shows the subtitle mode badge on the button. */
+  subType?: "soft" | "hard" | "unknown";
   tag?: string;
   accentColor?: string;
   disabled?: boolean;
@@ -104,6 +104,11 @@ export function ServerButton({
           style={{ background: "rgba(251,191,36,0.12)", color: "rgba(251,191,36,0.85)", border: "1px solid rgba(251,191,36,0.25)" }}
         >
           H-SUB
+        </span>
+      )}
+      {subType === "unknown" && (
+        <span className="shrink-0 rounded-full border border-white/15 bg-white/8 px-1.5 py-0.5 text-[8px] font-black text-white/65 sm:text-[9px]">
+          SUB
         </span>
       )}
     </button>
@@ -315,6 +320,7 @@ export function summarizeServerGroups(serverOptions: ServerOption[]) {
     softSubServers: allSubServers.filter((entry) => entry.subType === "soft" || !entry.subType),
     // Hard sub: subtitles burnt into the video (subType === "hard")
     hardSubServers: allSubServers.filter((entry) => entry.subType === "hard"),
+    unknownSubServers: allSubServers.filter((entry) => entry.subType === "unknown"),
     dubServers: isDesidub ? [] : serverOptions.filter((entry) => entry.category === "dub"),
     hindiServers: isDesidub ? serverOptions : [],
   };

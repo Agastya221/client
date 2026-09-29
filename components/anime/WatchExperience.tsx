@@ -12,13 +12,14 @@ import {
   ServerButton,
   summarizeServerGroups,
 } from "@/components/anime/watch/WatchUiPrimitives";
-import type {
-  AnimeSeasonEntry,
-  CatalogAnime,
-  EpisodeModel,
-  ProviderId,
-  ServerOption,
-  WatchSessionModel,
+import {
+  ANIVEXA_DISCOVERY_PROVIDERS,
+  type AnimeSeasonEntry,
+  type CatalogAnime,
+  type EpisodeModel,
+  type ProviderId,
+  type ServerOption,
+  type WatchSessionModel,
 } from "@/lib/anime/types";
 import {
   getEpisodeArtworkUrl,
@@ -273,10 +274,6 @@ function isWorkerServerOption(serverId: string | null | undefined): boolean {
 
 function isEmbedServerOption(serverId: string): boolean {
   return serverId.includes("-embed") || serverId.endsWith("-embed") || isCustomEmbedServer(serverId);
-}
-
-function isKnownBrokenServerOption(serverId: string | null | undefined): boolean {
-  return Boolean(serverId && /^anivexa2?-(?:anibd|reanime|senshi|anizone)-/.test(serverId));
 }
 
 const AIRING_DAY_FORMATTER = new Intl.DateTimeFormat("en-US", {
@@ -858,18 +855,12 @@ function WatchPreferenceToggle({
   );
 }
 
-function serverOptionMergeKey(option: ServerOption): string {
-  const gateway = option.id.match(/^anivexa2-([a-z0-9]+)-(hls|mp4|embed)-(?:soft|hard|dub)$/);
-  if (!gateway) return option.id;
-  return `anivexa2:${gateway[1]}:${gateway[2]}:${option.category || "sub"}`;
-}
-
 function mergeServerOptionLists(previous: ServerOption[], next: ServerOption[]): ServerOption[] {
-  const nextByKey = new Map(next.map((option) => [serverOptionMergeKey(option), option]));
-  const previousKeys = new Set(previous.map(serverOptionMergeKey));
+  const nextById = new Map(next.map((option) => [option.id, option]));
+  const previousIds = new Set(previous.map((option) => option.id));
   return [
-    ...previous.map((option) => nextByKey.get(serverOptionMergeKey(option)) || option),
-    ...next.filter((option) => !previousKeys.has(serverOptionMergeKey(option))),
+    ...previous.map((option) => nextById.get(option.id) || option),
+    ...next.filter((option) => !previousIds.has(option.id)),
   ];
 }
 
@@ -884,10 +875,9 @@ function mergeWatchSessions(previous: WatchSessionModel, next: WatchSessionModel
   const availableProviders = sameStringArray(previous.availableProviders, next.availableProviders)
     ? previous.availableProviders
     : next.availableProviders;
-  const nextServerOptions =
-    previous.episode.number === next.episode.number && previous.dubbed === next.dubbed
-      ? mergeServerOptionLists(previous.serverOptions, next.serverOptions)
-      : next.serverOptions;
+  const nextServerOptions = previous.episode.number === next.episode.number
+    ? mergeServerOptionLists(previous.serverOptions, next.serverOptions)
+    : next.serverOptions;
   const serverOptions = sameServerOptionList(previous.serverOptions, nextServerOptions)
     ? previous.serverOptions
     : nextServerOptions;
@@ -1456,6 +1446,65 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     };
   }, [session.anime.anilistId, session.anime.id]);
 
+  useEffect(() => {
+    const anilistId = session.anime.anilistId;
+    if (!anilistId) return;
+    const animeId = session.anime.id;
+    const episodeNumber = session.episode.number;
+    const dubbed = session.dubbed;
+    const uiProvider = session.provider;
+    const controller = new AbortController();
+    const requests = ANIVEXA_DISCOVERY_PROVIDERS.flatMap((workerProvider) => [
+      { workerProvider, dubbed },
+      { workerProvider, dubbed: !dubbed },
+    ]);
+    let nextRequest = 0;
+    let cancelled = false;
+
+    const discover = async () => {
+      while (!cancelled && nextRequest < requests.length) {
+        const request = requests[nextRequest++];
+        const params = new URLSearchParams({
+          anilistId: String(anilistId),
+          episodeNumber: String(episodeNumber),
+          workerProvider: request.workerProvider,
+          uiProvider,
+          dub: request.dubbed ? "1" : "0",
+        });
+        try {
+          const response = await fetch(`/api/anivexa/server-options?${params}`, {
+            cache: "no-store",
+            signal: controller.signal,
+          });
+          if (!response.ok) continue;
+          const result = await response.json() as { serverOptions?: ServerOption[] };
+          if (!Array.isArray(result.serverOptions) || result.serverOptions.length === 0 || cancelled) continue;
+          setSession((current) => {
+            if (current.anime.id !== animeId || current.episode.number !== episodeNumber || current.dubbed !== dubbed) {
+              return current;
+            }
+            const options = result.serverOptions!.map((option) => ({ ...option, provider: current.provider }));
+            const serverOptions = mergeServerOptionLists(current.serverOptions, options);
+            return sameServerOptionList(current.serverOptions, serverOptions)
+              ? current
+              : { ...current, serverOptions };
+          });
+        } catch {
+          // A failed provider must not interrupt playback or the other checks.
+        }
+      }
+    };
+
+    const timer = setTimeout(() => {
+      void Promise.all([discover(), discover()]);
+    }, 1200);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [session.anime.anilistId, session.anime.id, session.episode.number, session.dubbed, session.provider]);
+
   // Seasons, recommendations, auth state, and related anime are below the
   // fold. Let the poster, controls, and source resolver get the first network
   // turn, then fill these panels independently.
@@ -1942,7 +1991,6 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
       return sameLanguage &&
         sameSubMode &&
         entry.id !== activeServerId &&
-        !isKnownBrokenServerOption(entry.id) &&
         !failedServerIdsRef.current.has(failedCandidateKey);
     }).sort((left, right) => {
       const priority = (entry: ServerOption) => isCustomEmbedServer(entry.id) ? 0 : isEmbedServerOption(entry.id) ? 2 : 1;
@@ -2156,7 +2204,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
     if (session.stale || session.source || isSessionLoading) return;
     const category = session.dubbed ? "dub" : "sub";
     const fallback = session.serverOptions.find((option) =>
-      option.category === category && isCustomEmbedServer(option.id) && !isKnownBrokenServerOption(option.id),
+      option.category === category && isCustomEmbedServer(option.id),
     );
     if (!fallback) return;
     const key = `${session.anime.id}|${session.episode.number}|${category}|${fallback.id}`;
@@ -2183,8 +2231,8 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
   }, [activeIsEmbedServer]);
 
   const embedServersOpen = showEmbedServers;
-  const usableServerOptions = session.serverOptions.filter((option) => !isKnownBrokenServerOption(option.id));
-  const { subServers, softSubServers, hardSubServers, dubServers, hindiServers } = summarizeServerGroups(usableServerOptions);
+  const usableServerOptions = session.serverOptions;
+  const { subServers, softSubServers, hardSubServers, unknownSubServers, dubServers, hindiServers } = summarizeServerGroups(usableServerOptions);
   const effectiveActiveServer = session.serverOptions.find((entry) => entry.id === effectiveActiveServerId);
   const activeHasSoftSubtitles = !session.dubbed && session.subtitles.some((track) => Boolean(track.url));
   const activeIsHardSub = !activeHasSoftSubtitles && (
@@ -2269,10 +2317,11 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
 
   const internalHardSubServers = hardSubServers.filter((entry) => !isEmbedServerOption(entry.id));
   const internalSoftSubServers = softSubServers.filter((entry) => !isEmbedServerOption(entry.id));
+  const internalUnknownSubServers = unknownSubServers.filter((entry) => !isEmbedServerOption(entry.id));
   const internalDubServers = dubServers.filter((entry) => !isEmbedServerOption(entry.id));
   const externalSubServers = subServers.filter((entry) => isEmbedServerOption(entry.id));
   const externalDubServers = dubServers.filter((entry) => isEmbedServerOption(entry.id));
-  const internalServerCount = internalHardSubServers.length + internalSoftSubServers.length + internalDubServers.length;
+  const internalServerCount = internalHardSubServers.length + internalSoftSubServers.length + internalUnknownSubServers.length + internalDubServers.length;
   const externalServerCount = externalSubServers.length + externalDubServers.length;
 
   const renderServerRow = (
@@ -2290,7 +2339,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
             // HLS is an implementation detail, not a useful choice for the
             // viewer. Keep the rarer MP4 distinction but remove the noisy HLS
             // badge from every normal server button.
-            const transportTag = entry.transport === "mp4" ? "MP4" : undefined;
+            const transportTag = entry.transport === "mp4" ? "MP4" : entry.transport === "dash" ? "DASH" : undefined;
             return (
               <ServerButton
                 key={entry.id}
@@ -3106,6 +3155,7 @@ export default function WatchExperience({ initialSession, initialEpisodeMetadata
           <div className="space-y-2.5 sm:space-y-3">
             {renderServerRow("Hard Subs", internalHardSubServers)}
             {renderServerRow("Soft Subs", internalSoftSubServers)}
+            {renderServerRow("Subs", internalUnknownSubServers)}
             {hasDub && renderServerRow("Dub", internalDubServers, { dubbed: true, accent: "#4ade80" })}
             {showHindi && renderServerRow("Hindi", hindiServers, { dubbed: true, provider: "desidub", accent: "#ff5500" })}
           </div>

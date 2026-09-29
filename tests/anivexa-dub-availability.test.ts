@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolveStreamSource } from "../lib/anime/api.ts";
+import { discoverAnivexaProviderServerOptions, resolveStreamSource } from "../lib/anime/api.ts";
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -25,7 +25,7 @@ function anivexaPayload(audio: "sub" | "dub", suffix: string) {
   };
 }
 
-test("sub resolution exposes Dub when the exact episode has a real Anivexa dub route", async () => {
+test("dub discovery finds a real episode route without delaying sub resolution", async () => {
   const originalFetch = globalThis.fetch;
   const calls: string[] = [];
 
@@ -52,17 +52,25 @@ test("sub resolution exposes Dub when the exact episode has a real Anivexa dub r
     });
 
     assert.ok(result.source);
-    assert.ok(result.serverOptions.some((option) =>
+    assert.equal(result.serverOptions.some((option) => option.category === "dub"), false);
+    assert.equal(calls.some((url) => url.includes("/watch/anikoto/21/dub/anikoto-1")), false);
+
+    const dubOptions = await discoverAnivexaProviderServerOptions({
+      anilistId: 21,
+      episodeNumber: 1,
+      dubbed: true,
+      uiProvider: "anikoto",
+      workerProvider: "anikoto",
+    });
+    assert.ok(dubOptions.some((option) =>
       option.id === "anivexa2-anikoto-hls-dub" && option.category === "dub"));
-    assert.ok(result.serverOptions.some((option) =>
-      option.id === "megaplay-dub" && option.category === "dub"));
     assert.ok(calls.some((url) => url.includes("/watch/anikoto/21/dub/anikoto-1")));
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test("sub resolution does not advertise Dub when every exact-episode dub probe fails", async () => {
+test("dub discovery returns no options when the exact episode route fails", async () => {
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -84,6 +92,14 @@ test("sub resolution does not advertise Dub when every exact-episode dub probe f
 
     assert.ok(result.source);
     assert.equal(result.serverOptions.some((option) => option.category === "dub"), false);
+    const dubOptions = await discoverAnivexaProviderServerOptions({
+      anilistId: 991002,
+      episodeNumber: 1,
+      dubbed: true,
+      uiProvider: "anikoto",
+      workerProvider: "anikoto",
+    });
+    assert.deepEqual(dubOptions, []);
   } finally {
     globalThis.fetch = originalFetch;
   }

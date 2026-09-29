@@ -6,6 +6,7 @@ import {
   MediaPlayer,
   MediaProvider,
   SeekButton,
+  isDASHProvider,
   isHLSProvider,
   isVideoProvider,
   type MediaPlayerInstance,
@@ -68,6 +69,9 @@ export default function VidstackPlayer({
 }: VidstackPlayerProps) {
   const playerRef = useRef<MediaPlayerInstance | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const dashProxyRef = useRef({ token: source.dashProxyToken || null, manifestUrl: source.url });
+  const dashInstanceCleanupRef = useRef<(() => void) | null>(null);
+  dashProxyRef.current = { token: source.dashProxyToken || null, manifestUrl: source.url };
   const glowCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const playbackStartedRef = useRef(false);
   const startupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -116,7 +120,35 @@ export default function VidstackPlayer({
   };
 
   const onProviderChange = useCallback((provider: MediaProviderAdapter | null) => {
-    if (!provider || !isHLSProvider(provider)) return;
+    dashInstanceCleanupRef.current?.();
+    dashInstanceCleanupRef.current = null;
+    if (!provider) return;
+    if (isDASHProvider(provider)) {
+      provider.library = () => import("dashjs");
+      dashInstanceCleanupRef.current = provider.onInstance((instance) => {
+        instance.extend("RequestModifier", () => ({
+          modifyRequestHeader: (xhr: XMLHttpRequest) => xhr,
+          modifyRequestURL: (url: string) => {
+            const { token, manifestUrl } = dashProxyRef.current;
+            if (!token) return url;
+            let assetUrl = new URL(url, manifestUrl || window.location.href);
+            if (assetUrl.origin === window.location.origin && assetUrl.pathname === "/api/proxy/dash") {
+              return assetUrl.href;
+            }
+            if (manifestUrl && assetUrl.origin === window.location.origin && assetUrl.pathname.startsWith("/api/proxy/")) {
+              const relativePath = assetUrl.pathname.slice("/api/proxy/".length) + assetUrl.search;
+              assetUrl = new URL(relativePath, new URL(".", manifestUrl));
+            }
+            const proxyUrl = new URL("/api/proxy/dash", window.location.origin);
+            proxyUrl.searchParams.set("url", assetUrl.href);
+            proxyUrl.searchParams.set("token", token);
+            return proxyUrl.href;
+          },
+        }), true);
+      });
+      return;
+    }
+    if (!isHLSProvider(provider)) return;
 
     // Use the app-bundled HLS runtime so playback does not wait on jsDelivr
     // after the stream URL has already resolved.
@@ -131,6 +163,8 @@ export default function VidstackPlayer({
       maxMaxBufferLength: 60,
     };
   }, []);
+
+  useEffect(() => () => dashInstanceCleanupRef.current?.(), []);
 
   // ── Ambient Glow Periodic Capturer ─────────────────────────────
   useEffect(() => {
@@ -172,9 +206,11 @@ export default function VidstackPlayer({
 
   const streamUrl = source.proxiedUrl || source.url;
   const activeSubtitles = useMemo(() => isHardSubStream ? [] : subtitles, [isHardSubStream, subtitles]);
-  const streamType = source.kind === "hls" || source.isM3U8 || streamUrl?.includes(".m3u8")
-    ? "application/x-mpegurl"
-    : "video/mp4";
+  const streamType = source.kind === "dash"
+    ? "application/dash+xml"
+    : source.kind === "hls" || source.isM3U8 || streamUrl?.includes(".m3u8")
+      ? "application/x-mpegurl"
+      : "video/mp4";
 
   // AnimeGG MP4 URLs can be slow because the first range request redirects to
   // a CDN. Give them time, then fall back to the provider embed if playback

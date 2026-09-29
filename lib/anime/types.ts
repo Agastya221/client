@@ -3,6 +3,20 @@ export const PROVIDERS = [
   "reanime", "anikoto", "animegg", "anineko",
 ] as const;
 
+export const ANIVEXA_STREAM_PROVIDERS = [
+  "animegg", "anineko", "anikoto", "reanime", "anidbapp", "animenosub",
+  "anizone", "aniwaves", "anibd", "senshi", "kaa", "animedunya",
+  "mkissa", "animeonsen",
+] as const;
+
+export type AnivexaWorkerProvider = (typeof ANIVEXA_STREAM_PROVIDERS)[number];
+
+export const ANIVEXA_DISCOVERY_PROVIDERS: readonly AnivexaWorkerProvider[] = [
+  "animegg", "anikoto", "aniwaves", "anineko", "anidbapp", "animenosub",
+  "anizone", "kaa", "animedunya", "reanime", "senshi", "anibd",
+  "animeonsen", "mkissa",
+];
+
 export type ProviderId = (typeof PROVIDERS)[number] | "hianime";
 
 export type ProviderAttemptState = "success" | "error" | "empty" | "skipped";
@@ -148,13 +162,14 @@ export interface SubtitleTrack {
 }
 
 export interface StreamSource {
-  kind: "video" | "iframe" | "hls";
+  kind: "video" | "iframe" | "hls" | "dash";
   label: string;
   url: string | null;
   proxiedUrl: string | null;
   iframeUrl: string | null;
   isM3U8: boolean;
   requiresProxy: boolean;
+  dashProxyToken?: string;
 }
 
 export interface ServerOption {
@@ -162,10 +177,10 @@ export interface ServerOption {
   label: string;
   provider: ProviderId;
   category?: string;
-  transport?: "hls" | "mp4" | "embed";
+  transport?: "hls" | "mp4" | "dash" | "embed";
   /** For HLS sub streams: "soft" = clean video + external VTT overlay;
    *  "hard" = subtitles burnt into the video (no VTT file). */
-  subType?: "soft" | "hard";
+  subType?: "soft" | "hard" | "unknown";
 }
 
 export interface WatchAttempt {

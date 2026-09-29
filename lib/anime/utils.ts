@@ -123,7 +123,7 @@ export function buildProxyUrl(
   apiBaseUrl: string,
   targetUrl: string,
   referer?: string | null,
-  kind: "playlist" | "video" = "playlist",
+  kind: "asset" | "playlist" | "video" = "asset",
   playlistKey?: string | null,
 ): string {
   // Use relative path for all client/browser requests to hit local Next.js proxy route,
@@ -132,6 +132,7 @@ export function buildProxyUrl(
   url.searchParams.set("url", targetUrl);
   if (referer) url.searchParams.set("referer", referer);
   if (kind === "video") url.searchParams.set("type", "video");
+  if (kind === "playlist") url.searchParams.set("type", "playlist");
   if (playlistKey && kind === "playlist") url.searchParams.set("playlist_key", playlistKey);
   return url.pathname + url.search;
 }

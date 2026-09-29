@@ -46,6 +46,7 @@ export async function GET(request: Request) {
   const unwrapImageSegment = searchParams.get("unwrap") === "flix-segment";
   const serveAsTs = searchParams.get("as_ts") === "1";
   const isVideo = searchParams.get("type") === "video";
+  const forcePlaylist = searchParams.get("type") === "playlist";
 
   if (!targetUrl) {
     return new Response("Missing url parameter", { status: 400 });
@@ -106,19 +107,25 @@ export async function GET(request: Request) {
     
     // Check if it's an HLS playlist (.m3u8) or a video segment/subtitles
     const isM3U8 = !isVideo && (
+      forcePlaylist ||
       targetUrl.split("?")[0].endsWith(".m3u8") ||
       contentType.includes("mpegurl") ||
       contentType.includes("application/vnd.apple.mpegurl") ||
       contentType.includes("application/x-mpegurl")
     );
 
-    const isSrtSubtitle = !isVideo && parsedTarget.pathname.toLowerCase().endsWith(".srt");
-    if (isSrtSubtitle) {
+    const subtitlePath = parsedTarget.pathname.toLowerCase();
+    const isSrtSubtitle = !isVideo && subtitlePath.endsWith(".srt");
+    const isVttSubtitle = !isVideo && subtitlePath.endsWith(".vtt");
+    if (isSrtSubtitle || isVttSubtitle) {
       const responseHeaders = new Headers(corsHeaders);
       responseHeaders.set("Content-Type", "text/vtt; charset=utf-8");
       responseHeaders.set("Cache-Control", "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400");
       responseHeaders.set("X-Content-Type-Options", "nosniff");
-      return new Response(srtToVtt(await response.text()), {
+      const body = isSrtSubtitle
+        ? srtToVtt(await response.text())
+        : await response.arrayBuffer();
+      return new Response(body, {
         status: 200,
         headers: responseHeaders,
       });
@@ -172,8 +179,9 @@ export async function GET(request: Request) {
     }
     const targetBaseUrl = parsedTarget;
     const hasAesKey = /^#EXT-X-KEY:.*METHOD=(?!NONE)/m.test(playlistText);
+    const isMasterPlaylist = /^#EXT-X-STREAM-INF:/m.test(playlistText);
 
-    const rewriteUrl = (urlStr: string, segmentLine = false) => {
+    const rewriteUrl = (urlStr: string, kind: "playlist" | "segment" | "attribute" = "attribute") => {
       if (urlStr.startsWith("data:") || urlStr.startsWith("skd:")) {
         return urlStr;
       }
@@ -183,16 +191,16 @@ export async function GET(request: Request) {
         proxied.searchParams.set("url", resolved);
         if (referer) proxied.searchParams.set("referer", referer);
         if (playlistKey) proxied.searchParams.set("playlist_key", playlistKey);
-        // If the URL ends with a typical segment extension, mark it as type=video to skip parsing
         const assetPath = new URL(resolved).pathname;
-        const isFlixImageSegment = Boolean(playlistKey && segmentLine && /\.(png|webp)$/i.test(assetPath));
-        if (/\.(ts|mp4|m4s|key)$/i.test(assetPath) || isFlixImageSegment) {
+        const isFlixImageSegment = Boolean(playlistKey && kind === "segment" && /\.(png|webp)$/i.test(assetPath));
+        if (kind === "playlist") proxied.searchParams.set("type", "playlist");
+        if (kind === "segment" || /\.(ts|mp4|m4s|key)$/i.test(assetPath)) {
           proxied.searchParams.set("type", "video");
         }
-        if (isFlixImageSegment) {
+        if (kind === "segment" && !/\.(mp4|m4s|aac)$/i.test(assetPath)) {
           proxied.searchParams.set("as_ts", "1");
-          if (!hasAesKey) proxied.searchParams.set("unwrap", "flix-segment");
         }
+        if (isFlixImageSegment && !hasAesKey) proxied.searchParams.set("unwrap", "flix-segment");
         return proxied.pathname + proxied.search;
       } catch {
         return urlStr;
@@ -215,7 +223,7 @@ export async function GET(request: Request) {
       }
 
       // Rewrite segment or sub-playlist URIs
-      return rewriteUrl(trimmed, true);
+      return rewriteUrl(trimmed, isMasterPlaylist ? "playlist" : "segment");
     });
 
     const rewrittenText = rewrittenLines.join("\n");
