@@ -1,8 +1,8 @@
-import NextAuth from "next-auth";
+import NextAuth, { customFetch } from "next-auth";
 import type { OAuthConfig, OAuthUserConfig } from "next-auth/providers";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/lib/db";
-import { anilistFetch } from "@/lib/anilist/endpoint";
+import { anilistFetch, anilistOAuthFetch } from "@/lib/anilist/endpoint";
 
 // AniList OAuth2 provider
 function AniList(options: OAuthUserConfig<{ id: number; name: string; avatar: { large: string }; bannerImage: string | null }>): OAuthConfig<{ id: number; name: string; avatar: { large: string }; bannerImage: string | null }> {
@@ -45,6 +45,8 @@ function AniList(options: OAuthUserConfig<{ id: number; name: string; avatar: { 
     },
     clientId: options.clientId,
     clientSecret: options.clientSecret,
+    // The code-for-token exchange is blocked from Cloudflare Workers; see anilistOAuthFetch.
+    [customFetch]: anilistOAuthFetch,
     checks: ["none"],
     style: {
       logo: "https://anilist.co/img/icons/android-chrome-512x512.png",

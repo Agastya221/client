@@ -32,3 +32,24 @@ export function anilistFetch(init: RequestInit): Promise<Response> {
   if (key) headers.set("x-proxy-key", key);
   return fetch(proxy, { ...init, headers });
 }
+
+export const ANILIST_TOKEN_URL = "https://anilist.co/api/v2/oauth/token";
+
+/**
+ * fetch() for Auth.js's AniList sign-in (its `customFetch` hook). The last step of signing in
+ * swaps the one-time code for an access token at anilist.co, and AniList blocks that from a
+ * Cloudflare Worker just as it blocks the GraphQL calls, so the sign-in failed with
+ * "not a conform Token Endpoint response". With ANILIST_PROXY_URL set, that one request goes
+ * through the same Render service instead (POST <proxy>/token, same x-proxy-key). Everything
+ * else, and every environment without a proxy (local dev), is an ordinary fetch.
+ */
+export function anilistOAuthFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+  const proxy = anilistProxyUrl();
+  if (!proxy || url !== ANILIST_TOKEN_URL) return fetch(input, init);
+
+  const headers = new Headers(init?.headers);
+  const key = process.env.ANILIST_PROXY_KEY?.trim();
+  if (key) headers.set("x-proxy-key", key);
+  return fetch(`${proxy.replace(/\/+$/, "")}/token`, { ...init, headers });
+}
