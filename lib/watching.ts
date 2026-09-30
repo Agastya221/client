@@ -91,6 +91,16 @@ export function watchingRange(maxMembers: number): { min: number; max: number } 
   return { min: Math.max(2, Math.round(max * QUIET_SHARE)), max };
 }
 
+/**
+ * Whether a status string from AniList or a provider means "airing now". Careful with
+ * "Finished Airing" (MAL/Jikan style), which contains AIRING but is the opposite.
+ */
+export function isAiringStatus(status: string | null | undefined): boolean {
+  const normalized = String(status ?? "").toUpperCase().replace(/[\s-]+/g, "_");
+  if (/FINISHED|COMPLETED|CANCELLED|NOT_YET|UPCOMING|HIATUS/.test(normalized)) return false;
+  return /RELEASING|ONGOING|AIRING/.test(normalized);
+}
+
 /** People "on the site" right now, always within the range for the open spots. */
 export function siteWatching(now: Date, model: WatchingModel): number {
   const { min, max } = watchingRange(model.maxMembers);

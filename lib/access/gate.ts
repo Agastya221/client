@@ -9,6 +9,7 @@
  * returns null, so the site behaves exactly as it did before this existed.
  */
 import { ACCESS_COOKIE, getAccessConfig, readCookie, verifySession } from "./invite";
+import { safeNextPath } from "./next-path";
 import { resolveAccessConfig } from "./settings";
 
 export const INVITE_PAGE = "/beta-access";
@@ -43,15 +44,24 @@ function wantsPage(request: Request): boolean {
 }
 
 export async function applyAccessGate(request: Request, env?: Record<string, unknown>): Promise<Response | null> {
-  // Cheap check first: with the gate off, nothing else (not even a settings read) happens.
+  // Cheap checks first: with the gate off, or for static files, nothing else (not even a
+  // settings read) happens.
   if (!getAccessConfig(env).enabled) return null;
-  const config = await resolveAccessConfig(env);
-
   const url = new URL(request.url);
-  if (isOpenPath(url.pathname)) return null;
-  if (request.method === "OPTIONS") return null;
+  const onInvitePage = url.pathname === INVITE_PAGE && wantsPage(request);
+  if (request.method === "OPTIONS" || (isOpenPath(url.pathname) && !onInvitePage)) return null;
 
+  const config = await resolveAccessConfig(env);
   const member = await verifySession(config, readCookie(request.headers.get("cookie"), ACCESS_COOKIE));
+
+  // Members who open the invite page again go straight on into the site.
+  if (onInvitePage) {
+    if (member === null) return null;
+    return new Response(null, {
+      status: 302,
+      headers: { Location: safeNextPath(url.searchParams.get("next")), "Cache-Control": "no-store" },
+    });
+  }
   if (member !== null) return null;
 
   if (wantsPage(request)) {

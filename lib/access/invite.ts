@@ -21,6 +21,8 @@ const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 
 /** Sessions from the shared "friends" code carry this number plus the code's version. */
 export const SHARED_BASE = 900000;
+/** Individual invites stop well below SHARED_BASE so the two can never be confused. */
+export const MAX_MEMBERS_LIMIT = 10000;
 
 export interface AccessConfig {
   /** False (the default) leaves the site completely open, exactly as before this feature. */
@@ -54,7 +56,7 @@ export function getAccessConfig(env: EnvLike): AccessConfig {
     // instead of locking everyone out over a missing variable.
     enabled: (flag === "invite" || flag === "on" || flag === "1" || flag === "true") && secret.length > 0,
     secret,
-    maxMembers: Number.isInteger(maxMembers) && maxMembers > 0 ? maxMembers : 50,
+    maxMembers: Number.isInteger(maxMembers) && maxMembers > 0 ? Math.min(maxMembers, MAX_MEMBERS_LIMIT) : 50,
     revoked,
     shared: { enabled: true, version: 1 },
   };
@@ -62,15 +64,21 @@ export function getAccessConfig(env: EnvLike): AccessConfig {
 
 const encoder = new TextEncoder();
 
+// Importing the key is the slow part of an HMAC, and the gate signs on every page request
+// while the admin panel derives hundreds of codes at once: import once per secret.
+const keys = new Map<string, Promise<CryptoKey>>();
+
+export function hmacKey(secret: string): Promise<CryptoKey> {
+  let key = keys.get(secret);
+  if (!key) {
+    key = crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    keys.set(secret, key);
+  }
+  return key;
+}
+
 async function hmac(secret: string, message: string): Promise<Uint8Array> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  return new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(message)));
+  return new Uint8Array(await crypto.subtle.sign("HMAC", await hmacKey(secret), encoder.encode(message)));
 }
 
 function toBase32(bytes: Uint8Array, length: number): string {
@@ -110,12 +118,19 @@ export function memberFromCode(code: string): number | null {
   const match = /^TK-(\d{1,6})-([A-Z2-9]{8})$/.exec(normalizeCode(code));
   if (!match) return null;
   const member = Number.parseInt(match[1], 10);
-  return member > 0 ? member : null;
+  return member > 0 && member <= MAX_MEMBERS_LIMIT ? member : null;
 }
 
-/** Forgiving about case, spaces and stray dashes, since people type these on phones. */
+/**
+ * Forgiving about how people type codes on phones: any case, and spaces, underscores or
+ * autocorrected dashes (en/em dash, minus sign) between the parts, e.g. "tk 007 abcd2345".
+ */
 export function normalizeCode(code: string): string {
-  return code.trim().toUpperCase().replace(/[\s_]+/g, "");
+  return code
+    .trim()
+    .toUpperCase()
+    .replace(/[\s_\u2010-\u2015\u2212-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 /** The member number if the code is genuine, is within the current cap and is not revoked. */
@@ -155,7 +170,7 @@ export async function verifySession(
   if (expires * 1000 < nowMs) return null;
   // Shared-code sessions are good while that code is on and current; the member cap and
   // withdrawn list are about individual invites and do not apply.
-  const shared = member >= SHARED_BASE;
+  const shared = member > SHARED_BASE;
   if (shared ? !config.shared.enabled || member - SHARED_BASE !== config.shared.version
              : member > config.maxMembers || config.revoked.has(member)) return null;
   const expected = toHex(await hmac(config.secret, `session:${member}.${expires}`)).slice(0, 32);

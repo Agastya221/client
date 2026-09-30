@@ -27,7 +27,7 @@ export async function GET(request: Request) {
   if (!adminConfigured(env)) return json({ error: OFF }, 503);
   const base = getAccessConfig({ ...env, SITE_ACCESS: "on" });
   if (!base.secret) return json({ error: NO_SECRET }, 503);
-  if (!(await isAdmin(request, base.secret))) return json({ error: "Sign in." }, 401);
+  if (!(await isAdmin(env, request, base.secret))) return json({ error: "Sign in." }, 401);
 
   const stored = await readSiteSettings(env, { fresh: true });
   const config = await resolveAccessConfig(env);
@@ -63,7 +63,7 @@ export async function POST(request: Request) {
     if (!rateLimit(`admin:${clientIp(request)}`, 8).allowed) return json({ error: "Too many attempts. Wait a minute." }, 429);
     if (!(await passwordMatches(env, String(body.password ?? ""), secret))) return json({ error: "Wrong password." }, 401);
     const response = json({ ok: true });
-    response.headers.append("Set-Cookie", adminCookieHeader(await makeAdminCookie(secret), isSecure(request)));
+    response.headers.append("Set-Cookie", adminCookieHeader(await makeAdminCookie(env, secret), isSecure(request)));
     return response;
   }
 
@@ -73,7 +73,7 @@ export async function POST(request: Request) {
     return response;
   }
 
-  if (!(await isAdmin(request, secret))) return json({ error: "Sign in." }, 401);
+  if (!(await isAdmin(env, request, secret))) return json({ error: "Sign in." }, 401);
 
   if (body.action === "save") {
     const next = sanitizeSettings(body.settings);

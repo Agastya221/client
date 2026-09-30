@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { activityAt, animeWatching, siteWatching, watchingRange, type WatchingModel } from "../lib/watching.ts";
+import { activityAt, animeWatching, isAiringStatus, siteWatching, watchingRange, type WatchingModel } from "../lib/watching.ts";
 import { sanitizeSettings } from "../lib/access/settings.ts";
 
 const IST: WatchingModel = { maxMembers: 50, timezone: "Asia/Kolkata" };
@@ -96,4 +96,11 @@ test("the only counter setting left is on or off; old manual numbers are dropped
   assert.deepEqual(sanitizeSettings({ maxMembers: "50", revoked: [3, "x", 3, -1, 7.4] }), { revoked: [3, 7] });
   assert.deepEqual(sanitizeSettings({ maxMembers: 80.4 }), { maxMembers: 80 });
   assert.deepEqual(sanitizeSettings(null), {});
+});
+
+test("airing is read correctly from every status style, including 'Finished Airing'", () => {
+  for (const s of ["RELEASING", "Currently Airing", "CURRENTLY_AIRING", "ongoing", "Airing"]) assert.equal(isAiringStatus(s), true, s);
+  for (const s of ["FINISHED", "Finished Airing", "finished_airing", "NOT_YET_RELEASED", "Not yet aired", "Upcoming", "CANCELLED", "HIATUS", "", null, undefined]) {
+    assert.equal(isAiringStatus(s), false, String(s));
+  }
 });

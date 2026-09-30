@@ -7,7 +7,7 @@
  *
  * Runs in the worker, so it uses no Next.js imports.
  */
-import { getAccessConfig, type AccessConfig } from "./invite";
+import { getAccessConfig, MAX_MEMBERS_LIMIT, type AccessConfig } from "./invite";
 
 export const SETTINGS_KEY = "site-settings:v1";
 /** How long a worker isolate keeps the settings before asking KV again. Keeps KV reads tiny. */
@@ -67,8 +67,10 @@ export async function readSiteSettings(env: EnvLike, options: { fresh?: boolean 
     }
     if (raw) value = sanitizeSettings(JSON.parse(raw));
   } catch {
-    // A KV hiccup must never take the site down: keep the last good value, else use the environment.
-    return cached?.value ?? {};
+    // A KV hiccup must never take the site down: keep the last good value. With none, fall
+    // back to the environment, except that the friends code is treated as off: its version
+    // lives only here, so the default could revive a code that was replaced after a leak.
+    return cached?.value ?? { shared: { enabled: false } };
   }
   cached = { at: Date.now(), value };
   return value;
@@ -98,7 +100,7 @@ export function sanitizeSettings(input: unknown): SiteSettings {
   const source = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
   const out: SiteSettings = {};
   const max = int(source.maxMembers);
-  if (max !== undefined && max >= 1 && max <= 10000) out.maxMembers = max;
+  if (max !== undefined && max >= 1 && max <= MAX_MEMBERS_LIMIT) out.maxMembers = max;
   if (Array.isArray(source.revoked)) {
     out.revoked = [...new Set(source.revoked.map(int).filter((n): n is number => n !== undefined && n > 0))].sort((a, b) => a - b);
   }

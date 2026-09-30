@@ -1,16 +1,18 @@
 /**
  * Login for the admin panel. One password (SITE_ADMIN_PASSWORD) trades for a signed, HttpOnly
  * cookie that lasts 12 hours. With no password configured the panel is switched off entirely.
+ * The cookie is tied to the password, so changing the password signs every admin out.
  */
-import { readCookie } from "./invite";
+import { hmacKey, readCookie } from "./invite";
 
 export const ADMIN_COOKIE = "tk_admin";
 const ADMIN_HOURS = 12;
 const encoder = new TextEncoder();
 
+type Env = Record<string, unknown>;
+
 async function sign(secret: string, message: string): Promise<string> {
-  const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const bytes = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(message)));
+  const bytes = new Uint8Array(await crypto.subtle.sign("HMAC", await hmacKey(secret), encoder.encode(message)));
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("").slice(0, 40);
 }
 
@@ -21,28 +23,38 @@ function same(a: string, b: string): boolean {
   return diff === 0;
 }
 
-export function adminConfigured(env: Record<string, unknown>): boolean {
-  return typeof env.SITE_ADMIN_PASSWORD === "string" && env.SITE_ADMIN_PASSWORD.length >= 8;
+function password(env: Env): string {
+  return typeof env.SITE_ADMIN_PASSWORD === "string" ? env.SITE_ADMIN_PASSWORD : "";
 }
 
-export async function passwordMatches(env: Record<string, unknown>, attempt: string, secret: string): Promise<boolean> {
+export function adminConfigured(env: Env): boolean {
+  return password(env).length >= 8;
+}
+
+export async function passwordMatches(env: Env, attempt: string, secret: string): Promise<boolean> {
   if (!adminConfigured(env)) return false;
   // Compare HMACs of both so the comparison time does not depend on how much of the password matched.
-  return same(await sign(secret, `pw:${attempt}`), await sign(secret, `pw:${env.SITE_ADMIN_PASSWORD}`));
+  return same(await sign(secret, `pw:${attempt}`), await sign(secret, `pw:${password(env)}`));
 }
 
-export async function makeAdminCookie(secret: string, nowMs = Date.now()): Promise<string> {
+async function cookieSignature(env: Env, secret: string, expires: number): Promise<string> {
+  // The password's own HMAC goes into the message, never the password itself.
+  return sign(secret, `admin:${expires}:${await sign(secret, `pw:${password(env)}`)}`);
+}
+
+export async function makeAdminCookie(env: Env, secret: string, nowMs = Date.now()): Promise<string> {
   const expires = Math.floor(nowMs / 1000) + ADMIN_HOURS * 3600;
-  return `${expires}.${await sign(secret, `admin:${expires}`)}`;
+  return `${expires}.${await cookieSignature(env, secret, expires)}`;
 }
 
-export async function isAdmin(request: Request, secret: string, nowMs = Date.now()): Promise<boolean> {
+export async function isAdmin(env: Env, request: Request, secret: string, nowMs = Date.now()): Promise<boolean> {
+  if (!adminConfigured(env)) return false;
   const value = readCookie(request.headers.get("cookie"), ADMIN_COOKIE);
   if (!value) return false;
   const [expires, signature] = value.split(".");
   const at = Number.parseInt(expires ?? "", 10);
   if (!Number.isInteger(at) || at * 1000 < nowMs || !signature) return false;
-  return same(await sign(secret, `admin:${at}`), signature);
+  return same(await cookieSignature(env, secret, at), signature);
 }
 
 export function adminCookieHeader(value: string, secure: boolean, clear = false): string {

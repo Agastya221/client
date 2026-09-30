@@ -83,7 +83,27 @@ export default function AdminAccessPage() {
   }
 
   async function copy(text: string, key: number | "all" | "friends") {
-    try { await navigator.clipboard.writeText(text); } catch { /* clipboard blocked on plain http; select manually */ }
+    let done = false;
+    try {
+      await navigator.clipboard.writeText(text);
+      done = true;
+    } catch {
+      // navigator.clipboard only exists on https/localhost; the older copy command still
+      // works on a plain-http LAN address.
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "");
+      area.style.position = "fixed";
+      area.style.opacity = "0";
+      document.body.appendChild(area);
+      area.select();
+      try { done = document.execCommand("copy"); } catch { done = false; }
+      area.remove();
+    }
+    if (!done) {
+      setNotice("Couldn't copy automatically. Press and hold the code to select it.");
+      return;
+    }
     setCopied(key);
     setTimeout(() => setCopied(null), 1500);
   }

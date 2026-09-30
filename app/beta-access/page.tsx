@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Lock, Sparkles, Key, ExternalLink, ShieldCheck, AlertCircle } from "lucide-react";
+import { safeNextPath } from "@/lib/access/next-path";
 
 export default function BetaAccessPage() {
   const [passcode, setPasscode] = useState("");
@@ -32,7 +33,7 @@ export default function BetaAccessPage() {
 
       // A full navigation, so the very next request already carries the new access cookie.
       const next = new URLSearchParams(window.location.search).get("next");
-      window.location.assign(next && next.startsWith("/") && !next.startsWith("//") ? next : "/");
+      window.location.assign(safeNextPath(next, window.location.origin));
     } catch {
       setError("Could not check the code. Please try again.");
       setLoading(false);
