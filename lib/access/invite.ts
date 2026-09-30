@@ -155,6 +155,26 @@ export async function signSession(secret: string, member: number, nowMs = Date.n
   return `${body}.${signature}`;
 }
 
+/**
+ * The member number if the cookie was signed by us and has not expired, whatever the current
+ * settings say about that member. Used to tell a real member apart from junk before spending
+ * a settings lookup on them.
+ */
+export async function signedSessionMember(
+  secret: string,
+  cookie: string | undefined | null,
+  nowMs = Date.now(),
+): Promise<number | null> {
+  if (!cookie) return null;
+  const parts = cookie.split(".");
+  if (parts.length !== 3) return null;
+  const member = Number.parseInt(parts[0], 10);
+  const expires = Number.parseInt(parts[1], 10);
+  if (!Number.isInteger(member) || member <= 0 || !Number.isInteger(expires) || expires * 1000 < nowMs) return null;
+  const expected = toHex(await hmac(secret, `session:${member}.${expires}`)).slice(0, 32);
+  return safeEqual(expected, parts[2]) ? member : null;
+}
+
 /** The member number if the cookie is genuine, unexpired, within the cap and not revoked. */
 export async function verifySession(
   config: AccessConfig,

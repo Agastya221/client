@@ -284,6 +284,10 @@ export default function NavbarClient({ user }: NavbarClientProps) {
 
   const isWatchPage = pathname.includes("/watch");
 
+  // The invite and welcome pages have their own header; the site's links would only lead a
+  // visitor without an invite back to the invite page.
+  if (pathname === "/beta-access" || pathname === "/welcome") return null;
+
   return (
     <>
       <style>{`

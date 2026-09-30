@@ -22,7 +22,11 @@ http
     // Cloudflare tells the app who is asking (cf-connecting-ip); do the same here, or every
     // device on the LAN shares one rate-limit bucket for code attempts.
     const clientIp = incoming.socket.remoteAddress?.replace(/^::ffff:/, "");
-    if (clientIp) headers.set("x-forwarded-for", clientIp);
+    if (clientIp) {
+      // Overwrite, as Cloudflare does, so a client cannot choose its own rate-limit bucket.
+      headers.set("cf-connecting-ip", clientIp);
+      headers.set("x-forwarded-for", clientIp);
+    }
     const hasBody = incoming.method !== "GET" && incoming.method !== "HEAD";
     const request = new Request(url, {
       method: incoming.method,

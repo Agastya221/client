@@ -28,7 +28,18 @@ function loadConfig(): Promise<SiteConfig> {
 }
 
 /** "● 12 WATCHING": how many are on this title right now. Sizes and times itself; see lib/watching.ts. */
-export default function WatchingBadge({ seed, airing = false, className = "" }: { seed: string; airing?: boolean; className?: string }) {
+export default function WatchingBadge({
+  seed,
+  airing = false,
+  accentColor = "#52ff7f",
+  className = "",
+}: {
+  seed: string;
+  airing?: boolean;
+  /** The anime's own colour, like the rest of the watch page; the site green otherwise. */
+  accentColor?: string;
+  className?: string;
+}) {
   const hydrated = useHydrated();
   const [config, setConfig] = useState<SiteConfig>({ enabled: true, maxMembers: DEFAULT_SPOTS });
   const [now, setNow] = useState(() => new Date());
@@ -46,8 +57,17 @@ export default function WatchingBadge({ seed, airing = false, className = "" }: 
 
   return (
     <p className={`flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest ${className}`} aria-live="off">
-      <span className="h-1.5 w-1.5 shrink-0 bg-lime-400 shadow-[0_0_8px_rgba(163,230,53,0.8)]" aria-hidden="true" />
-      <span className="text-sm font-black tabular-nums text-lime-400">{count}</span>
+      <span
+        className="watching-dot h-1.5 w-1.5 shrink-0 rounded-[2px]"
+        style={{ background: accentColor, boxShadow: `0 0 8px ${accentColor}` }}
+        aria-hidden="true"
+      />
+      <span
+        className="text-sm font-black tabular-nums"
+        style={{ color: accentColor, textShadow: `0 0 14px color-mix(in srgb, ${accentColor} 35%, transparent)` }}
+      >
+        {count}
+      </span>
       <span className="text-white/55">Watching</span>
     </p>
   );

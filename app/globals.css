@@ -885,3 +885,77 @@ h1, h2, h3 {
 
 
 
+
+/* ── Invite & welcome pages ─────────────────────────────────────────────── */
+
+/* Columns of posters drifting past each other behind the invite card. Each column holds its
+   posters twice, so moving it by half its height loops without a seam. */
+@keyframes posterDriftUp {
+  from { transform: translateY(0); }
+  to { transform: translateY(-50%); }
+}
+
+@keyframes posterDriftDown {
+  from { transform: translateY(-50%); }
+  to { transform: translateY(0); }
+}
+
+.poster-column-up { animation: posterDriftUp 90s linear infinite; }
+.poster-column-down { animation: posterDriftDown 110s linear infinite; }
+
+@keyframes accessRise {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.access-rise { animation: accessRise 700ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* Light sweeping across the member pass. */
+@keyframes passSheen {
+  0%, 55% { transform: translateX(-120%) skewX(-18deg); }
+  100% { transform: translateX(220%) skewX(-18deg); }
+}
+
+.pass-sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 45%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.14), transparent);
+  animation: passSheen 4.5s cubic-bezier(0.4, 0, 0.2, 1) 1s infinite;
+  pointer-events: none;
+}
+
+@keyframes checkDraw {
+  from { stroke-dashoffset: 48; }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes ringPop {
+  0% { opacity: 0; transform: scale(0.6); }
+  60% { opacity: 1; transform: scale(1.06); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.welcome-ring { animation: ringPop 650ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.welcome-check { stroke-dasharray: 48; animation: checkDraw 500ms 350ms cubic-bezier(0.65, 0, 0.35, 1) both; }
+
+@keyframes watchingPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.watching-dot { animation: watchingPulse 2.4s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .poster-column-up,
+  .poster-column-down,
+  .access-rise,
+  .pass-sheen::after,
+  .welcome-ring,
+  .welcome-check,
+  .watching-dot {
+    animation: none !important;
+  }
+  .welcome-check { stroke-dashoffset: 0; }
+}

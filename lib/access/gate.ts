@@ -8,7 +8,7 @@
  * page for someone opening a page, a 401 for everything else. With SITE_ACCESS unset it always
  * returns null, so the site behaves exactly as it did before this existed.
  */
-import { ACCESS_COOKIE, getAccessConfig, readCookie, verifySession } from "./invite";
+import { ACCESS_COOKIE, getAccessConfig, readCookie, signedSessionMember, verifySession } from "./invite";
 import { safeNextPath } from "./next-path";
 import { resolveAccessConfig } from "./settings";
 
@@ -51,8 +51,16 @@ export async function applyAccessGate(request: Request, env?: Record<string, unk
   const onInvitePage = url.pathname === INVITE_PAGE && wantsPage(request);
   if (request.method === "OPTIONS" || (isOpenPath(url.pathname) && !onInvitePage)) return null;
 
-  const config = await resolveAccessConfig(env);
-  const member = await verifySession(config, readCookie(request.headers.get("cookie"), ACCESS_COOKIE));
+  const cookie = readCookie(request.headers.get("cookie"), ACCESS_COOKIE);
+  let config = await resolveAccessConfig(env);
+  let member = await verifySession(config, cookie);
+  // Settings are cached for up to a minute. If a genuinely signed pass is refused, the admin may
+  // have just changed something (turned the friends code back on, raised the cap), so check the
+  // latest once. Junk or forged cookies never get here, so this cannot be used to spend KV reads.
+  if (member === null && (await signedSessionMember(config.secret, cookie)) !== null) {
+    config = await resolveAccessConfig(env, { fresh: true });
+    member = await verifySession(config, cookie);
+  }
 
   // Members who open the invite page again go straight on into the site.
   if (onInvitePage) {

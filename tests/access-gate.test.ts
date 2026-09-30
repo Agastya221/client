@@ -241,3 +241,24 @@ test("if KV cannot be read, a replaced friends code does not come back", async (
   assert.equal(await redeemInviteCode(config, await makeSharedCode(SECRET, 1)), null, "friends code off while settings are unknown");
   assert.equal(await redeemInviteCode(config, await makeInviteCode(SECRET, 3)), 3, "individual invites keep working");
 });
+
+test("gate: a freshly admitted friend is not bounced by cached settings; junk cookies cost no extra reads", async () => {
+  const { SHARED_BASE } = await import("../lib/access/invite.ts");
+  const { writeSiteSettings, readSiteSettings } = await import("../lib/access/settings.ts");
+  const store = new Map<string, string>();
+  let reads = 0;
+  const kv = { get: async (k: string) => { reads++; return store.get(k) ?? null; }, put: async (k: string, v: string) => void store.set(k, v) };
+  const env = { ...ON, APP_CACHE_KV: kv };
+  await writeSiteSettings(env, { shared: { enabled: false } });
+  await readSiteSettings(env); // the gate now has "friends off" cached
+  store.set("site-settings:v1", JSON.stringify({ shared: { enabled: true, version: 1 } })); // changed elsewhere
+
+  const good = `${ACCESS_COOKIE}=${await signSession(SECRET, SHARED_BASE + 1)}`;
+  assert.equal(await applyAccessGate(req("/anime/one-piece", { cookie: good }), env), null, "let in after a fresh check");
+
+  await readSiteSettings(env, { fresh: true });
+  const before = reads;
+  const junk = await applyAccessGate(req("/anime/one-piece", { cookie: `${ACCESS_COOKIE}=7.9999999999.not-signed` }), env);
+  assert.equal(junk?.status, 302);
+  assert.equal(reads, before, "a forged cookie does not trigger a fresh settings read");
+});

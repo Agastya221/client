@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAccessConfig, redeemInviteCode, sessionCookieHeader, signSession } from "@/lib/access/invite";
+import { getAccessConfig, redeemInviteCode, SHARED_BASE, sessionCookieHeader, signSession } from "@/lib/access/invite";
 import { routeEnv } from "@/lib/access/route-env";
 import { resolveAccessConfig } from "@/lib/access/settings";
 import { rateLimit } from "@/lib/rate-limit";
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
   }
 
   const secure = new URL(request.url).protocol === "https:" || request.headers.get("x-forwarded-proto") === "https";
-  const response = NextResponse.json({ ok: true });
+  const response = NextResponse.json({ ok: true, kind: member > SHARED_BASE ? "friends" : "member" });
   response.headers.append("Set-Cookie", sessionCookieHeader(await signSession(config.secret, member), secure));
   return response;
 }
