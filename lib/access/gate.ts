@@ -9,6 +9,7 @@
  * returns null, so the site behaves exactly as it did before this existed.
  */
 import { ACCESS_COOKIE, getAccessConfig, readCookie, verifySession } from "./invite";
+import { resolveAccessConfig } from "./settings";
 
 export const INVITE_PAGE = "/beta-access";
 
@@ -16,6 +17,9 @@ export const INVITE_PAGE = "/beta-access";
 const OPEN_PREFIXES = [
   INVITE_PAGE,
   "/api/beta-access",
+  // The owner must get in even if locked out: these have their own admin password.
+  "/admin/access",
+  "/api/admin/access",
   "/_next/",
   // Already protected by their own signed links, and used by players that send no cookie.
   "/api/proxy/",
@@ -39,8 +43,9 @@ function wantsPage(request: Request): boolean {
 }
 
 export async function applyAccessGate(request: Request, env?: Record<string, unknown>): Promise<Response | null> {
-  const config = getAccessConfig(env);
-  if (!config.enabled) return null;
+  // Cheap check first: with the gate off, nothing else (not even a settings read) happens.
+  if (!getAccessConfig(env).enabled) return null;
+  const config = await resolveAccessConfig(env);
 
   const url = new URL(request.url);
   if (isOpenPath(url.pathname)) return null;

@@ -102,3 +102,48 @@ test("the invite page, its API, static files and signed player links stay reacha
   }
   assert.equal(await applyAccessGate(req("/api/resolve-source", { method: "OPTIONS" }), ON), null, "CORS preflights pass");
 });
+
+test("the admin panel stays reachable when locked out, but other admin routes do not", () => {
+  assert.equal(isOpenPath("/admin/access"), true);
+  assert.equal(isOpenPath("/api/admin/access"), true);
+  assert.equal(isOpenPath("/api/admin/metrics"), false);
+});
+
+test("admin login: right password only, cookie expires and cannot be forged", async () => {
+  const { adminConfigured, isAdmin, makeAdminCookie, passwordMatches, ADMIN_COOKIE } = await import("../lib/access/admin-auth.ts");
+  const env = { SITE_ADMIN_PASSWORD: "correct horse battery" };
+  assert.equal(adminConfigured({}), false, "no password set means the panel is off");
+  assert.equal(adminConfigured({ SITE_ADMIN_PASSWORD: "short" }), false, "too-short passwords are refused");
+  assert.equal(await passwordMatches(env, "correct horse battery", SECRET), true);
+  assert.equal(await passwordMatches(env, "correct horse batterY", SECRET), false);
+  assert.equal(await passwordMatches({}, "anything", SECRET), false);
+
+  const cookie = await makeAdminCookie(SECRET);
+  const asAdmin = (value: string) => new Request("https://site.test/", { headers: { cookie: `${ADMIN_COOKIE}=${value}` } });
+  assert.equal(await isAdmin(asAdmin(cookie), SECRET), true);
+  assert.equal(await isAdmin(asAdmin(cookie), "other-secret"), false);
+  assert.equal(await isAdmin(asAdmin(`${Number(cookie.split(".")[0]) + 5000}.${cookie.split(".")[1]}`), SECRET), false);
+  assert.equal(await isAdmin(asAdmin(await makeAdminCookie(SECRET, Date.now() - 13 * 3600_000)), SECRET), false, "older than 12h");
+  assert.equal(await isAdmin(new Request("https://site.test/"), SECRET), false);
+});
+
+test("saved settings override the environment: cap and revoked members change without a redeploy", async () => {
+  const { writeSiteSettings, resolveAccessConfig, readSiteSettings } = await import("../lib/access/settings.ts");
+  const store = new Map<string, string>();
+  const kv = { get: async (k: string) => store.get(k) ?? null, put: async (k: string, v: string) => void store.set(k, v) };
+  const env = { ...ON, APP_CACHE_KV: kv };
+
+  assert.equal((await resolveAccessConfig(env)).maxMembers, 50, "nothing saved: environment default");
+  await writeSiteSettings(env, { maxMembers: 80, revoked: [4, 9] });
+  const config = await resolveAccessConfig(env);
+  assert.equal(config.maxMembers, 80);
+  assert.deepEqual([...config.revoked], [4, 9]);
+  assert.equal(await redeemInviteCode(config, await makeInviteCode(SECRET, 60)), 60, "raised cap admits member 60");
+  assert.equal(await redeemInviteCode(config, await makeInviteCode(SECRET, 4)), null);
+
+  await writeSiteSettings(env, { maxMembers: 80, revoked: [4, 9], watching: { enabled: false, max: 20 } });
+  assert.deepEqual((await readSiteSettings(env, { fresh: true })).watching, { enabled: false, max: 20 });
+
+  store.set("site-settings:v1", "{not json");
+  assert.equal((await resolveAccessConfig(env)).maxMembers, 80, "a corrupt value keeps the last good settings");
+});

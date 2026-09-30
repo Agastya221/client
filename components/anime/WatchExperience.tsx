@@ -1,6 +1,7 @@
 "use client";
 
 import { randomId } from "@/lib/random-id";
+import WatchingBadge from "@/components/anime/WatchingBadge";
 import CommentSection from "@/components/anime/CommentSection";
 import {
   WatchAnimeDetailsPanel,
@@ -3344,6 +3345,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
 
       {/* ── EPISODE INFO + SERVER STRIP ─────────── */}
       <div className="relative mt-3 space-y-2.5 rounded-2xl border border-white/10 bg-[#111214] px-3 py-3 sm:space-y-3 sm:bg-[#131315] sm:px-4 md:px-5">
+        <WatchingBadge seed={session.anime.id} />
         {/* Top row: Language toggles on the left, Watch Together on the right */}
         <div className="flex flex-wrap items-center justify-between gap-3 sm:flex-nowrap">
           <div className="flex flex-wrap items-center gap-2">
