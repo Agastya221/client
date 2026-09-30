@@ -1,5 +1,6 @@
 "use client";
 
+import { randomId } from "@/lib/random-id";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CheckCircle2,
@@ -67,7 +68,7 @@ function initMemberId(): string {
   const key = "watch-party-member-id";
   let id = sessionStorage.getItem(key);
   if (!id) {
-    id = crypto.randomUUID();
+    id = randomId();
     sessionStorage.setItem(key, id);
   }
   return id;
@@ -112,7 +113,7 @@ export default function WatchParty({
   const addSystemMessage = useCallback((text: string) => {
     setChat((prev) => [
       ...prev,
-      { id: crypto.randomUUID(), memberId: "system", memberName: "System", text, ts: new Date().toISOString(), isSystem: true },
+      { id: randomId(), memberId: "system", memberName: "System", text, ts: new Date().toISOString(), isSystem: true },
     ]);
   }, []);
 
@@ -349,7 +350,7 @@ export default function WatchParty({
     setChatInput("");
     setChat((prev) => [
       ...prev,
-      { id: crypto.randomUUID(), memberId, memberName, text, ts: new Date().toISOString() },
+      { id: randomId(), memberId, memberName, text, ts: new Date().toISOString() },
     ]);
     broadcastEvent("chat", { text });
   };

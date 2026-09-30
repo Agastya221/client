@@ -1,5 +1,6 @@
 "use client";
 
+import { randomId } from "@/lib/random-id";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { LogIn, Plus, Users, Wifi, Zap, Search, Play, Clock, RefreshCw } from "lucide-react";
 import Link from "next/link";
@@ -127,7 +128,7 @@ export default function WatchPartyLanding({
 
     // Generate a memberId for this session
     let memberId = sessionStorage.getItem("watch-party-member-id");
-    if (!memberId) { memberId = crypto.randomUUID(); sessionStorage.setItem("watch-party-member-id", memberId); }
+    if (!memberId) { memberId = randomId(); sessionStorage.setItem("watch-party-member-id", memberId); }
     const memberName = localStorage.getItem("watch-party-member-name") || `Guest${Math.floor(Math.random() * 9000) + 1000}`;
 
     try {

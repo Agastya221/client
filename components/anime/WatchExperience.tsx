@@ -1,5 +1,6 @@
 "use client";
 
+import { randomId } from "@/lib/random-id";
 import CommentSection from "@/components/anime/CommentSection";
 import {
   WatchAnimeDetailsPanel,
@@ -1077,7 +1078,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
   const [partyMemberId] = useState<string>(() => {
     if (typeof window === "undefined") return "";
     let id = sessionStorage.getItem("watch-party-member-id");
-    if (!id) { id = crypto.randomUUID(); sessionStorage.setItem("watch-party-member-id", id); }
+    if (!id) { id = randomId(); sessionStorage.setItem("watch-party-member-id", id); }
     return id;
   });
   const [partyMemberName] = useState<string>(() => {
