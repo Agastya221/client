@@ -36,6 +36,26 @@ export function bestVerifiedServer(
     healthById[option.id]?.status === "working"), healthById)[0] || null;
 }
 
+const BRAND_PREFIXES: Array<{ brand: string; prefix: string }> = [
+  { brand: "Waves", prefix: "anivexa2-aniwaves-" },
+  { brand: "Solaris", prefix: "anivexa2-anikoto-" },
+];
+
+/**
+ * The label a viewer sees for a server. Waves/Solaris variants collapse to their brand
+ * ("Solaris"), numbered ("Solaris 2") only when several of that brand share a list, so
+ * technical names like "Vidstream-1 beta" never reach the UI. Everything else (embeds,
+ * other providers) keeps its own label.
+ */
+export function displayServerLabel(entry: ServerOption, siblings: ServerOption[]): string {
+  const match = BRAND_PREFIXES.find(({ prefix }) => entry.id.startsWith(prefix));
+  if (!match) return entry.label;
+  const sameBrand = siblings.filter((candidate) => candidate.id.startsWith(match.prefix));
+  if (sameBrand.length <= 1) return match.brand;
+  const position = sameBrand.findIndex((candidate) => candidate.id === entry.id);
+  return `${match.brand} ${(position === -1 ? sameBrand.length : position) + 1}`;
+}
+
 function solarisVariantRank(option: ServerOption): number {
   if (/vidstream-2/i.test(option.label)) return 0;
   if (/vidstream-1/i.test(option.label)) return 1;

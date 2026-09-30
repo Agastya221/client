@@ -13,7 +13,7 @@ import {
   summarizeServerGroups,
 } from "@/components/anime/watch/WatchUiPrimitives";
 import { useServerHealth } from "@/components/anime/watch/useServerHealth";
-import { bestVerifiedServer, focusedServerCandidates, GATEWAY_SERVERS, gatewayMatchesServer, rankServerOptions, selectFocusedServers } from "@/lib/anime/server-selection";
+import { bestVerifiedServer, displayServerLabel, focusedServerCandidates, GATEWAY_SERVERS, gatewayMatchesServer, rankServerOptions, selectFocusedServers } from "@/lib/anime/server-selection";
 import {
   ANIVEXA_DISCOVERY_PROVIDERS,
   type AnimeSeasonEntry,
@@ -68,6 +68,7 @@ import {
   RefreshCcw,
   Search,
   Share2,
+  Server,
   Tv2,
   Users,
 } from "lucide-react";
@@ -77,9 +78,11 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ThemeAccentSource from "@/components/ui/ThemeAccentSource";
 
+import type { ServerSheetGroup } from "@/components/anime/watch/ServerPickerSheet";
 import { WATCH_PARTY_ENABLED } from "@/lib/features";
 const WatchPartyModal = dynamic(() => import("@/components/anime/WatchPartyModal"), { ssr: false });
 const WatchPartyPanel = dynamic(() => import("@/components/anime/WatchParty"), { ssr: false });
+const ServerPickerSheet = dynamic(() => import("@/components/anime/watch/ServerPickerSheet"), { ssr: false });
 const BugReportModal = dynamic(() => import("@/components/anime/watch/BugReportModal"), { ssr: false });
 
 const VideoPlayer = dynamic(
@@ -1053,6 +1056,8 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
   const [shareStatus, setShareStatus] = useState<"idle" | "shared" | "copied" | "error">("idle");
 
   // ── Watch Party ────────────────────────────────────────────────────
+  // Mobile server sheet: closed, or open (optionally scrolled to a group such as the embeds).
+  const [serverSheet, setServerSheet] = useState<{ focusGroupId: string | null } | null>(null);
   // Embed section toggle. null = follow the active server (open while an embed plays).
   const [embedServersToggle, setEmbedServersToggle] = useState<boolean | null>(null);
   const [partyModalOpen, setPartyModalOpen] = useState(false);
@@ -2485,8 +2490,84 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
   const externalDubServers = usableServerOptions.filter((entry) =>
     isEmbedServerOption(entry.id) && entry.category === "dub" && entry.provider !== "desidub");
   const externalServerCount = externalSubServers.length + externalDubServers.length;
+
   const activeIsEmbedServer = Boolean(effectiveActiveServerId && isEmbedServerOption(effectiveActiveServerId));
   const embedServersOpen = embedServersToggle ?? activeIsEmbedServer;
+
+  /** Real entries, or the row's instant gateway buttons while its list is still loading. */
+  const entriesOrGateways = (
+    entries: ServerOption[],
+    gateways?: Array<Omit<ServerOption, "provider">>,
+  ) => {
+    const useGateways = entries.length === 0 && serverDiscoveryPending && Boolean(gateways?.length);
+    return {
+      useGateways,
+      entries: useGateways ? gateways!.map((gateway) => ({ ...gateway, provider: session.provider })) : entries,
+    };
+  };
+
+  const isServerActive = (
+    entry: ServerOption,
+    options: { dubbed?: boolean; provider?: ProviderId },
+    isGateway: boolean,
+  ) => Boolean(
+    (isGateway
+      ? gatewayMatchesServer(entry.id, effectiveActiveServerId)
+      : effectiveActiveServerId === entry.id) &&
+    (options.provider === "desidub"
+      ? effectiveProvider === "desidub"
+      : Boolean(options.dubbed) === Boolean(effectiveDubbed) && (!options.dubbed || effectiveProvider !== "desidub")),
+  );
+
+  const chooseServer = (
+    entry: ServerOption,
+    options: { dubbed?: boolean; provider?: ProviderId },
+  ) => {
+    manualServerRef.current = entry.id;
+    failedServerIdsRef.current.delete(
+      `${session.anime.id}|${session.episode.number}|${options.dubbed ? "dub" : "sub"}|${entry.id}`,
+    );
+    if (!options.dubbed && options.provider !== "desidub") {
+      playerPrefs.setPreferredSubServer(session.anime.id, entry.id);
+    }
+    queueSession({
+      episodeNumber: session.episode.number,
+      provider: options.provider || entry.provider,
+      server: entry.id,
+      dubbed: Boolean(options.dubbed),
+    });
+  };
+
+  // ── Mobile server picker data ──────────────────────────────────────────────
+  // On phones the rows collapse into one summary plus a sheet listing every server for
+  // the current audio, so nothing hides behind sideways scrolling. Desktop is unchanged.
+  const sheetGroups: ServerSheetGroup[] = (effectiveDubbed
+    ? [
+        { id: "dub", label: "Dub", entries: entriesOrGateways(internalDubServers, GATEWAY_SERVERS.dub).entries, meta: { dubbed: true } },
+        ...(showHindi ? [{ id: "hindi", label: "Hindi", entries: hindiServers, meta: { dubbed: true, provider: "desidub" as const } }] : []),
+        { id: "embeds", label: "Embeds", entries: externalDubServers, meta: { dubbed: true } },
+      ]
+    : [
+        { id: "soft", label: "Soft Subs", entries: entriesOrGateways(internalSoftSubServers, GATEWAY_SERVERS.soft).entries, meta: {} },
+        { id: "hard", label: "Hard Subs", entries: entriesOrGateways(internalHardSubServers, GATEWAY_SERVERS.hard).entries, meta: {} },
+        { id: "embeds", label: "Embeds", entries: externalSubServers, meta: {} },
+      ]);
+  const sheetGroupIsGateway = (group: ServerSheetGroup) =>
+    entriesOrGateways(
+      { soft: internalSoftSubServers, hard: internalHardSubServers, dub: internalDubServers }[group.id] ?? group.entries,
+      { soft: GATEWAY_SERVERS.soft, hard: GATEWAY_SERVERS.hard, dub: GATEWAY_SERVERS.dub }[group.id],
+    ).useGateways;
+  const activeSheetEntry = sheetGroups
+    .flatMap((group) => group.entries.map((entry) => ({ entry, group })))
+    .find(({ entry, group }) => isServerActive(entry, group.meta, sheetGroupIsGateway(group)));
+  const activeServerName = activeSheetEntry
+    ? displayServerLabel(activeSheetEntry.entry, activeSheetEntry.group.entries)
+    : (usableServerOptions.find((entry) => entry.id === effectiveActiveServerId)?.label ?? null);
+  const mobilePreviewRow = effectiveDubbed
+    ? { label: "Dub", entries: internalDubServers, options: { dubbed: true, accent: "#4ade80", gateways: GATEWAY_SERVERS.dub } }
+    : internalSoftSubServers.length > 0 || internalHardSubServers.length === 0
+      ? { label: "Soft Subs", entries: internalSoftSubServers, options: { gateways: GATEWAY_SERVERS.soft } }
+      : { label: "Hard Subs", entries: internalHardSubServers, options: { gateways: GATEWAY_SERVERS.hard } };
 
   const renderServerRow = (
     label: string,
@@ -2498,32 +2579,23 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
       accent?: string;
       /** Clickable stand-ins shown while this row's real servers are still loading. */
       gateways?: Array<Omit<ServerOption, "provider">>;
+      /** Wrap onto extra lines instead of scrolling sideways (the mobile preview). */
+      wrap?: boolean;
     } = {},
   ) => {
     // Three states, not two. Real entries win; while still unanswered the row shows its
     // gateway buttons; an answered-but-empty row disappears.
-    const showGateways = entries.length === 0 &&
-      serverDiscoveryPending &&
-      Boolean(options.gateways?.length);
-    if (showGateways) {
-      entries = options.gateways!.map((gateway) => ({ ...gateway, provider: session.provider }));
-    }
+    const resolved = entriesOrGateways(entries, options.gateways);
+    const showGateways = resolved.useGateways;
+    entries = resolved.entries;
     if (entries.length === 0 && !options.emptyLabel) return null;
     return (
       <div className="grid gap-1.5 sm:grid-cols-[92px_1fr] sm:items-center sm:gap-2">
         <span className="text-[9px] font-black uppercase tracking-[0.12em] text-white/35 sm:text-right sm:text-[11px] sm:normal-case sm:tracking-normal">{label}</span>
-        <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar sm:flex-wrap sm:overflow-visible sm:pb-0">
+        <div className={options.wrap ? "flex flex-wrap gap-2" : "flex gap-2 overflow-x-auto pb-1 hide-scrollbar sm:flex-wrap sm:overflow-visible sm:pb-0"}>
           {entries.length > 0 ? entries.map((entry, index) => {
             const isEmbedEntry = isEmbedServerOption(entry.id);
-            const brand = entry.id.startsWith("anivexa2-aniwaves-") ? "Waves" :
-              entry.id.startsWith("anivexa2-anikoto-") ? "Solaris" : null;
-            const brandEntries = brand ? entries.filter((candidate) =>
-              candidate.id.startsWith(brand === "Waves" ? "anivexa2-aniwaves-" : "anivexa2-anikoto-")) : [];
-            const brandIndex = brand ? entries.slice(0, index).filter((candidate) =>
-              candidate.id.startsWith(brand === "Waves" ? "anivexa2-aniwaves-" : "anivexa2-anikoto-")).length + 1 : 0;
-            const displayLabel = brand
-              ? brandEntries.length > 1 ? `${brand} ${brandIndex}` : brand
-              : entry.label;
+            const displayLabel = displayServerLabel(entry, entries);
             // HLS is an implementation detail, not a useful choice for the
             // viewer. Keep the rarer MP4 distinction but remove the noisy HLS
             // badge from every normal server button.
@@ -2536,29 +2608,8 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
                 tag={transportTag}
                 accentColor={options.accent || accentColor}
                 isHostLocked={isPartyHostLocked}
-                active={Boolean(
-                  (showGateways
-                    ? gatewayMatchesServer(entry.id, effectiveActiveServerId)
-                    : effectiveActiveServerId === entry.id) &&
-                  (options.provider === "desidub"
-                    ? effectiveProvider === "desidub"
-                    : Boolean(options.dubbed) === Boolean(effectiveDubbed) && (!options.dubbed || effectiveProvider !== "desidub"))
-                )}
-                onClick={() => {
-                  manualServerRef.current = entry.id;
-                  failedServerIdsRef.current.delete(
-                    `${session.anime.id}|${session.episode.number}|${options.dubbed ? "dub" : "sub"}|${entry.id}`,
-                  );
-                  if (!options.dubbed && options.provider !== "desidub") {
-                    playerPrefs.setPreferredSubServer(session.anime.id, entry.id);
-                  }
-                  queueSession({
-                    episodeNumber: session.episode.number,
-                    provider: options.provider || entry.provider,
-                    server: entry.id,
-                    dubbed: Boolean(options.dubbed),
-                  });
-                }}
+                active={isServerActive(entry, options, showGateways)}
+                onClick={() => chooseServer(entry, options)}
               />
             );
           }) : (
@@ -3328,6 +3379,55 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
           )}
         </div>
 
+        {/* Mobile: a compact summary; every server lives in the sheet. */}
+        {(sheetGroups.some((group) => group.entries.length > 0) || serverDiscoveryPending) && (
+          <div className="space-y-3 border-t border-white/[0.06] pt-2.5 sm:hidden">
+            {renderServerRow(mobilePreviewRow.label, mobilePreviewRow.entries.slice(0, 3), { ...mobilePreviewRow.options, wrap: true })}
+            {externalServerCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setServerSheet({ focusGroupId: "embeds" })}
+                className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[11px] font-black uppercase tracking-wider transition-colors btn-press-active"
+                style={{ color: accentColor, borderColor: accentStyle(0.4), background: accentStyle(0.08) }}
+                aria-haspopup="dialog"
+              >
+                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                Embed
+                <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/70">{externalServerCount}</span>
+                <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            )}
+            <div className="space-y-2">
+              <p className="text-[9px] font-black uppercase tracking-[0.12em] text-white/35">Server</p>
+              <div
+                className="flex items-center gap-3 rounded-2xl border px-3 py-3"
+                style={{ borderColor: accentStyle(0.55), background: accentStyle(0.1) }}
+              >
+                <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-black/25" style={{ color: accentColor }}>
+                  <Tv2 className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-bold text-white">{activeServerName ?? "Choosing server…"}</span>
+                  <span className="block text-[11px] text-white/50">{activeServerName ? "Active server" : "Picking the best one"}</span>
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setServerSheet({ focusGroupId: null })}
+                aria-haspopup="dialog"
+                className="flex w-full items-center justify-between gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-bold text-white/85 transition-colors hover:bg-white/[0.08] btn-press-active"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <Server className="h-4 w-4 text-white/60" aria-hidden="true" />
+                  Change server
+                </span>
+                <ChevronRight className="h-4 w-4 text-white/40" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="hidden sm:block">
         {(internalHardSubServers.length > 0 || internalSoftSubServers.length > 0 || internalDubServers.length > 0 || showHindi || serverDiscoveryPending) && (
           <div className="space-y-2.5 border-t border-white/[0.06] pt-2.5 sm:space-y-3">
             {renderServerRow("Soft Subs", internalSoftSubServers, { gateways: GATEWAY_SERVERS.soft })}
@@ -3363,6 +3463,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
             )}
           </div>
         )}
+        </div>
 
         {/* Playback message */}
         {playbackMessage && (
@@ -3535,6 +3636,17 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
         }}
       />
     )}
+    {serverSheet ? (
+      <ServerPickerSheet
+        groups={sheetGroups}
+        accentColor={accentColor}
+        disabled={isPartyHostLocked}
+        focusGroupId={serverSheet.focusGroupId}
+        isActive={(entry, group) => isServerActive(entry, group.meta, sheetGroupIsGateway(group))}
+        onSelect={(entry, group) => chooseServer(entry, group.meta)}
+        onClose={() => setServerSheet(null)}
+      />
+    ) : null}
     {reportModalOpen ? (
       <BugReportModal
         animeId={session.anime.id}
