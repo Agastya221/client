@@ -67,7 +67,7 @@ export default function BetaAccessPage() {
         </div>
 
         <h1 className="text-2xl font-bold tracking-tight text-white mb-2">
-          This site is invite-only
+          YoruMi is invite-only
         </h1>
         <p className="text-sm text-neutral-400 mb-6">
           This is a closed community for now. Enter your invite code to come in.
