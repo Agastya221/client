@@ -92,9 +92,18 @@
       // `service` must equal `name` above.
       // https://opennext.js.org/cloudflare/caching
       "binding": "WORKER_SELF_REFERENCE",
-      "service": "tatakai-anime-website"
+      "service": "tatakai-anime-website",
+      "environment": "production"
     }
-  ]
+  ],
+
+  // The live domain. It was attached in the Cloudflare dashboard; `wrangler deploy`
+  // replaces dashboard-only settings with this file, so it is declared here too.
+  "routes": [{ "pattern": "yorumi.lol", "custom_domain": true }],
+
+  // Declaring `routes` turns these off unless they are stated. Both were on before.
+  "workers_dev": true,
+  "preview_urls": true
 
   // ---------------------------------------------------------------------
   // OPTIONAL BINDINGS — all commented out on purpose. A placeholder ID in an
