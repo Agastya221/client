@@ -40,7 +40,7 @@ export async function POST(req: Request) {
       episodeNumber,
       coverUrl,
       watchLink: watchLink || process.env.NEXT_PUBLIC_SITE_URL,
-      siteName: "Tatakai Anime",
+      siteName: "YoruMi",
     });
 
     if (!res.success) {
