@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { Check, Server, X } from "lucide-react";
 import { useExitTransition } from "@/components/ui/useExitTransition";
 import { displayServerLabel } from "@/lib/anime/server-selection";
@@ -46,6 +47,7 @@ export default function ServerPickerSheet({
   const { isClosing, requestClose } = useExitTransition(true, onClose);
   const touchStartY = useRef<number | null>(null);
   const focusRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
   const visibleGroups = groups.filter((group) => group.entries.length > 0);
   const total = visibleGroups.reduce((sum, group) => sum + group.entries.length, 0);
 
@@ -62,11 +64,17 @@ export default function ServerPickerSheet({
     };
   }, [requestClose]);
 
+  // Scroll only the sheet's own list: scrollIntoView would also scroll the page behind it.
   useEffect(() => {
-    focusRef.current?.scrollIntoView({ block: "start" });
+    const target = focusRef.current;
+    const list = listRef.current;
+    if (target && list) list.scrollTop = target.offsetTop - list.offsetTop - 8;
   }, []);
 
-  return (
+  // Rendered into <body>: the watch panel has ancestors with backdrop-filter/transform,
+  // which turn `position: fixed` into "fixed to that ancestor", so once the page was
+  // scrolled the sheet opened off-screen. A portal keeps it fixed to the viewport.
+  return createPortal(
     <div
       className={`modal-backdrop-motion fixed inset-0 z-[120] flex items-end justify-center bg-black/75 backdrop-blur-sm ${
         isClosing ? "modal-transition-closing" : ""
@@ -83,7 +91,7 @@ export default function ServerPickerSheet({
         aria-labelledby="server-sheet-title"
       >
         <div
-          className="touch-none px-4 pb-2 pt-3"
+          className="shrink-0 touch-none px-4 pb-2 pt-3"
           onTouchStart={(event) => { touchStartY.current = event.touches[0].clientY; }}
           onTouchEnd={(event) => {
             if (touchStartY.current === null) return;
@@ -119,7 +127,8 @@ export default function ServerPickerSheet({
           </div>
         </div>
 
-        <div className="space-y-5 overflow-y-auto overscroll-contain px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-2">
+        {/* min-h-0 lets the list shrink and scroll; without it the sheet grew past the screen. */}
+        <div ref={listRef} className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-2">
           {visibleGroups.map((group) => (
             <div key={group.id} ref={group.id === focusGroupId ? focusRef : undefined} className="scroll-mt-2">
               <p className="mb-2 text-[10px] font-black uppercase tracking-[0.14em] text-white/40">{group.label}</p>
@@ -188,5 +197,5 @@ export default function ServerPickerSheet({
         </div>
       </section>
     </div>
-  );
+  , document.body);
 }

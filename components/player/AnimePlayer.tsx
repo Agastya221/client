@@ -9,11 +9,12 @@ import IframePlayer from "./IframePlayer";
 // Fallback server order when the primary server returns an error.
 // MegaPlay uses AniList IDs (ani/) — already fixed in URL construction.
 // This cycles through alternates when a 410/error still slips through.
+// animeplay.cfd is left out as a fallback target: its host account is suspended.
 const FALLBACK_SERVERS: Record<string, string[]> = {
-  "megaplay.buzz": ["animeplay.cfd", "tryembed.us.cc", "mostream.us"],
+  "megaplay.buzz": ["tryembed.us.cc", "mostream.us"],
   "animeplay.cfd": ["megaplay.buzz", "tryembed.us.cc", "mostream.us"],
-  "tryembed.us.cc": ["megaplay.buzz", "animeplay.cfd", "mostream.us"],
-  "mostream.us": ["megaplay.buzz", "animeplay.cfd", "tryembed.us.cc"],
+  "tryembed.us.cc": ["megaplay.buzz", "mostream.us"],
+  "mostream.us": ["megaplay.buzz", "tryembed.us.cc"],
 };
 
 const DISABLE_CUSTOM_EMBEDS = true;

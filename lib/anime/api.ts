@@ -5442,13 +5442,8 @@ function appendCustomEmbedServers(
       category: "sub",
       transport: "embed",
     },
-    {
-      id: "animeplay-sub",
-      label: "Server 2",
-      provider: activeProvider,
-      category: "sub",
-      transport: "embed",
-    },
+    // animeplay.cfd is omitted: its host account is suspended (every episode shows an
+    // "Account Suspended" page, tested 2026-09-30). Restore this entry if it comes back.
     {
       id: "tryembed-sub",
       label: "Server 3",
@@ -5468,7 +5463,6 @@ function appendCustomEmbedServers(
   if (hasConfirmedDub) {
     customOptions.push(
       { id: "megaplay-dub", label: "Server 1", provider: activeProvider, category: "dub", transport: "embed" },
-      { id: "animeplay-dub", label: "Server 2", provider: activeProvider, category: "dub", transport: "embed" },
       { id: "tryembed-dub", label: "Server 3", provider: activeProvider, category: "dub", transport: "embed" },
       { id: "mostream-dub", label: "Server 4", provider: activeProvider, category: "dub", transport: "embed" },
     );

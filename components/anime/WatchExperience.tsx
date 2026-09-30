@@ -2545,10 +2545,13 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
   const internalDubServers = focusedServers.dub;
   // Embed servers stay in the session as a fallback; this section lets users pick one
   // directly. Kept separate from the focused Waves/Solaris rows above.
+  // Only the site's own embed servers are offered. Provider embeds were tested in a real
+  // browser (2026-09-30): Waves embeds 0/5 played (files deleted or embedding blocked) and
+  // Solaris embeds are all megaplay.buzz again, duplicating Server 1.
   const externalSubServers = usableServerOptions.filter((entry) =>
-    isEmbedServerOption(entry.id) && entry.category !== "dub" && entry.provider !== "desidub");
+    isCustomEmbedServer(entry.id) && entry.category !== "dub" && entry.provider !== "desidub");
   const externalDubServers = usableServerOptions.filter((entry) =>
-    isEmbedServerOption(entry.id) && entry.category === "dub" && entry.provider !== "desidub");
+    isCustomEmbedServer(entry.id) && entry.category === "dub" && entry.provider !== "desidub");
   const externalServerCount = externalSubServers.length + externalDubServers.length;
 
   const activeIsEmbedServer = Boolean(effectiveActiveServerId && isEmbedServerOption(effectiveActiveServerId));
@@ -3453,6 +3456,37 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
             )}
           </div>
 
+          {/* Embed: right side of the SUB / DUB row, same style. Phones open the embed
+              sheet; laptops open the embed rows below. */}
+          {externalServerCount > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                if (window.matchMedia("(min-width: 640px)").matches) {
+                  setEmbedServersToggle(!embedServersOpen);
+                } else {
+                  setServerSheet({ kind: "embeds", focusGroupId: effectiveDubbed && externalDubServers.length > 0 ? "embeds-dub" : "embeds-sub" });
+                }
+              }}
+              aria-haspopup="dialog"
+              aria-expanded={embedServersOpen}
+              aria-controls="embed-server-options"
+              title="Embed servers"
+              className={`ml-auto flex shrink-0 items-center gap-1.5 rounded px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                activeIsEmbedServer || embedServersOpen
+                  ? ""
+                  : "border border-white/8 bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70"
+              }`}
+              style={activeIsEmbedServer || embedServersOpen
+                ? { background: accentStyle(0.15), color: accentColor, border: `1px solid ${accentStyle(0.25)}`, boxShadow: `0 0 8px ${accentStyle(0.15)}` }
+                : undefined}
+            >
+              <ExternalLink className="h-3 w-3" aria-hidden="true" />
+              Embed
+              <span className="rounded bg-white/10 px-1 text-[9px] text-white/70">{externalServerCount}</span>
+            </button>
+          )}
+
           {/* Watch Together pill — aligned to the right side, prominent */}
           {WATCH_PARTY_ENABLED && (
           <div className="flex items-center ml-auto shrink-0">
@@ -3490,20 +3524,6 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
         {/* Mobile: a compact summary; every server lives in the sheet. */}
         {(sheetGroups.some((group) => group.entries.length > 0) || serverDiscoveryPending) && (
           <div className="space-y-3 border-t border-white/[0.06] pt-2.5 sm:hidden">
-            {externalServerCount > 0 && (
-              <button
-                type="button"
-                onClick={() => setServerSheet({ kind: "embeds", focusGroupId: effectiveDubbed && externalDubServers.length > 0 ? "embeds-dub" : "embeds-sub" })}
-                className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[11px] font-black uppercase tracking-wider transition-colors btn-press-active"
-                style={{ color: accentColor, borderColor: accentStyle(0.4), background: accentStyle(0.08) }}
-                aria-haspopup="dialog"
-              >
-                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-                Embed
-                <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/70">{externalServerCount}</span>
-                <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
-              </button>
-            )}
             <div className="space-y-2">
               <p className="text-[9px] font-black uppercase tracking-[0.12em] text-white/35">Server</p>
               <div
@@ -3560,30 +3580,11 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
           </div>
         )}
 
-        {externalServerCount > 0 && (
-          <div className="space-y-2.5 border-t border-white/[0.06] pt-2.5 sm:space-y-3">
-            <button
-              type="button"
-              onClick={() => setEmbedServersToggle(!embedServersOpen)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white/65 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white sm:rounded-full sm:px-4 sm:py-2 sm:text-[11px] btn-press-active"
-              aria-expanded={embedServersOpen}
-              aria-controls="embed-server-options"
-              title="External embed servers"
-              style={activeIsEmbedServer || embedServersOpen ? { color: accentColor, borderColor: accentStyle(0.35), background: accentStyle(0.08) } : undefined}
-            >
-              <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-              Embed
-              <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/70">
-                {externalServerCount}
-              </span>
-              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${embedServersOpen ? "rotate-180" : ""}`} aria-hidden="true" />
-            </button>
-            {embedServersOpen && (
-              <div id="embed-server-options" className="space-y-2.5 sm:space-y-3">
-                {renderServerRow("Sub Embeds", externalSubServers)}
-                {externalDubServers.length > 0 && renderServerRow("Dub Embeds", externalDubServers, { dubbed: true, accent: "#4ade80" })}
-              </div>
-            )}
+        {/* Laptop: embed rows, opened with the Embed button in the top row. */}
+        {externalServerCount > 0 && embedServersOpen && (
+          <div id="embed-server-options" className="hidden space-y-2.5 border-t border-white/[0.06] pt-2.5 sm:block sm:space-y-3">
+            {renderServerRow("Sub Embeds", externalSubServers)}
+            {externalDubServers.length > 0 && renderServerRow("Dub Embeds", externalDubServers, { dubbed: true, accent: "#4ade80" })}
           </div>
         )}
         </div>
