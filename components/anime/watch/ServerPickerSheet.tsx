@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Check, Server, X } from "lucide-react";
+import { Check, Server } from "lucide-react";
 import { useExitTransition } from "@/components/ui/useExitTransition";
 import { displayServerLabel } from "@/lib/anime/server-selection";
 import { SERVER_MODE_BADGES } from "@/components/anime/watch/WatchUiPrimitives";
@@ -44,7 +44,7 @@ export default function ServerPickerSheet({
   onSelect,
   onClose,
 }: ServerPickerSheetProps) {
-  const { isClosing, requestClose } = useExitTransition(true, onClose);
+  const { isClosing, requestClose } = useExitTransition(true, onClose, 240);
   const touchStartY = useRef<number | null>(null);
   const focusRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -85,7 +85,7 @@ export default function ServerPickerSheet({
       }}
     >
       <section
-        className="modal-panel-motion flex max-h-[88dvh] w-full flex-col rounded-t-[1.5rem] border border-white/10 bg-[#101113] shadow-2xl shadow-black/80"
+        className="modal-panel-motion sheet-panel-motion flex max-h-[88dvh] w-full flex-col rounded-t-[1.5rem] border border-white/10 bg-[#101113] shadow-2xl shadow-black/80"
         role="dialog"
         aria-modal="true"
         aria-labelledby="server-sheet-title"
@@ -116,14 +116,6 @@ export default function ServerPickerSheet({
                 </p>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={requestClose}
-              aria-label="Close server list"
-              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/70 transition-colors hover:bg-white/10 hover:text-white"
-            >
-              <X className="h-4 w-4" aria-hidden="true" />
-            </button>
           </div>
         </div>
 

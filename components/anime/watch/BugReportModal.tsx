@@ -9,7 +9,6 @@ import {
   Bug,
   Check,
   LoaderCircle,
-  X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useExitTransition } from "@/components/ui/useExitTransition";
@@ -52,7 +51,7 @@ export default function BugReportModal({
   const [notes, setNotes] = useState("");
   const [status, setStatus] = useState<"idle" | "sending" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
-  const { isClosing, requestClose } = useExitTransition(true, onClose);
+  const { isClosing, requestClose } = useExitTransition(true, onClose, 240);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -128,7 +127,7 @@ export default function BugReportModal({
       }}
     >
       <section
-        className="modal-panel-motion max-h-[92dvh] w-full overflow-y-auto rounded-t-[1.5rem] border border-white/10 bg-[#101113] px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4 shadow-2xl shadow-black/80 sm:max-w-xl sm:rounded-2xl sm:p-5"
+        className="modal-panel-motion sheet-panel-motion max-h-[92dvh] w-full overflow-y-auto rounded-t-[1.5rem] border border-white/10 bg-[#101113] px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4 shadow-2xl shadow-black/80 sm:max-w-xl sm:rounded-2xl sm:p-5"
         role="dialog"
         aria-modal="true"
         aria-labelledby="bug-report-title"
@@ -150,15 +149,6 @@ export default function BugReportModal({
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            disabled={status === "sending"}
-            onClick={requestClose}
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/8 bg-white/[0.035] text-white/45 transition-colors hover:border-white/15 hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
-            aria-label="Close report form"
-          >
-            <X className="h-4 w-4" aria-hidden="true" />
-          </button>
         </div>
 
         <div className="mt-5">
