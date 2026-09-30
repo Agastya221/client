@@ -2473,7 +2473,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
   const heroImage =
     session.anime.banner ||
     session.anime.poster ||
-    "https://placehold.co/1600x900/09090b/f5f5f5?text=Tatakai";
+    "https://placehold.co/1600x900/09090b/f5f5f5?text=YoruMi";
   const displayedEpisode = optimisticEpisodeNumber
     ? session.episodes.find((episode) => episode.number === optimisticEpisodeNumber) || session.episode
     : session.episode;
