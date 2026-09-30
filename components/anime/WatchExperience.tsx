@@ -14,7 +14,7 @@ import {
   summarizeServerGroups,
 } from "@/components/anime/watch/WatchUiPrimitives";
 import { useServerHealth } from "@/components/anime/watch/useServerHealth";
-import { bestVerifiedServer, displayServerLabel, focusedServerCandidates, GATEWAY_SERVERS, gatewayMatchesServer, rankServerOptions, selectFocusedServers } from "@/lib/anime/server-selection";
+import { bestVerifiedServer, choiceFromServer, choiceMatchesServer, describeChoice, displayServerLabel, focusedServerCandidates, GATEWAY_SERVERS, gatewayMatchesServer, rankServerOptions, selectFocusedServers, serverIdForChoice, type ServerPreference } from "@/lib/anime/server-selection";
 import {
   ANIVEXA_DISCOVERY_PROVIDERS,
   type AnimeSeasonEntry,
@@ -1058,7 +1058,11 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
 
   // ── Watch Party ────────────────────────────────────────────────────
   // Mobile server sheet: closed, or open (optionally scrolled to a group such as the embeds).
-  const [serverSheet, setServerSheet] = useState<{ focusGroupId: string | null } | null>(null);
+  const [serverSheet, setServerSheet] = useState<{ kind: "main" | "embeds"; focusGroupId: string | null } | null>(null);
+  // The viewer's remembered server choice (soft/hard/dub + provider, or an embed), shared by
+  // every anime. Loaded after mount: it lives in localStorage, which the server cannot see.
+  const [serverPreference, setServerPreferenceState] = useState<ServerPreference | null>(null);
+  const preferenceAttemptRef = useRef<string | null>(null);
   // Embed section toggle. null = follow the active server (open while an embed plays).
   const [embedServersToggle, setEmbedServersToggle] = useState<boolean | null>(null);
   const [partyModalOpen, setPartyModalOpen] = useState(false);
@@ -1294,6 +1298,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
   }), [session.provider, session.dubbed, session.episode.number]);
 
   useEffect(() => {
+    setServerPreferenceState(playerPrefs.getServerPreference());
     setAutoSkip(playerPrefs.getAutoSkip());
     setAutoAdvance(playerPrefs.getAutoAdvance());
     setAutoPlay(playerPrefs.getAutoplay());
@@ -1372,6 +1377,9 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
   // Priority: optimistic click → pending staged session → committed session
   const effectiveActiveServerId = optimisticServerId || pendingSession?.activeServerId || session.activeServerId;
   const effectiveDubbed = optimisticDubbed ?? pendingSession?.dubbed ?? session.dubbed;
+  /** The remembered choice for one audio side, or null when the viewer has not picked one. */
+  const preferredChoiceFor = (dubbed: boolean) =>
+    serverPreference ? (dubbed ? serverPreference.dub : serverPreference.sub) : null;
   const effectiveProvider = optimisticProvider ?? pendingSession?.provider ?? session.provider;
   // Failed servers are hidden, except the one currently selected: a manual
   // pick has to survive a failed probe so the viewer can still press Play and
@@ -2124,6 +2132,8 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
     const activeId = session.activeServerId;
     if (!activeId || manualServerRef.current === activeId || playerActivated || isSessionLoading ||
         serverHealth.healthById[activeId]?.status !== "failed") return;
+    // A viewer with a remembered choice is told, not switched (see the preference effect).
+    if (serverPreference && (session.dubbed ? serverPreference.dub : serverPreference.sub)) return;
     const category = session.dubbed ? "dub" : "sub";
     const failedHealth = {
       ...serverHealth.healthById,
@@ -2143,9 +2153,16 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
       dubbed: session.dubbed,
     });
   }, [session.anime.id, session.episode.number, session.activeServerId, session.dubbed,
-    session.serverOptions, playerActivated, isSessionLoading, serverHealth.healthById, queueSession]);
+    session.serverOptions, playerActivated, isSessionLoading, serverHealth.healthById, queueSession, serverPreference]);
 
   const handlePlaybackError = () => {
+    const rememberedChoice = preferredChoiceFor(session.dubbed);
+    if (rememberedChoice) {
+      setPlaybackMessage(
+        `${describeChoice(rememberedChoice)} isn't working for this episode. Tap Change server to pick another one.`,
+      );
+      return;
+    }
     if (isSessionLoading) return;
 
     const activeServerId = pendingSession?.activeServerId || session.activeServerId;
@@ -2381,6 +2398,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
   // prevents the transient "No source" state and requires no user click.
   useEffect(() => {
     if (session.stale || session.source || isSessionLoading) return;
+    if (serverPreference && (session.dubbed ? serverPreference.dub : serverPreference.sub)) return;
     const category = session.dubbed ? "dub" : "sub";
     const fallback = session.serverOptions.find((option) =>
       option.category === category && isCustomEmbedServer(option.id),
@@ -2395,7 +2413,48 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
       server: fallback.id,
       dubbed: session.dubbed,
     });
-  }, [isSessionLoading, session.anime.id, session.dubbed, session.episode.number, session.serverOptions, session.source, session.stale]);
+  }, [isSessionLoading, session.anime.id, session.dubbed, session.episode.number, session.serverOptions, session.source, session.stale, serverPreference]);
+
+  // Apply the remembered choice on every episode: the viewer's audio (sub/dub) and server
+  // (provider + soft/hard/dub, or an embed). If this episode does not have it, say so and let
+  // the viewer pick - never switch to something else behind their back.
+  useEffect(() => {
+    if (!serverPreference || isSessionLoading || session.stale) return;
+    const wantDub = serverPreference.dubbed;
+    const choice = wantDub ? serverPreference.dub : serverPreference.sub;
+    const attemptKey = `${session.anime.id}|${session.episode.number}|${wantDub ? "dub" : "sub"}|${choice ? serverIdForChoice(choice) : "audio"}`;
+    const onRightAudio = session.dubbed === wantDub;
+    const onRightServer = !choice || choiceMatchesServer(choice, session.activeServerId);
+
+    if (onRightAudio && onRightServer) {
+      if (choice && !session.source && preferenceAttemptRef.current === attemptKey) {
+        setPlaybackMessage(`${describeChoice(choice)} isn't available for episode ${session.episode.number}. Tap Change server to pick another one.`);
+      }
+      return;
+    }
+    if (preferenceAttemptRef.current === attemptKey) {
+      // Already asked for it on this episode and did not get it.
+      setPlaybackMessage(
+        !onRightAudio
+          ? `${wantDub ? "Dub" : "Sub"} isn't available for episode ${session.episode.number}.`
+          : `${describeChoice(choice!)} isn't available for episode ${session.episode.number}. Tap Change server to pick another one.`,
+      );
+      return;
+    }
+    if (wantDub && !hasDub && !serverDiscoveryPending) {
+      preferenceAttemptRef.current = attemptKey;
+      setPlaybackMessage(`Dub isn't available for episode ${session.episode.number}.`);
+      return;
+    }
+    preferenceAttemptRef.current = attemptKey;
+    queueSession({
+      episodeNumber: session.episode.number,
+      provider: session.provider,
+      server: choice ? serverIdForChoice(choice) : null,
+      dubbed: wantDub,
+    });
+  }, [serverPreference, isSessionLoading, session.stale, session.anime.id, session.episode.number, session.dubbed,
+    session.activeServerId, session.source, session.provider, hasDub, serverDiscoveryPending, queueSession]);
 
   const usableServerOptions = session.serverOptions;
   const { hindiServers } = summarizeServerGroups(usableServerOptions);
@@ -2520,10 +2579,22 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
       : Boolean(options.dubbed) === Boolean(effectiveDubbed) && (!options.dubbed || effectiveProvider !== "desidub")),
   );
 
+  const rememberServerPreference = (next: ServerPreference) => {
+    setServerPreferenceState(next);
+    playerPrefs.setServerPreference(next);
+  };
+
   const chooseServer = (
     entry: ServerOption,
     options: { dubbed?: boolean; provider?: ProviderId },
   ) => {
+    if (options.provider !== "desidub") {
+      const choice = choiceFromServer({ ...entry, category: options.dubbed ? "dub" : entry.category });
+      const base = serverPreference ?? { dubbed: Boolean(options.dubbed), sub: null, dub: null };
+      rememberServerPreference(options.dubbed
+        ? { ...base, dubbed: true, dub: choice ?? base.dub }
+        : { ...base, dubbed: false, sub: choice ?? base.sub });
+    }
     manualServerRef.current = entry.id;
     failedServerIdsRef.current.delete(
       `${session.anime.id}|${session.episode.number}|${options.dubbed ? "dub" : "sub"}|${entry.id}`,
@@ -2583,25 +2654,6 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
       })()
     : null;
 
-  // The preview row shows the group the playing server belongs to (playing server first),
-  // so the summary never contradicts the Server card. Embeds have their own button, so
-  // while one plays the preview falls back to the audio's main row.
-  const previewGroupId = activeSheetEntry && ["soft", "hard", "dub"].includes(activeSheetEntry.group.id)
-    ? activeSheetEntry.group.id
-    : effectiveDubbed
-      ? "dub"
-      : internalSoftSubServers.length > 0 || internalHardSubServers.length === 0
-        ? "soft"
-        : "hard";
-  const previewSource = { soft: internalSoftSubServers, hard: internalHardSubServers, dub: internalDubServers }[previewGroupId] ?? [];
-  const previewActiveFirst = activeSheetEntry && activeSheetEntry.group.id === previewGroupId
-    ? [activeSheetEntry.entry, ...previewSource.filter((entry) => entry.id !== activeSheetEntry.entry.id)]
-    : previewSource;
-  const mobilePreviewRow = previewGroupId === "dub"
-    ? { label: "Dub", entries: previewActiveFirst, options: { dubbed: true, accent: "#4ade80", gateways: GATEWAY_SERVERS.dub } }
-    : previewGroupId === "hard"
-      ? { label: "Hard Subs", entries: previewActiveFirst, options: { gateways: GATEWAY_SERVERS.hard } }
-      : { label: "Soft Subs", entries: previewActiveFirst, options: { gateways: GATEWAY_SERVERS.soft } };
 
   const renderServerRow = (
     label: string,
@@ -3299,6 +3351,17 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
               onClick={() => {
                 if ((effectiveDubbed || effectiveProvider === "desidub") && hasSub) {
                   const targetEpNum = getFallbackEpisodeForLanguage(false, session.episode.number);
+                  const subChoice = preferredChoiceFor(false);
+                  rememberServerPreference({ sub: null, dub: null, ...serverPreference, dubbed: false });
+                  if (subChoice) {
+                    queueSession({
+                      episodeNumber: targetEpNum,
+                      provider: effectiveProvider === "desidub" ? mainFallback : effectiveProvider,
+                      server: serverIdForChoice(subChoice),
+                      dubbed: false,
+                    });
+                    return;
+                  }
                   const savedServer = playerPrefs.getPreferredSubServer(session.anime.id);
                   const focusedSub = [...focusedServers.hard, ...focusedServers.soft];
                   const verifiedServer = bestVerifiedServer(
@@ -3335,6 +3398,17 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
               onClick={() => {
                 if ((!effectiveDubbed || effectiveProvider === "desidub") && hasDub) {
                   const targetEpNum = getFallbackEpisodeForLanguage(true, session.episode.number);
+                  const dubChoice = preferredChoiceFor(true);
+                  rememberServerPreference({ sub: null, dub: null, ...serverPreference, dubbed: true });
+                  if (dubChoice) {
+                    queueSession({
+                      episodeNumber: targetEpNum,
+                      provider: effectiveProvider === "desidub" ? mainFallback : effectiveProvider,
+                      server: serverIdForChoice(dubChoice),
+                      dubbed: true,
+                    });
+                    return;
+                  }
                   if (!effectiveDubbed && effectiveActiveServerId) {
                     playerPrefs.setPreferredSubServer(session.anime.id, effectiveActiveServerId);
                   }
@@ -3416,11 +3490,10 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
         {/* Mobile: a compact summary; every server lives in the sheet. */}
         {(sheetGroups.some((group) => group.entries.length > 0) || serverDiscoveryPending) && (
           <div className="space-y-3 border-t border-white/[0.06] pt-2.5 sm:hidden">
-            {renderServerRow(mobilePreviewRow.label, mobilePreviewRow.entries.slice(0, 3), { ...mobilePreviewRow.options, wrap: true })}
             {externalServerCount > 0 && (
               <button
                 type="button"
-                onClick={() => setServerSheet({ focusGroupId: effectiveDubbed && externalDubServers.length > 0 ? "embeds-dub" : "embeds-sub" })}
+                onClick={() => setServerSheet({ kind: "embeds", focusGroupId: effectiveDubbed && externalDubServers.length > 0 ? "embeds-dub" : "embeds-sub" })}
                 className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[11px] font-black uppercase tracking-wider transition-colors btn-press-active"
                 style={{ color: accentColor, borderColor: accentStyle(0.4), background: accentStyle(0.08) }}
                 aria-haspopup="dialog"
@@ -3442,7 +3515,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-2">
-                    <span className="truncate text-sm font-bold text-white">{activeServerName ?? "Choosing server…"}</span>
+                    <span className="truncate text-sm font-bold text-white">{activeServerName ?? (isSessionLoading || serverDiscoveryPending ? "Choosing server…" : "No server playing")}</span>
                     {activeModeInfo ? (
                       <span
                         className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-black tracking-widest"
@@ -3455,13 +3528,15 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
                   <span className="block text-[11px] text-white/50">
                     {activeServerName
                       ? `${activeModeInfo ? `${activeModeInfo.text} · ` : ""}Active server`
-                      : "Picking the best one"}
+                      : isSessionLoading || serverDiscoveryPending
+                        ? "Picking the best one"
+                        : "Tap Change server to pick one"}
                   </span>
                 </span>
               </div>
               <button
                 type="button"
-                onClick={() => setServerSheet({ focusGroupId: null })}
+                onClick={() => setServerSheet({ kind: "main", focusGroupId: effectiveDubbed ? "dub" : null })}
                 aria-haspopup="dialog"
                 className="flex w-full items-center justify-between gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-bold text-white/85 transition-colors hover:bg-white/[0.08] btn-press-active"
               >
@@ -3686,7 +3761,8 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
     )}
     {serverSheet ? (
       <ServerPickerSheet
-        groups={sheetGroups}
+        title={serverSheet.kind === "embeds" ? "Embed servers" : "Select server"}
+        groups={sheetGroups.filter((group) => (serverSheet.kind === "embeds") === group.id.startsWith("embeds"))}
         accentColor={accentColor}
         disabled={isPartyHostLocked}
         focusGroupId={serverSheet.focusGroupId}

@@ -1,5 +1,7 @@
 "use client";
 
+import type { ServerPreference } from "@/lib/anime/server-selection";
+
 /**
  * Player preferences persisted in localStorage.
  * Each key is prefixed with `player:` to avoid collisions.
@@ -130,6 +132,25 @@ export function getSubtitlePresentation(): SubtitleStyle["presentation"] {
 
 export function setSubtitlePresentation(presentation: SubtitleStyle["presentation"]): void {
   setSubtitleStyle({ presentation });
+}
+
+// ── Remembered server choice (all anime) ─────────────────────────────────────
+
+/** The viewer's last server choice (soft/hard/dub + provider, or an embed), shape-checked on read. */
+export function getServerPreference(): ServerPreference | null {
+  const raw = get("server-preference");
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(raw) as ServerPreference;
+    if (typeof value?.dubbed !== "boolean") return null;
+    return { dubbed: value.dubbed, sub: value.sub ?? null, dub: value.dub ?? null };
+  } catch {
+    return null;
+  }
+}
+
+export function setServerPreference(preference: ServerPreference): void {
+  set("server-preference", JSON.stringify(preference));
 }
 
 // ── Preferred subtitle source ───────────────────────────────────────────────

@@ -44,10 +44,17 @@ const BRAND_PREFIXES: Array<{ brand: string; prefix: string }> = [
 /**
  * The label a viewer sees for a server. Waves/Solaris variants collapse to their brand
  * ("Solaris"), numbered ("Solaris 2") only when several of that brand share a list, so
- * technical names like "Vidstream-1 beta" never reach the UI. Everything else (embeds,
- * other providers) keeps its own label.
+ * technical names like "Vidstream-1 beta" never reach the UI. Embeds become "Server N";
+ * anything else keeps its own label.
  */
 export function displayServerLabel(entry: ServerOption, siblings: ServerOption[]): string {
+  // Embeds are always "Server N" (never Solaris/Waves), numbered within their list, so they
+  // are never confused with the main servers of the same name.
+  if (isEmbedServerId(entry.id)) {
+    const embeds = siblings.filter((candidate) => isEmbedServerId(candidate.id));
+    const position = embeds.findIndex((candidate) => candidate.id === entry.id);
+    return `Server ${(position === -1 ? embeds.length : position) + 1}`;
+  }
   const match = BRAND_PREFIXES.find(({ prefix }) => entry.id.startsWith(prefix));
   if (!match) return entry.label;
   const sameBrand = siblings.filter((candidate) => candidate.id.startsWith(match.prefix));
@@ -128,4 +135,64 @@ export function gatewayMatchesServer(gatewayId: string, serverId: string | null 
   const real = serverId.match(/^anivexa2-([a-z0-9]+)-[a-z0-9]+-(?:s\d+-)?([a-z]+)$/);
   if (!real || real[1] !== provider) return false;
   return mode === "ssub" ? real[2] === "soft" : mode === "hsub" ? real[2] === "hard" : real[2] === "dub";
+}
+
+// ── The viewer's remembered server choice ────────────────────────────────────
+
+/** A server the viewer chose, described so it can be requested again on another episode. */
+export type ServerChoice =
+  | { kind: "provider"; provider: string; mode: "soft" | "hard" | "dub" }
+  | { kind: "embed"; id: string };
+
+/** What the viewer picked last, kept per audio so switching SUB/DUB restores each side. */
+export interface ServerPreference {
+  dubbed: boolean;
+  sub: ServerChoice | null;
+  dub: ServerChoice | null;
+}
+
+const PROVIDER_NAMES: Record<string, string> = { anikoto: "Solaris", aniwaves: "Waves" };
+const EMBED_BASES = ["megaplay", "animeplay", "tryembed", "mostream"];
+
+export function isEmbedServerId(serverId: string): boolean {
+  return serverId.includes("-embed") || EMBED_BASES.includes(serverId.split("-")[0]);
+}
+
+/** The remembered form of a server, or null when it is not something worth remembering. */
+export function choiceFromServer(entry: Pick<ServerOption, "id" | "category" | "subType">): ServerChoice | null {
+  if (isEmbedServerId(entry.id)) return { kind: "embed", id: entry.id };
+  const gateway = entry.id.match(/^anivexa-([a-z0-9]+)-(ssub|hsub|dub)$/);
+  if (gateway) {
+    const mode = gateway[2] === "ssub" ? "soft" : gateway[2] === "hsub" ? "hard" : "dub";
+    return { kind: "provider", provider: gateway[1], mode };
+  }
+  const real = entry.id.match(/^anivexa2-([a-z0-9]+)-/);
+  if (!real) return null;
+  if (entry.category === "dub") return { kind: "provider", provider: real[1], mode: "dub" };
+  if (entry.subType === "soft" || entry.subType === "hard") {
+    return { kind: "provider", provider: real[1], mode: entry.subType };
+  }
+  return null;
+}
+
+/** The server id to request for a remembered choice. Provider choices use the gateway form,
+ *  which the server resolves to that provider's best stream of that kind on any episode. */
+export function serverIdForChoice(choice: ServerChoice): string {
+  if (choice.kind === "embed") return choice.id;
+  const mode = choice.mode === "soft" ? "ssub" : choice.mode === "hard" ? "hsub" : "dub";
+  return `anivexa-${choice.provider}-${mode}`;
+}
+
+export function choiceMatchesServer(choice: ServerChoice, serverId: string | null | undefined): boolean {
+  if (!serverId) return false;
+  if (choice.kind === "embed") return serverId === choice.id;
+  return gatewayMatchesServer(serverIdForChoice(choice), serverId);
+}
+
+/** e.g. "Solaris · Soft subs", "Waves · Dub", "your embed server". */
+export function describeChoice(choice: ServerChoice): string {
+  if (choice.kind === "embed") return "your embed server";
+  const name = PROVIDER_NAMES[choice.provider] ?? choice.provider;
+  const mode = choice.mode === "soft" ? "Soft subs" : choice.mode === "hard" ? "Hard subs" : "Dub";
+  return `${name} · ${mode}`;
 }

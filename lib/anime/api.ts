@@ -6640,7 +6640,9 @@ export async function resolveStreamSource(input: {
           ok: Boolean(session.source),
           reason: session.source ? "Anivexa aggregate playback ready" : "No playable Anivexa source",
         }];
-        if (!session.source) {
+        // Only automatic picks fall back to an embed. When a specific server was requested
+        // (the viewer's choice), report it as unavailable instead of silently swapping it.
+        if (!session.source && !input.server) {
           const genericFallback = serverOptions.find((option) =>
             option.category === (input.dubbed ? "dub" : "sub") &&
             /^(megaplay|animeplay|tryembed|mostream)-/.test(option.id)
@@ -6758,7 +6760,8 @@ export async function resolveStreamSource(input: {
 
       // A failed preferred/internal provider must not strand the player on
       // "No source" when a known embed is available. Resolve the first embed
-      // immediately and return it as the active source.
+      // immediately and return it as the active source - for automatic picks only;
+      // an explicitly requested server that is unavailable is reported, not replaced.
       const fallbackServerOptions = appendCustomEmbedServers(
         collectedServerOptions,
         detail.anime,
@@ -6772,7 +6775,7 @@ export async function resolveStreamSource(input: {
       const fallbackEmbedSource = fallbackEmbed
         ? resolveCustomEmbedSource(fallbackEmbed.id, detail.anime, resolvedTargetEp.number)
         : null;
-      if (fallbackEmbed && fallbackEmbedSource) {
+      if (fallbackEmbed && fallbackEmbedSource && !input.server) {
         watchAttempts.push({
           provider: preferredProvider,
           server: fallbackEmbed.id,

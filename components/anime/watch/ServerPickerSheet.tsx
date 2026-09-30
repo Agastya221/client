@@ -16,6 +16,7 @@ export interface ServerSheetGroup {
 }
 
 interface ServerPickerSheetProps {
+  title?: string;
   groups: ServerSheetGroup[];
   accentColor: string;
   disabled?: boolean;
@@ -33,6 +34,7 @@ const SWIPE_CLOSE_DISTANCE_PX = 70;
  * are hidden behind sideways scrolling. Same sheet shell as BugReportModal.
  */
 export default function ServerPickerSheet({
+  title = "Select server",
   groups,
   accentColor,
   disabled = false,
@@ -100,7 +102,7 @@ export default function ServerPickerSheet({
                 <Server className="h-5 w-5" aria-hidden="true" />
               </span>
               <div className="min-w-0">
-                <h2 id="server-sheet-title" className="text-base font-extrabold text-white">Select server</h2>
+                <h2 id="server-sheet-title" className="text-base font-extrabold text-white">{title}</h2>
                 <p className="text-[11px] text-white/45">
                   {total} {total === 1 ? "server" : "servers"} available
                 </p>
