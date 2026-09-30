@@ -2,38 +2,46 @@
 
 import { useEffect, useState } from "react";
 import { useHydrated } from "@/lib/use-hydrated";
-import { DEFAULT_WATCHING, type WatchingSettings } from "@/lib/access/settings";
-import { animeWatching } from "@/lib/watching";
+import { animeWatching, viewerTimezone } from "@/lib/watching";
 
 const REFRESH_MS = 20_000;
+const DEFAULT_SPOTS = 50;
 
-// One config request per page load of the site, shared by every badge. The number itself
-// is computed here from the clock, so there is nothing to wait for: the settings only
-// adjust it if they differ from the defaults.
-let configPromise: Promise<WatchingSettings> | null = null;
-function loadConfig(): Promise<WatchingSettings> {
+interface SiteConfig {
+  enabled: boolean;
+  maxMembers: number;
+}
+
+// One config request per page load of the site, shared by every badge. The number itself is
+// computed here from the clock, so there is nothing to wait for: the config only rescales it
+// if the open spots differ from the default.
+let configPromise: Promise<SiteConfig> | null = null;
+function loadConfig(): Promise<SiteConfig> {
   configPromise ??= fetch("/api/site-config")
     .then((res) => (res.ok ? res.json() : null))
-    .then((data) => (data?.watching ? { ...DEFAULT_WATCHING, ...data.watching } : DEFAULT_WATCHING))
-    .catch(() => DEFAULT_WATCHING);
+    .then((data): SiteConfig => ({
+      enabled: data?.watching?.enabled ?? true,
+      maxMembers: Number.isFinite(data?.maxMembers) ? data.maxMembers : DEFAULT_SPOTS,
+    }))
+    .catch(() => ({ enabled: true, maxMembers: DEFAULT_SPOTS }));
   return configPromise;
 }
 
-/** "● 12 WATCHING": how many are on this title right now, following the time of day. */
-export default function WatchingBadge({ seed, className = "" }: { seed: string; className?: string }) {
+/** "● 12 WATCHING": how many are on this title right now. Sizes and times itself; see lib/watching.ts. */
+export default function WatchingBadge({ seed, airing = false, className = "" }: { seed: string; airing?: boolean; className?: string }) {
   const hydrated = useHydrated();
-  const [settings, setSettings] = useState<WatchingSettings>(DEFAULT_WATCHING);
+  const [config, setConfig] = useState<SiteConfig>({ enabled: true, maxMembers: DEFAULT_SPOTS });
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
     let alive = true;
-    void loadConfig().then((value) => { if (alive) setSettings(value); });
+    void loadConfig().then((value) => { if (alive) setConfig(value); });
     const timer = setInterval(() => setNow(new Date()), REFRESH_MS);
     return () => { alive = false; clearInterval(timer); };
   }, []);
 
-  if (!hydrated || !settings.enabled) return null;
-  const count = animeWatching(seed, now, settings);
+  if (!hydrated || !config.enabled) return null;
+  const count = animeWatching(seed, now, { maxMembers: config.maxMembers, timezone: viewerTimezone() }, { airing });
   if (count <= 0) return null;
 
   return (

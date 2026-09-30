@@ -19,12 +19,17 @@ const SIGNATURE_LENGTH = 8;
 // No 0/1/I/O: codes get read out loud and typed on phones.
 const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 
+/** Sessions from the shared "friends" code carry this number plus the code's version. */
+export const SHARED_BASE = 900000;
+
 export interface AccessConfig {
   /** False (the default) leaves the site completely open, exactly as before this feature. */
   enabled: boolean;
   secret: string;
   maxMembers: number;
   revoked: ReadonlySet<number>;
+  /** One code anyone can use, for a private group. Changing `version` retires the old code. */
+  shared: { enabled: boolean; version: number };
 }
 
 type EnvLike = Record<string, unknown> | undefined;
@@ -51,6 +56,7 @@ export function getAccessConfig(env: EnvLike): AccessConfig {
     secret,
     maxMembers: Number.isInteger(maxMembers) && maxMembers > 0 ? maxMembers : 50,
     revoked,
+    shared: { enabled: true, version: 1 },
   };
 }
 
@@ -91,6 +97,14 @@ export async function makeInviteCode(secret: string, member: number): Promise<st
   return `${CODE_PREFIX}-${String(member).padStart(3, "0")}-${signature}`;
 }
 
+// ── The shared friends code ─────────────────────────────────────────────────
+
+const SHARED_PREFIX = "TK-FRIENDS-";
+
+export async function makeSharedCode(secret: string, version: number): Promise<string> {
+  return `${SHARED_PREFIX}${toBase32(await hmac(secret, `shared:${version}`), SIGNATURE_LENGTH)}`;
+}
+
 /** The member number inside a well-formed code, or null. Says nothing about validity. */
 export function memberFromCode(code: string): number | null {
   const match = /^TK-(\d{1,6})-([A-Z2-9]{8})$/.exec(normalizeCode(code));
@@ -106,6 +120,11 @@ export function normalizeCode(code: string): string {
 
 /** The member number if the code is genuine, is within the current cap and is not revoked. */
 export async function redeemInviteCode(config: AccessConfig, code: string): Promise<number | null> {
+  if (normalizeCode(code).startsWith(SHARED_PREFIX)) {
+    if (!config.shared.enabled) return null;
+    const expected = await makeSharedCode(config.secret, config.shared.version);
+    return safeEqual(expected, normalizeCode(code)) ? SHARED_BASE + config.shared.version : null;
+  }
   const member = memberFromCode(code);
   if (member === null || member > config.maxMembers || config.revoked.has(member)) return null;
   const expected = await makeInviteCode(config.secret, member);
@@ -134,7 +153,11 @@ export async function verifySession(
   const expires = Number.parseInt(parts[1], 10);
   if (!Number.isInteger(member) || member <= 0 || !Number.isInteger(expires)) return null;
   if (expires * 1000 < nowMs) return null;
-  if (member > config.maxMembers || config.revoked.has(member)) return null;
+  // Shared-code sessions are good while that code is on and current; the member cap and
+  // withdrawn list are about individual invites and do not apply.
+  const shared = member >= SHARED_BASE;
+  if (shared ? !config.shared.enabled || member - SHARED_BASE !== config.shared.version
+             : member > config.maxMembers || config.revoked.has(member)) return null;
   const expected = toHex(await hmac(config.secret, `session:${member}.${expires}`)).slice(0, 32);
   return safeEqual(expected, parts[2]) ? member : null;
 }

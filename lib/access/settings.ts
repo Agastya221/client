@@ -13,22 +13,20 @@ export const SETTINGS_KEY = "site-settings:v1";
 /** How long a worker isolate keeps the settings before asking KV again. Keeps KV reads tiny. */
 const CACHE_MS = 60_000;
 
+/** The counter sizes and times itself (see lib/watching.ts); the only switch is on or off. */
 export interface WatchingSettings {
   enabled: boolean;
-  /** Quietest hour's count and busiest hour's count. */
-  min: number;
-  max: number;
-  /** IANA zone the daily rhythm follows, e.g. "Asia/Kolkata". */
-  timezone: string;
 }
 
 export interface SiteSettings {
   maxMembers?: number;
   revoked?: number[];
   watching?: Partial<WatchingSettings>;
+  /** The one-code-for-everyone friends code: on/off, and a version bumped to replace the code. */
+  shared?: { enabled?: boolean; version?: number };
 }
 
-export const DEFAULT_WATCHING: WatchingSettings = { enabled: true, min: 6, max: 34, timezone: "Asia/Kolkata" };
+export const DEFAULT_WATCHING: WatchingSettings = { enabled: true };
 
 interface KvLike {
   get(key: string, type: "text"): Promise<string | null>;
@@ -105,36 +103,28 @@ export function sanitizeSettings(input: unknown): SiteSettings {
     out.revoked = [...new Set(source.revoked.map(int).filter((n): n is number => n !== undefined && n > 0))].sort((a, b) => a - b);
   }
   const w = source.watching && typeof source.watching === "object" ? (source.watching as Record<string, unknown>) : null;
-  if (w) {
-    const watching: Partial<WatchingSettings> = {};
-    if (typeof w.enabled === "boolean") watching.enabled = w.enabled;
-    const min = int(w.min);
-    const top = int(w.max);
-    if (min !== undefined && min >= 0 && min <= 10000) watching.min = min;
-    if (top !== undefined && top >= 0 && top <= 10000) watching.max = top;
-    if (typeof w.timezone === "string" && isTimezone(w.timezone)) watching.timezone = w.timezone;
-    out.watching = watching;
+  if (w && typeof w.enabled === "boolean") out.watching = { enabled: w.enabled };
+  const sh = source.shared && typeof source.shared === "object" ? (source.shared as Record<string, unknown>) : null;
+  if (sh) {
+    const shared: NonNullable<SiteSettings["shared"]> = {};
+    if (typeof sh.enabled === "boolean") shared.enabled = sh.enabled;
+    const version = int(sh.version);
+    if (version !== undefined && version >= 1 && version <= 9999) shared.version = version;
+    if (Object.keys(shared).length) out.shared = shared;
   }
   return out;
 }
 
-export function isTimezone(zone: string): boolean {
-  try {
-    new Intl.DateTimeFormat("en", { timeZone: zone });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /** The environment's access config with whatever the admin panel has saved laid over it. */
-export async function resolveAccessConfig(env: EnvLike): Promise<AccessConfig> {
+export async function resolveAccessConfig(env: EnvLike, options: { fresh?: boolean } = {}): Promise<AccessConfig> {
   const base = getAccessConfig(env);
-  const stored = await readSiteSettings(env);
+  const stored = await readSiteSettings(env, options);
   return {
     ...base,
     maxMembers: stored.maxMembers ?? base.maxMembers,
     revoked: stored.revoked ? new Set(stored.revoked) : base.revoked,
+    shared: { ...base.shared, ...stored.shared },
   };
 }
 

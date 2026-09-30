@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import {
   adminConfigured, adminCookieHeader, isAdmin, makeAdminCookie, passwordMatches,
 } from "@/lib/access/admin-auth";
-import { getAccessConfig, makeInviteCode } from "@/lib/access/invite";
+import { getAccessConfig, makeInviteCode, makeSharedCode } from "@/lib/access/invite";
 import { routeEnv } from "@/lib/access/route-env";
 import {
   readSiteSettings, resolveAccessConfig, resolveWatching, sanitizeSettings, settingsBackend, writeSiteSettings,
@@ -41,6 +41,7 @@ export async function GET(request: Request) {
     maxMembers: config.maxMembers,
     revoked: [...config.revoked].sort((a, b) => a - b),
     watching: resolveWatching(stored),
+    shared: { ...config.shared, code: await makeSharedCode(base.secret, config.shared.version) },
     codes,
   });
 }
@@ -76,16 +77,13 @@ export async function POST(request: Request) {
 
   if (body.action === "save") {
     const next = sanitizeSettings(body.settings);
-    // The counter's peak stays well under the member limit, whatever is typed in.
-    const cap = next.maxMembers ?? (await resolveAccessConfig(env)).maxMembers;
-    const ceiling = Math.max(1, Math.floor(cap * 0.8));
-    if (next.watching) {
-      if (next.watching.max !== undefined) next.watching.max = Math.min(next.watching.max, ceiling);
-      if (next.watching.min !== undefined) next.watching.min = Math.min(next.watching.min, next.watching.max ?? ceiling);
-    }
     try {
       const stored = await readSiteSettings(env, { fresh: true });
-      await writeSiteSettings(env, { ...stored, ...next, watching: { ...stored.watching, ...next.watching } });
+      await writeSiteSettings(env, {
+        ...stored, ...next,
+        watching: { ...stored.watching, ...next.watching },
+        shared: { ...stored.shared, ...next.shared },
+      });
     } catch (error) {
       return json({ error: String(error instanceof Error ? error.message : error) }, 500);
     }

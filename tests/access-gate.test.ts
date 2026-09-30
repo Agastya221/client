@@ -141,9 +141,44 @@ test("saved settings override the environment: cap and revoked members change wi
   assert.equal(await redeemInviteCode(config, await makeInviteCode(SECRET, 60)), 60, "raised cap admits member 60");
   assert.equal(await redeemInviteCode(config, await makeInviteCode(SECRET, 4)), null);
 
-  await writeSiteSettings(env, { maxMembers: 80, revoked: [4, 9], watching: { enabled: false, max: 20 } });
-  assert.deepEqual((await readSiteSettings(env, { fresh: true })).watching, { enabled: false, max: 20 });
+  await writeSiteSettings(env, { maxMembers: 80, revoked: [4, 9], watching: { enabled: false } });
+  assert.deepEqual((await readSiteSettings(env, { fresh: true })).watching, { enabled: false });
 
   store.set("site-settings:v1", "{not json");
   assert.equal((await resolveAccessConfig(env)).maxMembers, 80, "a corrupt value keeps the last good settings");
+});
+
+test("friends code: one code, unlimited people, unaffected by the member cap; can be switched off or replaced", async () => {
+  const { makeSharedCode, SHARED_BASE } = await import("../lib/access/invite.ts");
+  const { writeSiteSettings, resolveAccessConfig } = await import("../lib/access/settings.ts");
+  const store = new Map<string, string>();
+  const kv = { get: async (k: string) => store.get(k) ?? null, put: async (k: string, v: string) => void store.set(k, v) };
+  const env = { ...ON, SITE_MAX_MEMBERS: "5", APP_CACHE_KV: kv };
+
+  const code = await makeSharedCode(SECRET, 1);
+  assert.match(code, /^TK-FRIENDS-[A-Z2-9]{8}$/);
+  const config = await resolveAccessConfig(env);
+  // many different people, same code, well past the cap of 5
+  for (let i = 0; i < 20; i++) assert.equal(await redeemInviteCode(config, code), SHARED_BASE + 1);
+  assert.equal(await redeemInviteCode(config, code.toLowerCase()), SHARED_BASE + 1);
+  assert.equal(await redeemInviteCode(config, "TK-FRIENDS-AAAAAAAA"), null, "made-up code");
+  assert.equal(await redeemInviteCode(getAccessConfig({ ...env, SITE_ACCESS_SECRET: "other" }), code), null, "other secret");
+
+  const session = await signSession(SECRET, SHARED_BASE + 1);
+  assert.equal(await verifySession(config, session), SHARED_BASE + 1, "the session is good even though the cap is 5");
+  const cookie = `${ACCESS_COOKIE}=${session}`;
+  assert.equal(await applyAccessGate(req("/anime/one-piece", { cookie }), env), null);
+
+  await writeSiteSettings(env, { shared: { version: 2 } });
+  const rotated = await resolveAccessConfig(env);
+  assert.equal(await redeemInviteCode(rotated, code), null, "the old code stops working");
+  assert.equal(await verifySession(rotated, session), null, "and so does everyone signed in with it");
+  assert.equal(await redeemInviteCode(rotated, await makeSharedCode(SECRET, 2)), SHARED_BASE + 2);
+
+  await writeSiteSettings(env, { shared: { enabled: false, version: 2 } });
+  const off = await resolveAccessConfig(env);
+  assert.equal(await redeemInviteCode(off, await makeSharedCode(SECRET, 2)), null, "switched off");
+  assert.equal(await verifySession(off, await signSession(SECRET, SHARED_BASE + 2)), null);
+  // individual invites are untouched by all of this
+  assert.equal(await redeemInviteCode(off, await makeInviteCode(SECRET, 3)), 3);
 });

@@ -9,11 +9,10 @@ interface PanelState {
   storage: "kv" | "file" | "none";
   maxMembers: number;
   revoked: number[];
-  watching: { enabled: boolean; min: number; max: number; timezone: string };
+  watching: { enabled: boolean };
+  shared: { enabled: boolean; version: number; code: string };
   codes: { member: number; code: string }[];
 }
-
-const ZONES = ["Asia/Kolkata", "Asia/Dubai", "Asia/Singapore", "Asia/Tokyo", "Europe/London", "Europe/Berlin", "America/New_York", "America/Los_Angeles", "UTC"];
 
 const input =
   "w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500";
@@ -32,10 +31,11 @@ export default function AdminAccessPage() {
   const [password, setPassword] = useState("");
   const [max, setMax] = useState("50");
   const [revoked, setRevoked] = useState("");
-  const [watching, setWatching] = useState({ enabled: true, min: "6", max: "34", timezone: "Asia/Kolkata" });
+  const [watching, setWatching] = useState(true);
+  const [friends, setFriends] = useState({ enabled: true, version: 1 });
   const [notice, setNotice] = useState("");
   const [ready, setReady] = useState(false); // stops the login card flashing while the first load runs
-  const [copied, setCopied] = useState<number | "all" | null>(null);
+  const [copied, setCopied] = useState<number | "all" | "friends" | null>(null);
   const [now, setNow] = useState(() => new Date());
 
   const load = useCallback(async () => {
@@ -50,7 +50,8 @@ export default function AdminAccessPage() {
     setLocked(null);
     setMax(String(next.maxMembers));
     setRevoked(next.revoked.join(", "));
-    setWatching({ enabled: next.watching.enabled, min: String(next.watching.min), max: String(next.watching.max), timezone: next.watching.timezone });
+    setWatching(next.watching.enabled);
+    setFriends({ enabled: next.shared.enabled, version: next.shared.version });
   }, []);
 
   useEffect(() => { void load().finally(() => setReady(true)); }, [load]);
@@ -73,26 +74,22 @@ export default function AdminAccessPage() {
       settings: {
         maxMembers: Number(max),
         revoked: revoked.split(/[\s,]+/).filter(Boolean).map(Number),
-        watching: { enabled: watching.enabled, min: Number(watching.min), max: Number(watching.max), timezone: watching.timezone },
+        watching: { enabled: watching },
+        shared: friends,
       },
     });
     setNotice(ok ? "Saved. The site picks this up within about a minute." : data.error || "Could not save.");
     if (ok) await load();
   }
 
-  async function copy(text: string, key: number | "all") {
+  async function copy(text: string, key: number | "all" | "friends") {
     try { await navigator.clipboard.writeText(text); } catch { /* clipboard blocked on plain http; select manually */ }
     setCopied(key);
     setTimeout(() => setCopied(null), 1500);
   }
 
   const revokedSet = new Set(revoked.split(/[\s,]+/).filter(Boolean).map(Number));
-  const preview = {
-    enabled: watching.enabled,
-    min: Number(watching.min) || 0,
-    max: Math.min(Number(watching.max) || 0, Math.floor((Number(max) || 50) * 0.8)),
-    timezone: watching.timezone,
-  };
+  const preview = { maxMembers: Number(max) || 50 };
 
   if (!state && !ready) return <main className="min-h-screen bg-[#0a0a0f]" />;
 
@@ -141,6 +138,34 @@ export default function AdminAccessPage() {
         ) : null}
 
         <section className={card}>
+          <h2 className="mb-1 flex items-center gap-2 text-sm font-bold"><Users className="h-4 w-4 text-purple-400" /> Friends code</h2>
+          <p className="mb-4 text-[11px] text-neutral-500">
+            One code that any number of people can use, with no member limit. Give it to your friends. Turn it off, or make a new one
+            if it leaks: the old code stops working and everyone who used it is signed out.
+          </p>
+          <div className={`flex items-center justify-between rounded-xl border border-white/10 bg-black/40 px-4 py-3 font-mono text-sm ${friends.enabled && friends.version === state.shared.version ? "" : "opacity-40"}`}>
+            <span className="select-all">{state.shared.code}</span>
+            <button onClick={() => copy(state.shared.code, "friends")} aria-label="Copy friends code" className="ml-3 text-neutral-300 hover:text-white">
+              {copied === "friends" ? <Check className="h-4 w-4 text-green-400" /> : <Copy className="h-4 w-4" />}
+            </button>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-4">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={friends.enabled} onChange={(e) => setFriends({ ...friends, enabled: e.target.checked })} className="h-4 w-4 accent-purple-500" />
+              Friends code works
+            </label>
+            <button
+              type="button"
+              onClick={() => setFriends({ ...friends, version: friends.version + 1 })}
+              className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-neutral-200 hover:bg-white/5"
+            >
+              Make a new code
+            </button>
+            {friends.version !== state.shared.version ? <span className="text-xs text-amber-300">Press Save changes to switch to the new code.</span> : null}
+          </div>
+        </section>
+
+        <section className={card}>
           <h2 className="mb-4 flex items-center gap-2 text-sm font-bold"><Users className="h-4 w-4 text-purple-400" /> Members</h2>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
@@ -158,33 +183,20 @@ export default function AdminAccessPage() {
 
         <section className={card}>
           <h2 className="mb-4 flex items-center gap-2 text-sm font-bold"><Eye className="h-4 w-4 text-purple-400" /> &ldquo;Watching&rdquo; counter</h2>
-          <label className="mb-4 flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={watching.enabled} onChange={(e) => setWatching({ ...watching, enabled: e.target.checked })} className="h-4 w-4 accent-purple-500" />
+          <label className="mb-3 flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={watching} onChange={(e) => setWatching(e.target.checked)} className="h-4 w-4 accent-purple-500" />
             Show it on watch pages
           </label>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div>
-              <label className={label}>Quietest hour</label>
-              <input className={input} inputMode="numeric" value={watching.min} onChange={(e) => setWatching({ ...watching, min: e.target.value })} />
-            </div>
-            <div>
-              <label className={label}>Busiest hour</label>
-              <input className={input} inputMode="numeric" value={watching.max} onChange={(e) => setWatching({ ...watching, max: e.target.value })} />
-            </div>
-            <div>
-              <label className={label}>Time zone</label>
-              <select className={input} value={watching.timezone} onChange={(e) => setWatching({ ...watching, timezone: e.target.value })}>
-                {(ZONES.includes(watching.timezone) ? ZONES : [watching.timezone, ...ZONES]).map((z) => <option key={z} value={z}>{z}</option>)}
-              </select>
-            </div>
-          </div>
-          <p className="mt-2 text-[11px] text-neutral-500">
-            Follows a daily rhythm: busiest late evening, quietest before dawn. The peak is capped at 80% of the open spots.
+          <p className="text-[11px] leading-relaxed text-neutral-500">
+            Fully automatic, nothing to set: it scales with the open spots above, follows each viewer&apos;s own clock
+            (busiest in their late evening, quietest before dawn, a little livelier Fri&ndash;Sun), and gives every title its own
+            share &mdash; more for anime that is airing now.
           </p>
-          <div className="mt-4 flex items-center gap-6 rounded-xl border border-white/10 bg-black/30 p-3 text-sm">
-            <span className="text-neutral-400">Right now it would show:</span>
+          <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-1 rounded-xl border border-white/10 bg-black/30 p-3 text-sm">
+            <span className="text-neutral-400">Right now, on your clock:</span>
             <span><b className="text-lime-400">{siteWatching(now, preview)}</b> <span className="text-neutral-500">site-wide</span></span>
-            <span><b className="text-lime-400">{animeWatching("anilist~21", now, preview)}</b> <span className="text-neutral-500">on One Piece</span></span>
+            <span><b className="text-lime-400">{animeWatching("anilist~21", now, preview, { airing: true })}</b> <span className="text-neutral-500">on One Piece</span></span>
+            <span><b className="text-lime-400">{animeWatching("anilist~5114", now, preview)}</b> <span className="text-neutral-500">on a finished series</span></span>
           </div>
         </section>
 

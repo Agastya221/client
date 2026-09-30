@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   const env = routeEnv();
   if (!getAccessConfig(env).enabled) return NextResponse.json({ ok: true, open: true });
-  const config = await resolveAccessConfig(env);
+  // Always the latest: a code that was just switched off or replaced must be refused at once.
+  const config = await resolveAccessConfig(env, { fresh: true });
 
   const ip = request.headers.get("cf-connecting-ip") ?? request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
   if (!rateLimit(`invite:${ip}`, 10).allowed) {
