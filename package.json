@@ -12,7 +12,7 @@
     "invites": "tsx scripts/mint-invites.ts",
     "gate:dev": "tsx scripts/dev-gate-proxy.ts",
     "typecheck": "tsc --noEmit",
-    "cf:build": "npx prisma generate && node scripts/patch-opennext.mjs && opennextjs-cloudflare build",
+    "cf:build": "npx prisma generate && node scripts/patch-opennext.mjs && opennextjs-cloudflare build && node scripts/patch-prisma-wasm.mjs",
     "preview": "npm run cf:build && opennextjs-cloudflare preview",
     "deploy": "npm run cf:build && opennextjs-cloudflare deploy",
     "upload": "npm run cf:build && opennextjs-cloudflare upload",
