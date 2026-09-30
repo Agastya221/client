@@ -32,7 +32,7 @@ const CONNECTION_STRING_ENV_VARS = [
   "DATABASE_URL",
 ] as const;
 
-function resolveConnectionString(): string | null {
+export function resolveConnectionString(): string | null {
   // Indirection hook: POSTGRES_CONNECTION_STRING_VAR=MY_VAR makes the client
   // read MY_VAR. Useful when a platform injects a name we do not control.
   const overrideVarName = process.env.POSTGRES_CONNECTION_STRING_VAR?.trim();

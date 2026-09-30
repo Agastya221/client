@@ -1,7 +1,7 @@
 import NextAuth, { customFetch } from "next-auth";
 import type { OAuthConfig, OAuthUserConfig } from "next-auth/providers";
-import { PrismaAdapter } from "@auth/prisma-adapter";
-import { prisma } from "@/lib/db";
+import { createPgAdapter } from "@/lib/auth-adapter";
+import { pgQuery } from "@/lib/pg-query";
 import { anilistFetch, anilistOAuthFetch } from "@/lib/anilist/endpoint";
 
 // AniList OAuth2 provider
@@ -58,7 +58,8 @@ function AniList(options: OAuthUserConfig<{ id: number; name: string; avatar: { 
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || "tatakai-animeplay-auth-secret-key-2026-default",
-  adapter: PrismaAdapter(prisma),
+  // Plain-SQL adapter: Prisma cannot run on the Cloudflare Worker (see lib/auth-adapter.ts).
+  adapter: createPgAdapter(pgQuery),
   session: { strategy: "jwt" },
   providers: [
     AniList({
@@ -86,7 +87,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       };
 
       if (session.user && token) {
-        // token.sub is the Prisma adapter User.id. The AniList profile ID is a
+        // token.sub is the adapter User.id (the "User" table). The AniList profile ID is a
         // provider account identifier and cannot be used for database
         // relations such as Account, WatchHistory, Bookmark, or Comment.
         session.user.id = token.sub as string;
