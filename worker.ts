@@ -14,6 +14,7 @@
 import openNext from "./.open-next/worker.js";
 export { DOQueueHandler, DOShardedTagCache, BucketCachePurge } from "./.open-next/worker.js";
 import { maybeHandleFastSegment } from "./lib/proxy/fast-segment";
+import { applyAccessGate } from "./lib/access/gate";
 
 interface ScheduledEnv {
   ANIVEXA_API_BASE_URL?: string;
@@ -28,9 +29,13 @@ export default {
    * Video segments skip Next.js entirely (see lib/proxy/fast-segment.ts): ~150 per
    * episode, and Next's per-request overhead alone exceeded the free plan's 10 ms CPU.
    */
-  fetch(request: Request, env: unknown, ctx: unknown): Promise<Response> {
-    return maybeHandleFastSegment(request, env as Record<string, unknown>)
-      ?? (openNext.fetch as (request: Request, env: unknown, ctx: unknown) => Promise<Response>)(request, env, ctx);
+  async fetch(request: Request, env: unknown, ctx: unknown): Promise<Response> {
+    const fastSegment = maybeHandleFastSegment(request, env as Record<string, unknown>);
+    if (fastSegment) return fastSegment;
+    // Invite-only gate. A no-op unless SITE_ACCESS is set (see lib/access/gate.ts).
+    const blocked = await applyAccessGate(request, env as Record<string, unknown>);
+    if (blocked) return blocked;
+    return (openNext.fetch as (request: Request, env: unknown, ctx: unknown) => Promise<Response>)(request, env, ctx);
   },
 
   /**

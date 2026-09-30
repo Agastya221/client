@@ -9,6 +9,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "tsx --test tests/*.test.ts",
+    "invites": "tsx scripts/mint-invites.ts",
+    "gate:dev": "tsx scripts/dev-gate-proxy.ts",
     "typecheck": "tsc --noEmit",
     "cf:build": "npx prisma generate && node scripts/patch-opennext.mjs && opennextjs-cloudflare build",
     "preview": "npm run cf:build && opennextjs-cloudflare preview",
