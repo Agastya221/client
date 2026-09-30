@@ -10,6 +10,7 @@ import {
   EpisodeNumberGrid,
   SeasonRail,
   ServerButton,
+  SERVER_MODE_BADGES,
   summarizeServerGroups,
 } from "@/components/anime/watch/WatchUiPrimitives";
 import { useServerHealth } from "@/components/anime/watch/useServerHealth";
@@ -2541,17 +2542,23 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
   // ── Mobile server picker data ──────────────────────────────────────────────
   // On phones the rows collapse into one summary plus a sheet listing every server for
   // the current audio, so nothing hides behind sideways scrolling. Desktop is unchanged.
-  const sheetGroups: ServerSheetGroup[] = (effectiveDubbed
-    ? [
-        { id: "dub", label: "Dub", entries: entriesOrGateways(internalDubServers, GATEWAY_SERVERS.dub).entries, meta: { dubbed: true } },
-        ...(showHindi ? [{ id: "hindi", label: "Hindi", entries: hindiServers, meta: { dubbed: true, provider: "desidub" as const } }] : []),
-        { id: "embeds", label: "Embeds", entries: externalDubServers, meta: { dubbed: true } },
-      ]
-    : [
-        { id: "soft", label: "Soft Subs", entries: entriesOrGateways(internalSoftSubServers, GATEWAY_SERVERS.soft).entries, meta: {} },
-        { id: "hard", label: "Hard Subs", entries: entriesOrGateways(internalHardSubServers, GATEWAY_SERVERS.hard).entries, meta: {} },
-        { id: "embeds", label: "Embeds", entries: externalSubServers, meta: {} },
-      ]);
+  // Every kind of server gets its own section, all visible together: soft subs, hard subs,
+  // dub (and Hindi), then sub embeds and dub embeds. Picking a dub server switches audio.
+  const sheetGroups: ServerSheetGroup[] = [
+    { id: "soft", label: "Soft Subs", entries: entriesOrGateways(internalSoftSubServers, GATEWAY_SERVERS.soft).entries, meta: {} },
+    { id: "hard", label: "Hard Subs", entries: entriesOrGateways(internalHardSubServers, GATEWAY_SERVERS.hard).entries, meta: {} },
+    {
+      id: "dub",
+      label: "Dub",
+      entries: (hasDub || (serverDiscoveryPending && dubLikely))
+        ? entriesOrGateways(internalDubServers, GATEWAY_SERVERS.dub).entries
+        : [],
+      meta: { dubbed: true },
+    },
+    ...(showHindi ? [{ id: "hindi", label: "Hindi", entries: hindiServers, meta: { dubbed: true, provider: "desidub" as const } }] : []),
+    { id: "embeds-sub", label: "Sub Embeds", entries: externalSubServers, meta: {} },
+    { id: "embeds-dub", label: "Dub Embeds", entries: externalDubServers, meta: { dubbed: true } },
+  ];
   const sheetGroupIsGateway = (group: ServerSheetGroup) =>
     entriesOrGateways(
       { soft: internalSoftSubServers, hard: internalHardSubServers, dub: internalDubServers }[group.id] ?? group.entries,
@@ -2563,11 +2570,38 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
   const activeServerName = activeSheetEntry
     ? displayServerLabel(activeSheetEntry.entry, activeSheetEntry.group.entries)
     : (usableServerOptions.find((entry) => entry.id === effectiveActiveServerId)?.label ?? null);
-  const mobilePreviewRow = effectiveDubbed
-    ? { label: "Dub", entries: internalDubServers, options: { dubbed: true, accent: "#4ade80", gateways: GATEWAY_SERVERS.dub } }
-    : internalSoftSubServers.length > 0 || internalHardSubServers.length === 0
-      ? { label: "Soft Subs", entries: internalSoftSubServers, options: { gateways: GATEWAY_SERVERS.soft } }
-      : { label: "Hard Subs", entries: internalHardSubServers, options: { gateways: GATEWAY_SERVERS.hard } };
+  // What the playing server is, so viewers know at a glance: soft subs, hard subs, or dub.
+  const activeModeInfo = activeSheetEntry
+    ? (() => {
+        const groupId = activeSheetEntry.group.id;
+        const isEmbedGroup = groupId.startsWith("embeds");
+        const info = SERVER_MODE_BADGES[(isEmbedGroup ? "embeds" : groupId) as keyof typeof SERVER_MODE_BADGES];
+        if (!info) return null;
+        return isEmbedGroup
+          ? { ...info, text: groupId === "embeds-dub" ? "Dub embed" : "Sub embed" }
+          : info;
+      })()
+    : null;
+
+  // The preview row shows the group the playing server belongs to (playing server first),
+  // so the summary never contradicts the Server card. Embeds have their own button, so
+  // while one plays the preview falls back to the audio's main row.
+  const previewGroupId = activeSheetEntry && ["soft", "hard", "dub"].includes(activeSheetEntry.group.id)
+    ? activeSheetEntry.group.id
+    : effectiveDubbed
+      ? "dub"
+      : internalSoftSubServers.length > 0 || internalHardSubServers.length === 0
+        ? "soft"
+        : "hard";
+  const previewSource = { soft: internalSoftSubServers, hard: internalHardSubServers, dub: internalDubServers }[previewGroupId] ?? [];
+  const previewActiveFirst = activeSheetEntry && activeSheetEntry.group.id === previewGroupId
+    ? [activeSheetEntry.entry, ...previewSource.filter((entry) => entry.id !== activeSheetEntry.entry.id)]
+    : previewSource;
+  const mobilePreviewRow = previewGroupId === "dub"
+    ? { label: "Dub", entries: previewActiveFirst, options: { dubbed: true, accent: "#4ade80", gateways: GATEWAY_SERVERS.dub } }
+    : previewGroupId === "hard"
+      ? { label: "Hard Subs", entries: previewActiveFirst, options: { gateways: GATEWAY_SERVERS.hard } }
+      : { label: "Soft Subs", entries: previewActiveFirst, options: { gateways: GATEWAY_SERVERS.soft } };
 
   const renderServerRow = (
     label: string,
@@ -2593,7 +2627,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
       <div className="grid gap-1.5 sm:grid-cols-[92px_1fr] sm:items-center sm:gap-2">
         <span className="text-[9px] font-black uppercase tracking-[0.12em] text-white/35 sm:text-right sm:text-[11px] sm:normal-case sm:tracking-normal">{label}</span>
         <div className={options.wrap ? "flex flex-wrap gap-2" : "flex gap-2 overflow-x-auto pb-1 hide-scrollbar sm:flex-wrap sm:overflow-visible sm:pb-0"}>
-          {entries.length > 0 ? entries.map((entry, index) => {
+          {entries.length > 0 ? entries.map((entry) => {
             const isEmbedEntry = isEmbedServerOption(entry.id);
             const displayLabel = displayServerLabel(entry, entries);
             // HLS is an implementation detail, not a useful choice for the
@@ -3386,7 +3420,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
             {externalServerCount > 0 && (
               <button
                 type="button"
-                onClick={() => setServerSheet({ focusGroupId: "embeds" })}
+                onClick={() => setServerSheet({ focusGroupId: effectiveDubbed && externalDubServers.length > 0 ? "embeds-dub" : "embeds-sub" })}
                 className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[11px] font-black uppercase tracking-wider transition-colors btn-press-active"
                 style={{ color: accentColor, borderColor: accentStyle(0.4), background: accentStyle(0.08) }}
                 aria-haspopup="dialog"
@@ -3407,8 +3441,22 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
                   <Tv2 className="h-4 w-4" aria-hidden="true" />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-bold text-white">{activeServerName ?? "Choosing server…"}</span>
-                  <span className="block text-[11px] text-white/50">{activeServerName ? "Active server" : "Picking the best one"}</span>
+                  <span className="flex items-center gap-2">
+                    <span className="truncate text-sm font-bold text-white">{activeServerName ?? "Choosing server…"}</span>
+                    {activeModeInfo ? (
+                      <span
+                        className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-black tracking-widest"
+                        style={activeModeInfo.style}
+                      >
+                        {activeModeInfo.badge}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="block text-[11px] text-white/50">
+                    {activeServerName
+                      ? `${activeModeInfo ? `${activeModeInfo.text} · ` : ""}Active server`
+                      : "Picking the best one"}
+                  </span>
                 </span>
               </div>
               <button

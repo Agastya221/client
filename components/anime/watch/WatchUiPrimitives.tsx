@@ -115,6 +115,15 @@ export function ServerButton({
   );
 }
 
+/** The tag shown for each kind of server (soft subs, hard subs, dub, ...). One definition, used by the mobile card and sheet. */
+export const SERVER_MODE_BADGES = {
+  soft: { badge: "S-SUB", text: "Soft subs", style: { background: "rgba(34,211,238,0.15)", color: "rgba(34,211,238,0.9)", border: "1px solid rgba(34,211,238,0.25)" } },
+  hard: { badge: "H-SUB", text: "Hard subs", style: { background: "rgba(251,191,36,0.12)", color: "rgba(251,191,36,0.85)", border: "1px solid rgba(251,191,36,0.25)" } },
+  dub: { badge: "DUB", text: "Dub", style: { background: "rgba(74,222,128,0.14)", color: "rgba(74,222,128,0.9)", border: "1px solid rgba(74,222,128,0.28)" } },
+  hindi: { badge: "HINDI", text: "Hindi dub", style: { background: "rgba(255,85,0,0.14)", color: "rgba(255,140,80,0.95)", border: "1px solid rgba(255,85,0,0.3)" } },
+  embeds: { badge: "EMBED", text: "Embed", style: { background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.7)", border: "1px solid rgba(255,255,255,0.15)" } },
+} satisfies Record<string, { badge: string; text: string; style: React.CSSProperties }>;
+
 export function SeasonRail({ seasons, activeHref, accentColor = "#ff5500" }: { seasons: AnimeSeasonEntry[]; activeHref: string; accentColor?: string }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const accentRgb = (() => {

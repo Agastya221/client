@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { Check, Server, X } from "lucide-react";
 import { useExitTransition } from "@/components/ui/useExitTransition";
 import { displayServerLabel } from "@/lib/anime/server-selection";
+import { SERVER_MODE_BADGES } from "@/components/anime/watch/WatchUiPrimitives";
 import type { ServerOption } from "@/lib/anime/types";
 
 export interface ServerSheetGroup {
@@ -146,7 +147,30 @@ export default function ServerPickerSheet({
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-bold">{displayServerLabel(entry, group.entries)}</span>
-                        {active ? <span className="block text-[11px] font-semibold" style={{ color: accentColor }}>Active server</span> : null}
+                        {(() => {
+                          const modeBadge = group.id === "soft" || group.id === "hard" || group.id === "dub"
+                            ? SERVER_MODE_BADGES[group.id]
+                            : null;
+                          // Cards with a tag are too narrow for "Active" as well; the check mark and
+                          // highlighted border already say which one is playing.
+                          const activeLabel = active && !modeBadge;
+                          if (!modeBadge && !activeLabel) return null;
+                          return (
+                            <span className="mt-0.5 flex items-center gap-1.5">
+                              {modeBadge ? (
+                                <span
+                                  className="shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-black tracking-widest"
+                                  style={modeBadge.style}
+                                >
+                                  {modeBadge.badge}
+                                </span>
+                              ) : null}
+                              {activeLabel ? (
+                                <span className="truncate text-[11px] font-semibold" style={{ color: accentColor }}>Active server</span>
+                              ) : null}
+                            </span>
+                          );
+                        })()}
                       </span>
                       {active ? (
                         <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-white" style={{ background: accentColor }}>
