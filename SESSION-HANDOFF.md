@@ -80,7 +80,14 @@ see AGENTS.md) on **Cloudflare Workers free plan** via OpenNext 1.20.1.
    the Worker secrets `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` exist (same values as on Render; the USER must run `wrangler secret put` for both).
    Until then `lib/stream-store.ts` falls back to the Render `/linkstore` route. Not yet measured live.
    NOT done yet: the watch PAGE itself is still rendered per visit (dynamic, reads searchParams: `app/anime/[id]/watch/page.tsx`) and server-list caching is separate.
-7. Smaller: Embed button in the SUB/DUB row, bottom sheets slide up, `crypto.randomUUID` fallback for plain-http LAN, YoruMi rename in Discord/fallback image.
+7. **Watch page switching (commit afdbf83, deployed, verified live):** while another episode loads, its poster shows with a spinner and the old
+   video is never mounted (`switchingEpisode` in WatchExperience); Play pressed meanwhile starts it when ready (verified: EP 6 auto-started).
+   Episode buttons prefetch on pointer-down (phones). Once sub plays, the Dub button's request is prefetched (`dubSwitchRequest`, skipped for
+   local embed servers). The anime page prefetches `/api/watch-page-context?availabilityOnly=1` (`WatchDataPrefetch`, browser-cached 5 min) for DUB badges.
+   Not done: cron warm-up of availability (each refresh is a KV write; 1,000/day cap). Without the "Autoplay" checkbox a new episode still waits for Play (by design).
+   Build note: the WSL copy never deletes removed files; delete them in `~/site` by hand (or fix the script). Use a script copy that forces the committed
+   `next.config.ts` while the other session's edit is uncommitted.
+8. Smaller: Embed button in the SUB/DUB row, bottom sheets slide up, `crypto.randomUUID` fallback for plain-http LAN, YoruMi rename in Discord/fallback image.
 
 ## Findings worth knowing
 - Free plan: 10 ms CPU per request. A cold Worker start (whole Next server) costs 250–700 ms CPU and sometimes returns **Error 1102 / HTTP 503**.
