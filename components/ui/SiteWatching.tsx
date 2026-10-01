@@ -50,7 +50,7 @@ export default function SiteWatching({ className = "" }: { className?: string })
       >
         {count}
       </span>
-      <span className="text-white/55">Watching</span>
+      <span className="sr-only text-white/55 sm:not-sr-only">Watching</span>
     </p>
   );
 }
