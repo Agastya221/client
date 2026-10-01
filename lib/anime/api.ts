@@ -4348,7 +4348,10 @@ async function fetchAnivexaProviderBucket(
   episodeNum: number,
   dubbed: boolean,
   provider: AnivexaWorkerProvider,
-  timeoutMs = 8_000,
+  // A first lookup of an episode can pass 8 s when Render is busy (the stream and the server
+  // lists are asked for at once); giving up then showed "isn't available" for an episode
+  // that played a minute later.
+  timeoutMs = 12_000,
 ): Promise<AnivexaAggregateBucket | null> {
   const audio = dubbed ? "dub" : "sub";
   const watchProvider = ANIVEXA_WORKER_WATCH_ALIAS[provider] || provider;

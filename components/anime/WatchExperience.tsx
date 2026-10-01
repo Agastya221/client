@@ -2133,6 +2133,17 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
       });
       setIsSessionLoading(true);
       void resolveCurrentSource(normalizedRequest)
+        .then(async (nextSession) => {
+          // An empty answer is often a first lookup that ran out of time while the provider
+          // was still busy (it plays a minute later). Ask the same server once more before
+          // reporting it as unavailable; never a different one.
+          if (!nextSession.source && sessionRequestSeqRef.current === requestSeq) {
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            if (sessionRequestSeqRef.current !== requestSeq) return nextSession;
+            return resolveCurrentSource(normalizedRequest).catch(() => nextSession);
+          }
+          return nextSession;
+        })
         .then((nextSession) => {
           if (sessionRequestSeqRef.current !== requestSeq) return;
           commitSession(nextSession);
