@@ -1703,7 +1703,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
       void Promise.all([discover(), discover()]).then(() => {
         if (!cancelled) setResolvedDiscoveryScope(scopeKey);
       });
-    }, 1200);
+    }, 400); // lists are usually stored now (lib/stream-store.ts), so asking early is cheap
     return () => {
       cancelled = true;
       clearTimeout(timer);

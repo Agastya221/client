@@ -6,9 +6,11 @@ import {
   deleteStoredStreams,
   isExplicitServer,
   readStoredStream,
+  serverListStoreKey,
   streamRefreshPrefixes,
   streamStoreKey,
   streamStoreWriteKeys,
+  writeStoredServerList,
   writeStoredStream,
 } from "@/lib/stream-store";
 import { measureAsync, recordCounter, recordLog } from "@/lib/observability";
@@ -4106,15 +4108,25 @@ export async function discoverAnivexaProviderServerOptions(input: {
     options.map((option) => ({ ...option, provider: input.uiProvider }));
 
   if (ANIVEXA_DISCOVERY_PROVIDERS.includes(input.workerProvider)) {
+    // Kept in Redis next to the stream links, so a new visitor (or a new Worker instance) gets
+    // the list at once instead of waiting for the provider lookup behind the stream (5-13 s).
+    const storeKey = serverListStoreKey(input);
+    const stored = await readStoredStream<ServerOption[]>(storeKey);
+    if (stored && stored.result.length > 0) return restamp(stored.result);
+    const remember = (options: ServerOption[]) => {
+      if (options.length > 0) runAfterResponse(writeStoredServerList(storeKey, options));
+      return restamp(options);
+    };
+
     const bundle = await getServerOptionsBundle(input.anilistId, input.episodeNumber, input.uiProvider);
     const cached = bundle[serverOptionsComboKey(input.workerProvider, input.dubbed)];
-    if (cached && cached.length > 0) return restamp(cached);
+    if (cached && cached.length > 0) return remember(cached);
     // Empty or missing: not trusted (see getServerOptionsBundle). Ask live; the aggregate
     // has its own short in-memory cache, so repeat lookups stay cheap and write nothing.
     const aggregate = await fetchAnivexaAggregateData(
       String(input.anilistId), input.episodeNumber, input.dubbed, input.uiProvider, [input.workerProvider],
     );
-    return restamp(aggregate.serverOptions);
+    return remember(aggregate.serverOptions);
   }
 
   if (input.workerProvider !== "mkissa") {

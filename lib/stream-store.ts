@@ -138,6 +138,32 @@ export async function writeStoredStream<R>(
   }
 }
 
+/** How long an episode's server list is kept: lists change rarely, and a dead server is caught by the health checks. */
+export const SERVER_LIST_SECONDS = 6 * 60 * 60;
+
+/** One episode's servers for one provider and language. Outside the stream-link prefixes, so a link refresh leaves it alone. */
+export function serverListStoreKey(request: {
+  anilistId: number;
+  episodeNumber: number;
+  dubbed: boolean;
+  workerProvider: string;
+}): string {
+  return `stream-link:servers:v1:${request.anilistId}:ep${request.episodeNumber}:${lang(request.dubbed)}:${request.workerProvider}`;
+}
+
+export async function writeStoredServerList<R>(
+  key: string,
+  options: R,
+  storage: StreamStorage = defaultStreamStorage,
+  now = Date.now(),
+): Promise<void> {
+  try {
+    await storage.set(key, { v: 1, result: options, storedAt: now } satisfies StoredStream<R>, SERVER_LIST_SECONDS);
+  } catch {
+    // Best-effort: the list is just asked for again next time.
+  }
+}
+
 export async function deleteStoredStreams(prefix: string, storage: StreamStorage = defaultStreamStorage): Promise<void> {
   try {
     await storage.deletePrefix(prefix);

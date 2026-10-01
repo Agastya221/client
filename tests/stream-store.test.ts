@@ -237,3 +237,12 @@ test("a resolved link is stored under the request, its real server and 'auto', s
   assert.equal(isExplicitServer(null), false);
   assert.equal(isExplicitServer("megaplay-sub"), true);
 });
+
+test("server lists have their own key, outside what a link refresh deletes", async () => {
+  const { serverListStoreKey, streamRefreshPrefixes } = await import("../lib/stream-store.ts");
+  const key = serverListStoreKey({ anilistId: 21, episodeNumber: 5, dubbed: true, workerProvider: "anikoto" });
+  assert.equal(key, "stream-link:servers:v1:21:ep5:dub:anikoto");
+  for (const prefix of streamRefreshPrefixes({ animeId: "anilist~21", episodeNumber: 5, dubbed: true, server: "x" })) {
+    assert.ok(!key.startsWith(prefix), prefix);
+  }
+});
