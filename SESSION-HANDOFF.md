@@ -12,7 +12,7 @@ see AGENTS.md) on **Cloudflare Workers free plan** via OpenNext 1.20.1.
 - Anivexa API (providers + AniList proxy) on Render: `https://tatakai-anivexa-api.onrender.com`.
   Repo `E:\tatakai\scratch\Anivexa-API`. **Push only to remote `renderrepo`** (user's repo), never `origin` (upstream is someone else's).
 - DB: Neon Postgres via Prisma 7 + `@prisma/adapter-pg`. User constraints: don't change Neon compute, keep comments as they are.
-- Branch `test/anivexa-provider-coverage`. Pushed up to `9986084`. **Committed locally but NOT pushed: `ed460dd` (stream links in Redis) and `b1f4972` (handoff)** — ask the user, they have always said yes.
+- Branch `test/anivexa-provider-coverage`. Pushed up to `9986084`. **Committed locally but NOT pushed: everything after `9986084` (stream links in Redis, direct Upstash, header counter, handoffs)** — ask the user, they have always said yes.
   Render repo (`E:	atakai\scratch\Anivexa-API`, remote `renderrepo`) is fully pushed (latest `0f62a18` /linkstore).
 - Working tree: `next.config.ts` has an UNCOMMITTED edit from ANOTHER session (not mine; see item 4 below). Never `git add -A` blindly.
 
@@ -29,7 +29,8 @@ see AGENTS.md) on **Cloudflare Workers free plan** via OpenNext 1.20.1.
    the build steps if `package.json` `cf:build` changes.)
 2. `wsl -e bash scripts/wsl/wsl-export.sh` copies `~/site/.open-next` back to `E:\tatakai\anime-website\.open-next`.
 3. From Windows: `npx wrangler deploy` (Windows wrangler has the Cloudflare OAuth login; WSL wrangler does not). Secrets persist across deploys.
-   Bundle is ~2,592 KiB gzipped; the free limit is 3,072 KiB. Always check "Total Upload".
+   Last deploy showed Total Upload 11,023 KiB / gzip 3,527 KiB (earlier ~2,592): UNEXPLAINED jump, maybe because the build script copies the working tree
+   including the other session's uncommitted `next.config.ts`; the 2026-10-01 build used a one-off copy of the script that forces the committed config. Check it.
 - Wrangler prints a warning if the dashboard config differs from `wrangler.jsonc`. `wrangler.jsonc` now declares routes (yorumi.lol),
   `workers_dev: true`, `preview_urls: true`, service `environment: production`, and var `SITE_ORIGIN`. Declaring `routes` switches workers.dev OFF
   unless `workers_dev: true` is stated.
@@ -43,9 +44,10 @@ see AGENTS.md) on **Cloudflare Workers free plan** via OpenNext 1.20.1.
    60-day HttpOnly cookie. Settings stored in KV binding `APP_CACHE_KV` (key `site-settings:v1`), cached 60 s per isolate.
    Admin panel `/admin/access` (password secret `SITE_ADMIN_PASSWORD`), invite page `/beta-access`, welcome page `/welcome`.
    Live secrets set: `SITE_ACCESS_SECRET`, `SITE_ADMIN_PASSWORD`, `SITE_ACCESS`. User will rotate them: rotating the secret changes ALL codes.
-2. **Watching counter** (`lib/watching.ts`, `components/anime/WatchingBadge.tsx`): fully automatic display number from open spots, viewer clock,
-   weekday, per-title share, airing boost; coloured with the anime's accent. Admin has only an on/off switch. (User explicitly wanted this;
-   it is a display figure, not a measurement.)
+2. **Watching counter** (`lib/watching.ts`, `components/ui/SiteWatching.tsx` in the header, desktop and mobile): ONE site-wide display number, the
+   user's own request (replaced the per-anime badges, which showed 2-3). Follows the viewer's clock and weekday, drifts smoothly, always between
+   `WATCHING_MIN` 9 and `WATCHING_MAX` 45. Admin has only an on/off switch. It is a display figure, not a measurement; the user decided this knowingly
+   (I raised the honesty concern once, they said it is their site).
 3. **Sign-in (AniList OAuth) fixes**, because AniList blocks Cloudflare IPs and Prisma cannot compile wasm at runtime on Workers:
    - Token exchange goes through Render: `anilistOAuthFetch` (`lib/anilist/endpoint.ts`, wired with Auth.js `customFetch` in `lib/auth.ts`) →
      `POST /anilist/token` on the Render API (commit 2842020 pushed to `renderrepo`). Uses the existing `ANILIST_PROXY_KEY`.
@@ -74,6 +76,9 @@ see AGENTS.md) on **Cloudflare Workers free plan** via OpenNext 1.20.1.
    not IP-bound). Only one title/provider tested; unproven beyond that. Embed servers (megaplay etc.) are plain addresses with no token.
    Render Redis creds never leave Render. If Render/Redis is down, links are just not stored (2.5 s timeout, then resolves normally).
    Upstash free plan has its own MONTHLY command cap (believed ~500k; unconfirmed) — worth watching in the Upstash dashboard.
+   **Direct Upstash (commit 910365a, deployed):** `lib/stream-store-upstash.ts` lets the Worker call Upstash REST itself (no Render hop). It switches on only when
+   the Worker secrets `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` exist (same values as on Render; the USER must run `wrangler secret put` for both).
+   Until then `lib/stream-store.ts` falls back to the Render `/linkstore` route. Not yet measured live.
    NOT done yet: the watch PAGE itself is still rendered per visit (dynamic, reads searchParams: `app/anime/[id]/watch/page.tsx`) and server-list caching is separate.
 7. Smaller: Embed button in the SUB/DUB row, bottom sheets slide up, `crypto.randomUUID` fallback for plain-http LAN, YoruMi rename in Discord/fallback image.
 

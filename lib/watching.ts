@@ -1,32 +1,23 @@
 /**
- * The "N watching" number. It is a display figure, not a measurement, and it needs no
- * settings: everything is worked out from three things it already knows.
- *
- *   - How many spots are open (`maxMembers`): the busiest the counter ever gets is 70% of
- *     that, the quietest hour is a sixth of the peak. Open more spots and the numbers grow
- *     by themselves.
- *   - The viewer's own clock: busiest late evening, quietest before dawn, a little livelier
- *     on Friday to Sunday. Whoever is looking sees their own night as the busy time.
- *   - The title: each anime gets its own steady share, and one that is airing right now
- *     gets a larger one.
+ * The "N watching" number in the header. It is a display figure, not a measurement, and it
+ * needs no settings: it follows the viewer's own clock (busiest late evening, quietest before
+ * dawn, a little livelier on Friday to Sunday) and drifts smoothly instead of jumping.
+ * It always stays between WATCHING_MIN and WATCHING_MAX.
  *
  * Pure and deterministic for a given moment, so the browser computes it locally with no
- * request and no loading state; it drifts smoothly rather than jumping.
+ * request and no loading state.
  */
 
 export interface WatchingModel {
-  /** Spots currently open (SITE_MAX_MEMBERS). Sets the scale of every number. */
-  maxMembers: number;
   /** IANA zone whose clock drives the daily rhythm; defaults to the viewer's own. */
   timezone?: string;
 }
 
 /** Local hour (0-24, fractional) with the busiest traffic. */
 const PEAK_HOUR = 21.5;
-/** Share of the open spots that can ever be "watching" at once, at the busiest moment. */
-const PEAK_SHARE = 0.7;
-/** The quietest hour shows this fraction of the peak. */
-const QUIET_SHARE = 0.15;
+/** The number never goes below or above these. */
+export const WATCHING_MIN = 9;
+export const WATCHING_MAX = 45;
 /** Friday to Sunday run at full strength, the rest of the week a little below. */
 const WEEKDAY_FACTOR = 0.9;
 /** The number drifts once per this many milliseconds. */
@@ -85,41 +76,10 @@ export function activityAt(hour: number): number {
   return Math.pow(wave, 1.25);
 }
 
-/** The lowest and highest the site-wide number can be for this many open spots. */
-export function watchingRange(maxMembers: number): { min: number; max: number } {
-  const max = Math.max(3, Math.round(Math.max(1, maxMembers) * PEAK_SHARE));
-  return { min: Math.max(2, Math.round(max * QUIET_SHARE)), max };
-}
-
-/**
- * Whether a status string from AniList or a provider means "airing now". Careful with
- * "Finished Airing" (MAL/Jikan style), which contains AIRING but is the opposite.
- */
-export function isAiringStatus(status: string | null | undefined): boolean {
-  const normalized = String(status ?? "").toUpperCase().replace(/[\s-]+/g, "_");
-  if (/FINISHED|COMPLETED|CANCELLED|NOT_YET|UPCOMING|HIATUS/.test(normalized)) return false;
-  return /RELEASING|ONGOING|AIRING/.test(normalized);
-}
-
-/** People "on the site" right now, always within the range for the open spots. */
-export function siteWatching(now: Date, model: WatchingModel): number {
-  const { min, max } = watchingRange(model.maxMembers);
+/** People "on the site" right now, always between WATCHING_MIN and WATCHING_MAX. */
+export function siteWatching(now: Date, model: WatchingModel = {}): number {
   const { hour, weekend } = localClock(now, model.timezone);
-  const level = min + (max - min) * activityAt(hour) * (weekend ? 1 : WEEKDAY_FACTOR);
-  const spread = Math.max(1, (max - min) * 0.08);
-  return Math.round(Math.min(max, Math.max(min, level + drift("site", now.getTime()) * spread)));
-}
-
-/**
- * People "watching this anime": a slice of the site total. Titles differ from each other and
- * stay that way; one that is airing now gets a bigger slice. Never a lonely 1 (unless the
- * whole site is that quiet) and never more than the site total.
- */
-export function animeWatching(seed: string, now: Date, model: WatchingModel, title: { airing?: boolean } = {}): number {
-  const total = siteWatching(now, model);
-  // Airing titles sit in a higher band than finished ones, so "more for what is airing" holds for every title.
-  const share = Math.pow(hash(`pop:${seed}`), 2);
-  const popularity = title.airing ? 0.4 + 0.3 * share : 0.16 + 0.3 * share;
-  const wobble = 1 + drift(`anime:${seed}`, now.getTime()) * 0.2;
-  return Math.min(total, Math.max(Math.min(2, total), Math.round(total * popularity * wobble)));
+  const level = WATCHING_MIN + (WATCHING_MAX - WATCHING_MIN) * activityAt(hour) * (weekend ? 1 : WEEKDAY_FACTOR);
+  const spread = (WATCHING_MAX - WATCHING_MIN) * 0.08;
+  return Math.round(Math.min(WATCHING_MAX, Math.max(WATCHING_MIN, level + drift("site", now.getTime()) * spread)));
 }

@@ -5,6 +5,7 @@ import { Search, Shuffle, X, Menu, TrendingUp, Calendar, Radio, Sparkles, Film, 
 import { useRouter, usePathname } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import UserMenu from "@/components/ui/UserMenu";
+import SiteWatching from "@/components/ui/SiteWatching";
 import { HOME_VIEW_EVENT, type HomeViewMode } from "@/lib/home-view";
 import { type AnilistMedia, anilistTitle, anilistFormat, anilistYear, encodeAnilistRouteId } from "@/lib/anilist/api";
 import { useNavigationPending } from "@/components/ui/NavigationPendingController";
@@ -484,6 +485,7 @@ export default function NavbarClient({ user }: NavbarClientProps) {
 
           {/* Right: search + shuffle + user */}
           <div className="hidden lg:flex items-center gap-2">
+            <SiteWatching />
             {/* Search bar (desktop) — single persistent element to prevent ghosting */}
             <div ref={desktopSearchRef} className={`relative h-9 transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${isDesktopFocused ? "w-[260px]" : "w-9"}`}>
               <form
@@ -592,6 +594,7 @@ export default function NavbarClient({ user }: NavbarClientProps) {
 
           {/* Mobile: hamburger + user */}
           <div className="lg:hidden flex items-center gap-2">
+            <SiteWatching className="px-2.5" />
             <button
               type="button"
               onClick={() => setMobileSearchActive(true)}

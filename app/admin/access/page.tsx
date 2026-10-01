@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Check, Copy, Eye, KeyRound, Lock, LogOut, Save, Users } from "lucide-react";
-import { animeWatching, siteWatching } from "@/lib/watching";
+import { siteWatching, WATCHING_MAX, WATCHING_MIN } from "@/lib/watching";
 
 interface PanelState {
   gateOn: boolean;
@@ -109,7 +109,6 @@ export default function AdminAccessPage() {
   }
 
   const revokedSet = new Set(revoked.split(/[\s,]+/).filter(Boolean).map(Number));
-  const preview = { maxMembers: Number(max) || 50 };
 
   if (!state && !ready) return <main className="min-h-screen bg-[#0a0a0f]" />;
 
@@ -205,18 +204,16 @@ export default function AdminAccessPage() {
           <h2 className="mb-4 flex items-center gap-2 text-sm font-bold"><Eye className="h-4 w-4 text-purple-400" /> &ldquo;Watching&rdquo; counter</h2>
           <label className="mb-3 flex items-center gap-2 text-sm">
             <input type="checkbox" checked={watching} onChange={(e) => setWatching(e.target.checked)} className="h-4 w-4 accent-purple-500" />
-            Show it on watch pages
+            Show it in the header
           </label>
           <p className="text-[11px] leading-relaxed text-neutral-500">
-            Fully automatic, nothing to set: it scales with the open spots above, follows each viewer&apos;s own clock
-            (busiest in their late evening, quietest before dawn, a little livelier Fri&ndash;Sun), and gives every title its own
-            share &mdash; more for anime that is airing now.
+            One site-wide number in the header, nothing to set: it follows each viewer&apos;s own clock (busiest in their late
+            evening, quietest before dawn, a little livelier Fri&ndash;Sun) and always stays between {WATCHING_MIN} and {WATCHING_MAX}.
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-1 rounded-xl border border-white/10 bg-black/30 p-3 text-sm">
             <span className="text-neutral-400">Right now, on your clock:</span>
-            <span><b className="text-lime-400">{siteWatching(now, preview)}</b> <span className="text-neutral-500">site-wide</span></span>
-            <span><b className="text-lime-400">{animeWatching("anilist~21", now, preview, { airing: true })}</b> <span className="text-neutral-500">on One Piece</span></span>
-            <span><b className="text-lime-400">{animeWatching("anilist~5114", now, preview)}</b> <span className="text-neutral-500">on a finished series</span></span>
+            <span><b className="text-lime-400">{siteWatching(now)}</b> <span className="text-neutral-500">site-wide</span></span>
+
           </div>
         </section>
 
