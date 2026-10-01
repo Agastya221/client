@@ -204,7 +204,9 @@ export function setAutoAdvance(on: boolean): void {
 
 export function getAutoplay(): boolean {
   const raw = get("autoplay");
-  return raw === null ? false : raw === "1"; // default OFF; browsers commonly block audible autoplay
+  // Default ON: it only starts episodes the viewer switches to after their first Play, which
+  // browsers allow with sound. A viewer who turned it off keeps "0".
+  return raw === null ? true : raw === "1";
 }
 
 export function setAutoplay(on: boolean): void {

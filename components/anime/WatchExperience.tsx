@@ -501,6 +501,35 @@ function tryBuildLocalSession(
    Keeps up to 20 recently fetched sessions in memory.
    Going back to a previously visited episode is instant. */
 const SESSION_CACHE_MAX = 20;
+/* ── Remembered server rows ───────────────────────
+   The last real buttons of each row (per anime), shown as stand-ins while the next episode's
+   list loads, so the row keeps its shape (e.g. Solaris 1-4) instead of growing from one
+   button to four. Missing ones drop out once the real list is in. */
+type ServerLayoutRow = "soft" | "hard" | "dub";
+type ServerLayout = Partial<Record<ServerLayoutRow, Array<Omit<ServerOption, "provider">>>>;
+const SERVER_LAYOUT_PREFIX = "yorumi:server-layout:";
+
+function readServerLayout(animeId: string): ServerLayout {
+  try {
+    const raw = window.localStorage.getItem(`${SERVER_LAYOUT_PREFIX}${animeId}`);
+    return raw ? (JSON.parse(raw) as ServerLayout) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeServerLayout(animeId: string, layout: ServerLayout): void {
+  try {
+    window.localStorage.setItem(`${SERVER_LAYOUT_PREFIX}${animeId}`, JSON.stringify(layout));
+  } catch {
+    // Storage full or blocked: the rows fall back to their gateway buttons.
+  }
+}
+
+function layoutEntries(entries: ServerOption[]): Array<Omit<ServerOption, "provider">> {
+  return entries.map(({ id, label, category, subType, transport }) => ({ id, label, category, subType, transport }));
+}
+
 const sessionCache = new Map<string, { data: WatchSessionModel; ts: number; prefetched?: boolean }>();
 const inflightSessionRequests = new Map<string, Promise<WatchSessionModel>>();
 
@@ -610,6 +639,10 @@ function prefetchWatchSession(animeId: string, request: SessionRequest): void {
     dubbed: request.dubbed,
     server: request.server,
   });
+
+  // Worker sources are played from the resolve-source result above; a full watch session
+  // would only cost the server work nobody uses.
+  if (isWorkerProvider(request.provider) || isWorkerServerOption(request.server)) return;
 
   // Skip if already cached or in-flight
   if (isCachedOrInflight(url)) {
@@ -1446,7 +1479,14 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
   // Only reserve the Dub row while discovery is open if something independent
   // of discovery says a dub exists. Reserving it unconditionally would trade
   // one layout shift for another on every sub-only title.
-  const dubLikely = hasDub || hasDubEpisode || session.dubbed || (dubCount ?? 0) > 0;
+  // Judged for this episode, not the series: a new show often has dub for later episodes only,
+  // and a series-wide signal used to put a Dub row (that could not play) under such an episode.
+  const currentEpisodeDub = session.episodes.find((episode) => episode.number === session.episode.number)?.isDubbed;
+  const dubLikely = hasDub || session.dubbed || (hasDubEpisode
+    ? currentEpisodeDub === true
+    : (dubCount ?? 0) >= session.episode.number);
+  // The Dub button and the Dub row follow the same rule.
+  const dubOffered = hasDub || (serverDiscoveryPending && dubLikely);
 
   // Cap episode list by dubCount when in dub mode (for synthetic episodes).
   // If dubCount is null (anime not found in Anikoto), show all episodes.
@@ -2587,7 +2627,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
 
   /** What the Dub button asks for (null when dub is already on or not offered). */
   const dubSwitchRequest = (): SessionRequest | null => {
-    if (!((!effectiveDubbed || effectiveProvider === "desidub") && hasDub)) return null;
+    if (!((!effectiveDubbed || effectiveProvider === "desidub") && dubOffered)) return null;
     const dubChoice = preferredChoiceFor(true);
     const verifiedDub = dubChoice ? null : bestVerifiedServer(focusedServers.dub, serverHealth.healthById);
     return {
@@ -2632,12 +2672,52 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
   const activeIsEmbedServer = Boolean(effectiveActiveServerId && isEmbedServerOption(effectiveActiveServerId));
   const embedServersOpen = embedServersToggle ?? activeIsEmbedServer;
 
-  /** Real entries, or the row's instant gateway buttons while its list is still loading. */
+  // Read after mount only (localStorage), so the server render and the first client render match.
+  const [serverLayout, setServerLayout] = useState<ServerLayout>({});
+  useEffect(() => {
+    setServerLayout(readServerLayout(session.anime.id));
+  }, [session.anime.id]);
+  const layoutSoftKey = internalSoftSubServers.map((entry) => entry.id).join(",");
+  const layoutHardKey = internalHardSubServers.map((entry) => entry.id).join(",");
+  const layoutDubKey = internalDubServers.map((entry) => entry.id).join(",");
+  useEffect(() => {
+    // Remember a row only once its list is final, and never as empty: an episode without dub
+    // must not erase the Dub row other episodes of the same show use.
+    if (serverDiscoveryPending) return;
+    const animeId = session.anime.id;
+    const next: ServerLayout = { ...readServerLayout(animeId) };
+    if (internalSoftSubServers.length) next.soft = layoutEntries(internalSoftSubServers);
+    if (internalHardSubServers.length) next.hard = layoutEntries(internalHardSubServers);
+    if (internalDubServers.length) next.dub = layoutEntries(internalDubServers);
+    writeServerLayout(animeId, next);
+    setServerLayout(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the id keys stand for the lists
+  }, [serverDiscoveryPending, session.anime.id, layoutSoftKey, layoutHardKey, layoutDubKey]);
+
+  /**
+   * What a server row shows. Once the list is final, exactly the real entries. While it is still
+   * loading: the row's remembered buttons (each replaced by its real entry as it arrives, new
+   * ones added at the end), or the gateway buttons when nothing is remembered yet.
+   */
   const entriesOrGateways = (
     entries: ServerOption[],
     gateways?: Array<Omit<ServerOption, "provider">>,
+    row?: ServerLayoutRow,
   ) => {
-    const useGateways = entries.length === 0 && serverDiscoveryPending && Boolean(gateways?.length);
+    if (!serverDiscoveryPending) return { useGateways: false, entries };
+    const remembered = row ? serverLayout[row] ?? [] : [];
+    if (remembered.length > 0) {
+      const real = new Map(entries.map((entry) => [entry.id, entry]));
+      const rememberedIds = new Set(remembered.map((entry) => entry.id));
+      return {
+        useGateways: false,
+        entries: [
+          ...remembered.map((entry) => real.get(entry.id) ?? { ...entry, provider: session.provider }),
+          ...entries.filter((entry) => !rememberedIds.has(entry.id)),
+        ],
+      };
+    }
+    const useGateways = entries.length === 0 && Boolean(gateways?.length);
     return {
       useGateways,
       entries: useGateways ? gateways!.map((gateway) => ({ ...gateway, provider: session.provider })) : entries,
@@ -2694,13 +2774,13 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
   // Every kind of server gets its own section, all visible together: soft subs, hard subs,
   // dub (and Hindi), then sub embeds and dub embeds. Picking a dub server switches audio.
   const sheetGroups: ServerSheetGroup[] = [
-    { id: "soft", label: "Soft Subs", entries: entriesOrGateways(internalSoftSubServers, GATEWAY_SERVERS.soft).entries, meta: {} },
-    { id: "hard", label: "Hard Subs", entries: entriesOrGateways(internalHardSubServers, GATEWAY_SERVERS.hard).entries, meta: {} },
+    { id: "soft", label: "Soft Subs", entries: entriesOrGateways(internalSoftSubServers, GATEWAY_SERVERS.soft, "soft").entries, meta: {} },
+    { id: "hard", label: "Hard Subs", entries: entriesOrGateways(internalHardSubServers, GATEWAY_SERVERS.hard, "hard").entries, meta: {} },
     {
       id: "dub",
       label: "Dub",
-      entries: (hasDub || (serverDiscoveryPending && dubLikely))
-        ? entriesOrGateways(internalDubServers, GATEWAY_SERVERS.dub).entries
+      entries: dubOffered
+        ? entriesOrGateways(internalDubServers, GATEWAY_SERVERS.dub, "dub").entries
         : [],
       meta: { dubbed: true },
     },
@@ -2712,6 +2792,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
     entriesOrGateways(
       { soft: internalSoftSubServers, hard: internalHardSubServers, dub: internalDubServers }[group.id] ?? group.entries,
       { soft: GATEWAY_SERVERS.soft, hard: GATEWAY_SERVERS.hard, dub: GATEWAY_SERVERS.dub }[group.id],
+      (["soft", "hard", "dub"] as const).find((row) => row === group.id),
     ).useGateways;
   const activeSheetEntry = sheetGroups
     .flatMap((group) => group.entries.map((entry) => ({ entry, group })))
@@ -2743,13 +2824,15 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
       accent?: string;
       /** Clickable stand-ins shown while this row's real servers are still loading. */
       gateways?: Array<Omit<ServerOption, "provider">>;
+      /** Which remembered row layout keeps this row's shape while it loads. */
+      layoutRow?: ServerLayoutRow;
       /** Wrap onto extra lines instead of scrolling sideways (the mobile preview). */
       wrap?: boolean;
     } = {},
   ) => {
     // Three states, not two. Real entries win; while still unanswered the row shows its
     // gateway buttons; an answered-but-empty row disappears.
-    const resolved = entriesOrGateways(entries, options.gateways);
+    const resolved = entriesOrGateways(entries, options.gateways, options.layoutRow);
     const showGateways = resolved.useGateways;
     entries = resolved.entries;
     if (entries.length === 0 && !options.emptyLabel) return null;
@@ -3238,7 +3321,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
                     ? "This title exists on AniList, but we do not have a working provider mapping for it yet."
                     : embedOnlyBlocked
                       ? "This source only returned a direct stream. Phase 1 is locked to embedded playback for stability, so try another provider or server."
-                      : "The active provider did not return an embedded player. Try refreshing or switching providers."}
+                      : "This server didn't return a playable stream for this episode. Press Refresh source, or pick another server below."}
                 </p>
               </div>
               <div className="flex flex-wrap justify-center gap-3">
@@ -3496,7 +3579,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
             </button>
             <button
               type="button"
-              disabled={(effectiveDubbed && effectiveProvider !== "desidub") || !hasDub}
+              disabled={(effectiveDubbed && effectiveProvider !== "desidub") || !dubOffered}
               aria-pressed={effectiveDubbed && effectiveProvider !== "desidub"}
               onClick={() => {
                 const request = dubSwitchRequest();
@@ -3510,7 +3593,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
               className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 transition-colors ${
                 effectiveDubbed && effectiveProvider !== "desidub"
                   ? "bg-[#4ade80]/15 text-[#4ade80] border border-[#4ade80]/25 shadow-[0_0_8px_rgba(74,222,128,0.15)] cursor-default pointer-events-none"
-                  : !hasDub
+                  : !dubOffered
                     ? "opacity-30 cursor-not-allowed bg-white/5 text-white/30 border border-white/5"
                     : "bg-white/5 text-white/50 border border-white/8 hover:bg-white/10 hover:text-white/70 cursor-pointer"
               }`}
@@ -3658,9 +3741,9 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
         <div className="hidden sm:block">
         {(internalHardSubServers.length > 0 || internalSoftSubServers.length > 0 || internalDubServers.length > 0 || showHindi || serverDiscoveryPending) && (
           <div className="space-y-2.5 border-t border-white/[0.06] pt-2.5 sm:space-y-3">
-            {renderServerRow("Soft Subs", internalSoftSubServers, { gateways: GATEWAY_SERVERS.soft })}
-            {renderServerRow("Hard Subs", internalHardSubServers, { gateways: GATEWAY_SERVERS.hard })}
-            {(hasDub || (serverDiscoveryPending && dubLikely)) && renderServerRow("Dub", internalDubServers, { dubbed: true, accent: "#4ade80", gateways: GATEWAY_SERVERS.dub })}
+            {renderServerRow("Soft Subs", internalSoftSubServers, { gateways: GATEWAY_SERVERS.soft, layoutRow: "soft" })}
+            {renderServerRow("Hard Subs", internalHardSubServers, { gateways: GATEWAY_SERVERS.hard, layoutRow: "hard" })}
+            {dubOffered && renderServerRow("Dub", internalDubServers, { dubbed: true, accent: "#4ade80", gateways: GATEWAY_SERVERS.dub, layoutRow: "dub" })}
             {showHindi && renderServerRow("Hindi", hindiServers, { dubbed: true, provider: "desidub", accent: "#ff5500" })}
           </div>
         )}
