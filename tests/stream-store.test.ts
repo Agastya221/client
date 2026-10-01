@@ -154,3 +154,60 @@ test("the link store talks to Render's /linkstore with the proxy key, and failur
   assert.equal(await off.get("stream-link:v1:a"), null, "no proxy configured (local dev): nothing is stored, nothing is called");
   await off.set("stream-link:v1:a", {}, 60);
 });
+
+test("the direct Upstash store sends Redis commands with the token, only touches stream-link keys, and failures mean 'not stored'", async () => {
+  const { createUpstashStreamStorage, upstashConfig } = await import("../lib/stream-store-upstash.ts");
+  assert.deepEqual(upstashConfig({ UPSTASH_REDIS_REST_URL: "https://u.example/", UPSTASH_REDIS_REST_TOKEN: " t " }), { url: "https://u.example", token: "t" });
+  assert.equal(upstashConfig({ UPSTASH_REDIS_REST_URL: "https://u.example" }), null, "no token");
+  assert.equal(upstashConfig({ UPSTASH_REDIS_REST_URL: "http://u.example", UPSTASH_REDIS_REST_TOKEN: "t" }), null, "https only");
+  assert.equal(upstashConfig({ UPSTASH_REDIS_REST_URL: "https://YOUR_URL", UPSTASH_REDIS_REST_TOKEN: "t" }), null, "placeholder");
+  assert.equal(upstashConfig({}), null);
+
+  const calls: { url: string; auth: string | null; command: unknown[] }[] = [];
+  const data = new Map<string, string>();
+  const fetchImpl = (async (url: RequestInfo | URL, init?: RequestInit) => {
+    const command = JSON.parse(String(init?.body)) as unknown[];
+    calls.push({ url: String(url), auth: new Headers(init?.headers).get("authorization"), command });
+    if (command[0] === "SET") { data.set(String(command[1]), String(command[2])); return Response.json({ result: "OK" }); }
+    if (command[0] === "GET") return Response.json({ result: data.get(String(command[1])) ?? null });
+    if (command[0] === "SCAN") {
+      const match = String(command[3]).replace(/\*$/, "");
+      return Response.json({ result: ["0", [...data.keys()].filter((k) => k.startsWith(match))] });
+    }
+    if (command[0] === "DEL") { for (const k of command.slice(1)) data.delete(String(k)); return Response.json({ result: command.length - 1 }); }
+    return Response.json({ result: null });
+  }) as typeof fetch;
+  const storage = createUpstashStreamStorage({ fetchImpl, config: () => ({ url: "https://u.example", token: "tok" }) });
+
+  await storage.set("stream-link:v1:a:ep1:sub:s1:p", { n: 1 }, 99);
+  await storage.set("stream-link:v1:a:ep1:sub:auto:p", { n: 2 }, 99);
+  await storage.set("stream-link:v1:a:ep2:sub:s1:p", { n: 3 }, 99);
+  assert.deepEqual(await storage.get("stream-link:v1:a:ep1:sub:s1:p"), { n: 1 }, "round trip");
+  assert.equal(await storage.get("stream-link:v1:missing"), null);
+  assert.deepEqual(calls[0].command, ["SET", "stream-link:v1:a:ep1:sub:s1:p", JSON.stringify({ n: 1 }), "EX", 99]);
+  assert.ok(calls.every((c) => c.url === "https://u.example" && c.auth === "Bearer tok"));
+
+  await storage.deletePrefix("stream-link:v1:a:ep1:sub:");
+  assert.deepEqual([...data.keys()], ["stream-link:v1:a:ep2:sub:s1:p"], "only that episode's links go");
+  await storage.delete("stream-link:v1:a:ep2:sub:s1:p");
+  assert.equal(data.size, 0);
+
+  const before = calls.length;
+  assert.equal(await storage.get("smartcache:other"), null);
+  await storage.set("other:key", {}, 60);
+  await storage.delete("other:key");
+  await storage.deletePrefix("other:");
+  await storage.deletePrefix("stream-link:*");
+  assert.equal(calls.length, before, "keys outside stream-link: are never sent to Redis");
+
+  const broken = createUpstashStreamStorage({ fetchImpl: (async () => { throw new Error("down"); }) as typeof fetch, config: () => ({ url: "https://u", token: "t" }) });
+  assert.equal(await broken.get("stream-link:v1:a"), null);
+  await broken.set("stream-link:v1:a", {}, 60);
+  await broken.deletePrefix("stream-link:v1:");
+  const refused = createUpstashStreamStorage({ fetchImpl: (async () => new Response("{}", { status: 401 })) as typeof fetch, config: () => ({ url: "https://u", token: "t" }) });
+  assert.equal(await refused.get("stream-link:v1:a"), null, "bad token");
+  const garbage = createUpstashStreamStorage({ fetchImpl: (async () => Response.json({ result: "{not json" })) as typeof fetch, config: () => ({ url: "https://u", token: "t" }) });
+  assert.equal(await garbage.get("stream-link:v1:a"), null);
+  const off = createUpstashStreamStorage({ fetchImpl: (async () => { throw new Error("must not be called"); }) as typeof fetch, config: () => null });
+  assert.equal(await off.get("stream-link:v1:a"), null, "no secrets: nothing is called");
+});

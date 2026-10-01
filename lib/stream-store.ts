@@ -16,10 +16,11 @@
  * Embed servers (megaplay, tryembed, mostream, ...) hand out ordinary page addresses with no
  * token at all. Nothing guarantees a link lives forever, which is what the refresh path is for.
  *
- * Links live in the Redis behind the Render service (no daily write cap, unlike Cloudflare KV's
- * 1,000 writes a day), written once when resolved and again only when replaced.
+ * Links live in Redis (no daily write cap, unlike Cloudflare KV's 1,000 writes a day), written
+ * once when resolved and again only when replaced.
  */
 import { remoteStreamStorage } from "@/lib/stream-store-remote";
+import { upstashConfig, upstashStreamStorage } from "@/lib/stream-store-upstash";
 
 /**
  * Not an expiry rule: Redis needs some lifetime, and this only cleans up links nobody has
@@ -40,8 +41,21 @@ export interface StreamStorage {
   deletePrefix(prefix: string): Promise<void>;
 }
 
-/** Redis behind the Render service (lib/stream-store-remote.ts). */
-export const defaultStreamStorage: StreamStorage = remoteStreamStorage;
+/**
+ * Upstash Redis called directly (lib/stream-store-upstash.ts) when the Worker has its REST secrets,
+ * otherwise the same Redis through the Render service (lib/stream-store-remote.ts). Chosen per
+ * call because Worker secrets are only readable while a request is running.
+ */
+export const defaultStreamStorage: StreamStorage = {
+  get: (key) => pick().get(key),
+  set: (key, value, ttlSeconds) => pick().set(key, value, ttlSeconds),
+  delete: (key) => pick().delete(key),
+  deletePrefix: (prefix) => pick().deletePrefix(prefix),
+};
+
+function pick(): StreamStorage {
+  return upstashConfig() ? upstashStreamStorage : remoteStreamStorage;
+}
 
 export interface StreamStoreRequest {
   animeId: string;
