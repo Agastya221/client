@@ -17,6 +17,7 @@ import { maybeHandleFastSegment } from "./lib/proxy/fast-segment";
 import { applyAccessGate } from "./lib/access/gate";
 import { getAccessConfig } from "./lib/access/invite";
 import { makeWarmToken, WARM_HEADER } from "./lib/warm-pages";
+import { withEdgeCache } from "./lib/edge-page-cache";
 
 interface ScheduledEnv {
   ANIVEXA_API_BASE_URL?: string;
@@ -39,7 +40,16 @@ export default {
     // Invite-only gate. A no-op unless SITE_ACCESS is set (see lib/access/gate.ts).
     const blocked = await applyAccessGate(request, env as Record<string, unknown>);
     if (blocked) return blocked;
-    return (openNext.fetch as (request: Request, env: unknown, ctx: unknown) => Promise<Response>)(request, env, ctx);
+    // Watch pages and comment lists are shared from Cloudflare's edge cache (lib/edge-page-cache.ts):
+    // rendering them cost 80-160 ms of CPU each, the cause of Error 1102 while switching episodes.
+    // Keyed by deployment, so a new deploy never serves pages that point at old files.
+    const version = (env as { CF_VERSION_METADATA?: { id?: string } }).CF_VERSION_METADATA?.id || "dev";
+    return withEdgeCache(
+      request,
+      version,
+      () => (openNext.fetch as (request: Request, env: unknown, ctx: unknown) => Promise<Response>)(request, env, ctx),
+      ctx as ExecutionContextLike,
+    );
   },
 
   /**

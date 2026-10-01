@@ -148,19 +148,21 @@ export default function CommentSection({
   const [focused, setFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const fetchComments = useCallback(async () => {
+  /** `fresh` skips the 20-second edge copy (worker.ts), used right after this viewer changed something. */
+  const fetchComments = useCallback(async (fresh = false) => {
     setLoading(true);
     setComments([]);
     try {
       const p = new URLSearchParams({ animeId });
       if (episodeNumber) p.set("episode", String(episodeNumber));
+      if (fresh) p.set("fresh", "1");
       const res = await fetch(`/api/comments?${p}`);
       if (res.ok) setComments(await res.json());
     } catch { /* silent */ }
     finally { setLoading(false); }
   }, [animeId, episodeNumber]);
 
-  useEffect(() => { fetchComments(); }, [fetchComments]);
+  useEffect(() => { void fetchComments(); }, [fetchComments]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -172,7 +174,7 @@ export default function CommentSection({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ animeId, episodeNumber: episodeNumber || null, content: newComment.trim(), isSpoiler, timestamp }),
       });
-      if (res.ok) { setNewComment(""); setIsSpoiler(false); setTimestamp(null); setFocused(false); await fetchComments(); }
+      if (res.ok) { setNewComment(""); setIsSpoiler(false); setTimestamp(null); setFocused(false); await fetchComments(true); }
     } finally { setSubmitting(false); }
   };
 
@@ -185,7 +187,7 @@ export default function CommentSection({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ animeId, episodeNumber: episodeNumber || null, content: content.trim(), parentId }),
       });
-      if (res.ok) { setReplyTo(null); await fetchComments(); }
+      if (res.ok) { setReplyTo(null); await fetchComments(true); }
     } finally { setSubmitting(false); }
   };
 
@@ -203,7 +205,7 @@ export default function CommentSection({
   };
 
   const handleDelete = async (id: string) => {
-    if (await fetch(`/api/comments?id=${id}`, { method: "DELETE" }).then((r) => r.ok)) fetchComments();
+    if (await fetch(`/api/comments?id=${id}`, { method: "DELETE" }).then((r) => r.ok)) void fetchComments(true);
   };
 
   const total = comments.reduce((s, c) => s + 1 + (c.replies?.length || 0), 0);
