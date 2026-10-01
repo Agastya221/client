@@ -1,4 +1,4 @@
-# Session handoff (2026-10-01)
+# Session handoff (updated 2026-10-01, end of session 1)
 
 Read this first. It replaces re-reading a very long chat. **No passwords or secrets are in this file**:
 the user chose an admin password and a site secret in chat (they said they will change them at home);
@@ -12,7 +12,9 @@ see AGENTS.md) on **Cloudflare Workers free plan** via OpenNext 1.20.1.
 - Anivexa API (providers + AniList proxy) on Render: `https://tatakai-anivexa-api.onrender.com`.
   Repo `E:\tatakai\scratch\Anivexa-API`. **Push only to remote `renderrepo`** (user's repo), never `origin` (upstream is someone else's).
 - DB: Neon Postgres via Prisma 7 + `@prisma/adapter-pg`. User constraints: don't change Neon compute, keep comments as they are.
-- Branch `test/anivexa-provider-coverage`. Last pushed commit `c3b6f45`; **`e18fd02` is committed locally, not pushed** (ask the user before pushing; they have always said yes).
+- Branch `test/anivexa-provider-coverage`. Pushed up to `9986084`. **Committed locally but NOT pushed: `ed460dd` (stream links in Redis) and `b1f4972` (handoff)** — ask the user, they have always said yes.
+  Render repo (`E:	atakai\scratch\Anivexa-API`, remote `renderrepo`) is fully pushed (latest `0f62a18` /linkstore).
+- Working tree: `next.config.ts` has an UNCOMMITTED edit from ANOTHER session (not mine; see item 4 below). Never `git add -A` blindly.
 
 ## User preferences (learned the hard way)
 - Wants things done, not asked about; but confirm before outward actions (deploy, push) unless they said "do it".
@@ -33,7 +35,7 @@ see AGENTS.md) on **Cloudflare Workers free plan** via OpenNext 1.20.1.
   unless `workers_dev: true` is stated.
 - Local test servers (may still be running): `next start` on :3000 and `scripts/dev-gate-proxy.ts` on :3001, started with throwaway
   env vars (`SITE_ACCESS=invite`, test secret, `SITE_SETTINGS_FILE=.data/site-settings.json`). Kill by port if needed.
-- Tests: `npm test` (195 pass). Browser suites in `scripts/wsl/*-e2e.mjs` (need local servers + playwright-core; they carry state, reset `.data` between runs).
+- Tests: `npm test` (202 pass). Browser suites in `scripts/wsl/*-e2e.mjs` (need local servers + playwright-core; they carry state, reset `.data` between runs).
 
 ## What was built this session (all deployed unless noted)
 1. **Invite-only gate** (`lib/access/*`, runs in `worker.ts` before Next because cached pages never reach Next). Off unless `SITE_ACCESS=invite`.
@@ -70,7 +72,9 @@ see AGENTS.md) on **Cloudflare Workers free plan** via OpenNext 1.20.1.
    Measured live (Redis): first open ~5-6 s, repeats ~0.37 s with the same link (KV was ~0.2 s: the Render hop adds ~0.17 s); refresh gives a NEW link (~4.4 s); other servers' links kept.
    Evidence for safety: one HLS link (anikoto, anilist~21 ep5) was still valid for 41 min (playlist, variant, segment; token's embedded time ignored,
    not IP-bound). Only one title/provider tested; unproven beyond that. Embed servers (megaplay etc.) are plain addresses with no token.
-   NOT done yet: the watch PAGE itself is still rendered per visit (dynamic, reads searchParams) and server-list caching is separate.
+   Render Redis creds never leave Render. If Render/Redis is down, links are just not stored (2.5 s timeout, then resolves normally).
+   Upstash free plan has its own MONTHLY command cap (believed ~500k; unconfirmed) — worth watching in the Upstash dashboard.
+   NOT done yet: the watch PAGE itself is still rendered per visit (dynamic, reads searchParams: `app/anime/[id]/watch/page.tsx`) and server-list caching is separate.
 7. Smaller: Embed button in the SUB/DUB row, bottom sheets slide up, `crypto.randomUUID` fallback for plain-http LAN, YoruMi rename in Discord/fallback image.
 
 ## Findings worth knowing
@@ -83,13 +87,22 @@ see AGENTS.md) on **Cloudflare Workers free plan** via OpenNext 1.20.1.
 - Each DB connect from the Worker takes ~1.3 s (no pooling). Cloudflare Hyperdrive is free and would help (not done).
 - Sign-in error page `/auth/signin` is rendered per request and is CPU-heavy (10–37 ms); a candidate to make cheaper.
 
-## Open items, in rough priority
-1. Ask the user to try AniList sign-in on the live site; check the log if it fails.
-2. Confirm the cron warm-up ran on its own; push `e18fd02` after the user agrees.
-3. Decide what to do with the other session's `next.config.ts` edit (see 4 above).
-4. Move `yorumi.lol` nameservers to Cloudflare (then set `SITE_ORIGIN` to it, enable the Cache API, update AniList app redirect URI and
+## Open items, in rough priority (the user cares most about speed and not refetching things)
+1. **Cache the watch page itself** (planned, agreed in principle): make `app/anime/[id]/watch/page.tsx` static/ISR with episode/server read in the
+   browser (like the anime page, see `lib/use-hydrated.ts`), so it is served from cache (~0.2 s) instead of rebuilt each visit. Then **cache the server lists**
+   per anime (one KV/Redis entry per anime, hours) and **remember recently-working servers** (~30 min) so the page opens on a healthy one. Never auto-switch
+   servers silently (user rule: tell them to switch). Measure each step on the live site.
+2. Ask the user to try AniList sign-in on the live site (still unconfirmed end to end); check the log if it fails
+   (`npx wrangler tail tatakai-anime-website --format json`).
+3. Push the two local site commits (ask first).
+4. Decide what to do with the other session's `next.config.ts` edit (`serverExternalPackages` for Prisma): test against the current working setup or drop it.
+5. Move `yorumi.lol` nameservers to Cloudflare (then set `SITE_ORIGIN`, enable the Cache API in front of KV/Redis, update the AniList app redirect URI and
    `ANILIST_REDIRECT_URI`/`NEXT_PUBLIC_SITE_URL` build env).
-5. Make `/search` page and `resolve-source` cheaper/cached; add timeouts and error messages to other client fetches that can spin forever.
-6. Hyperdrive (free) to cut DB connect time. Workers Paid ($5/mo) would remove 1102/503 outright; user said not yet.
-7. User will rotate the admin password and site secret at home (`wrangler secret put …`); then re-read the friends code from `/admin/access`.
-8. The ad-watching gate ("watch an ad for 30 s") was discussed but NOT built.
+6. `/search` page and `resolve-source` are still uncached dynamic routes; other client fetches that can spin forever need timeouts and error messages.
+7. Hyperdrive (free) to cut DB connect time (~1.3 s per connect). Workers Paid ($5/mo) would remove 1102/503 outright; user said not yet.
+8. User will rotate the admin password and site secret at home (`wrangler secret put …`); then re-read the friends code from `/admin/access`.
+9. The ad-watching gate ("watch an ad for 30 s") was discussed but NOT built.
+
+## Starting the next session
+Suggested first message: "Read SESSION-HANDOFF.md first, don't re-explore the codebase, tell me the open items in 5 lines, then wait for me to pick one."
+Clean up first: local test servers on :3000/:3001 and any `wrangler tail` processes may still be running (kill by port / process).
