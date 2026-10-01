@@ -61,12 +61,13 @@ see AGENTS.md) on **Cloudflare Workers free plan** via OpenNext 1.20.1.
    Auth for it is a token derived from the secret (`x-warm-token`, `lib/warm-pages.ts`); the gate lets that token fetch pages only.
    Manual run verified (4 pages rendered, then visitors got `x-opennext-cache: HIT` in ~0.18 s).
    Confirmed: the real cron tick runs it (`warm-pages 200` in the Worker log).
-6. **Stream link cache** (`lib/stream-store.ts`, wired in `resolveStreamSource` in `lib/anime/api.ts`): a playable resolved link is stored in KV
-   (key `stream-link:v1:<anime>:ep<n>:<sub|dub>:<server>:<provider>`, 30-day cleanup TTL only) and served until replaced. NO timer.
+6. **Stream link cache** (`lib/stream-store.ts`, wired in `resolveStreamSource` in `lib/anime/api.ts`): a playable resolved link is stored in the Render service's **Upstash Redis**
+   (Worker -> `POST <render>/linkstore` with the existing `x-proxy-key`; `lib/stream-store-remote.ts` + `core/linkstore.js` in the Anivexa API;
+   key `stream-link:v1:<anime>:ep<n>:<sub|dub>:<server>:<provider>`, 30-day cleanup TTL only; replaced Cloudflare KV because of its 1,000 writes/day cap) and served until replaced. NO timer.
    Replaced when the player errors (watch page tries a fresh link for that server once, `refreshClientStream`) or on "Refresh source"
    (`POST /api/resolve-source {refresh:true}`; discards that server's links + the "auto" ones only). A refresh also sends `?fresh=1` to Render
    (`lib/anime/fresh-context.ts`, ALS; Render commit bdc6bf1 pushed to renderrepo) so Render's own 3-hour watch cache is bypassed.
-   Measured live: first open ~5 s, repeats ~0.2 s with the same link; refresh gives a NEW link (~4.4 s); other servers' links kept.
+   Measured live (Redis): first open ~5-6 s, repeats ~0.37 s with the same link (KV was ~0.2 s: the Render hop adds ~0.17 s); refresh gives a NEW link (~4.4 s); other servers' links kept.
    Evidence for safety: one HLS link (anikoto, anilist~21 ep5) was still valid for 41 min (playlist, variant, segment; token's embedded time ignored,
    not IP-bound). Only one title/provider tested; unproven beyond that. Embed servers (megaplay etc.) are plain addresses with no token.
    NOT done yet: the watch PAGE itself is still rendered per visit (dynamic, reads searchParams) and server-list caching is separate.
