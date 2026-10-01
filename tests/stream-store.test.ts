@@ -104,3 +104,53 @@ test("a refresh marks every Render call fresh; ordinary calls are untouched", as
   });
   assert.equal(isFreshRequest(), false, "and only inside the refresh");
 });
+
+test("the link store talks to Render's /linkstore with the proxy key, and failures just mean 'not stored'", async () => {
+  const { createRemoteStreamStorage, linkStoreUrl } = await import("../lib/stream-store-remote.ts");
+  assert.equal(linkStoreUrl("https://render.example/anilist"), "https://render.example/linkstore");
+  assert.equal(linkStoreUrl("https://render.example/anilist/"), "https://render.example/linkstore");
+  assert.equal(linkStoreUrl(null), null);
+
+  const calls: { url: string; headers: Record<string, string>; body: Record<string, unknown> }[] = [];
+  const reply = (responder: (body: Record<string, unknown>) => Response) => (async (url: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body));
+    calls.push({ url: String(url), headers: Object.fromEntries(new Headers(init?.headers)), body });
+    return responder(body);
+  }) as typeof fetch;
+
+  const stored = new Map<string, string>();
+  const storage = createRemoteStreamStorage({
+    url: () => "https://render.example/linkstore",
+    key: () => "k123",
+    fetchImpl: reply((b) => {
+      if (b.op === "set") { stored.set(String(b.key), String(b.value)); return Response.json({ ok: true }); }
+      if (b.op === "get") return Response.json({ value: stored.get(String(b.key)) ?? null });
+      return Response.json({ ok: true });
+    }),
+  });
+
+  await storage.set("stream-link:v1:a", { n: 1 }, 99);
+  assert.deepEqual(await storage.get("stream-link:v1:a"), { n: 1 }, "round trip");
+  assert.equal(await storage.get("stream-link:v1:missing"), null);
+  await storage.delete("stream-link:v1:a");
+  await storage.deletePrefix("stream-link:v1:a:ep5:sub:auto:");
+  assert.deepEqual(calls.map((c) => c.body.op), ["set", "get", "get", "del", "delprefix"]);
+  assert.ok(calls.every((c) => c.url === "https://render.example/linkstore" && c.headers["x-proxy-key"] === "k123"));
+  assert.equal(calls[0].body.ttlSeconds, 99);
+  assert.equal(calls[0].body.value, JSON.stringify({ n: 1 }));
+
+  const broken = createRemoteStreamStorage({ url: () => "https://x/linkstore", fetchImpl: (async () => { throw new Error("Render down"); }) as typeof fetch });
+  assert.equal(await broken.get("stream-link:v1:a"), null);
+  await broken.set("stream-link:v1:a", {}, 60);
+  await broken.delete("stream-link:v1:a");
+  await broken.deletePrefix("stream-link:v1:");
+
+  const refused = createRemoteStreamStorage({ url: () => "https://x/linkstore", fetchImpl: (async () => new Response("{}", { status: 503 })) as typeof fetch });
+  assert.equal(await refused.get("stream-link:v1:a"), null, "Redis not configured on Render");
+  const garbage = createRemoteStreamStorage({ url: () => "https://x/linkstore", fetchImpl: (async () => Response.json({ value: "{not json" })) as typeof fetch });
+  assert.equal(await garbage.get("stream-link:v1:a"), null, "unreadable value");
+
+  const off = createRemoteStreamStorage({ url: () => null, fetchImpl: (async () => { throw new Error("must not be called"); }) as typeof fetch });
+  assert.equal(await off.get("stream-link:v1:a"), null, "no proxy configured (local dev): nothing is stored, nothing is called");
+  await off.set("stream-link:v1:a", {}, 60);
+});

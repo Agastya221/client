@@ -3,7 +3,7 @@
  *
  * Resolving a stream (provider lookups through Render, ~1-5 s, and a cold Worker start on top)
  * used to run for every playback because results were kept in memory for 30-90 seconds. A link
- * is now stored in KV when it is first resolved and served from there, with no timer, until it
+ * is now stored (in Redis, see below) when it is first resolved and served from there, with no timer, until it
  * is replaced:
  *
  *  - when the player reports an error, the watch page asks for a fresh link and retries once;
@@ -16,13 +16,13 @@
  * Embed servers (megaplay, tryembed, mostream, ...) hand out ordinary page addresses with no
  * token at all. Nothing guarantees a link lives forever, which is what the refresh path is for.
  *
- * KV allows only 1,000 writes a day on the free plan, so a link is written once when resolved
- * and again only when it is replaced.
+ * Links live in the Redis behind the Render service (no daily write cap, unlike Cloudflare KV's
+ * 1,000 writes a day), written once when resolved and again only when replaced.
  */
-import { kvDelete, kvDeletePrefix, kvGet, kvSet } from "@/lib/cache/kv";
+import { remoteStreamStorage } from "@/lib/stream-store-remote";
 
 /**
- * Not an expiry rule: KV needs some lifetime, and this only cleans up links nobody has
+ * Not an expiry rule: Redis needs some lifetime, and this only cleans up links nobody has
  * watched for a month so storage never fills.
  */
 export const STORE_CLEANUP_SECONDS = 30 * 24 * 60 * 60;
@@ -40,12 +40,8 @@ export interface StreamStorage {
   deletePrefix(prefix: string): Promise<void>;
 }
 
-export const kvStreamStorage: StreamStorage = {
-  get: (key) => kvGet(key),
-  set: (key, value, ttlSeconds) => kvSet(key, value, ttlSeconds),
-  delete: (key) => kvDelete(key),
-  deletePrefix: (prefix) => kvDeletePrefix(prefix),
-};
+/** Redis behind the Render service (lib/stream-store-remote.ts). */
+export const defaultStreamStorage: StreamStorage = remoteStreamStorage;
 
 export interface StreamStoreRequest {
   animeId: string;
@@ -72,7 +68,7 @@ export function streamStoreKey(request: StreamStoreRequest): string {
   return `${streamStorePrefix(request)}${request.server || "auto"}:${request.provider || "auto"}`;
 }
 
-export async function readStoredStream<R>(key: string, storage: StreamStorage = kvStreamStorage): Promise<StoredStream<R> | null> {
+export async function readStoredStream<R>(key: string, storage: StreamStorage = defaultStreamStorage): Promise<StoredStream<R> | null> {
   try {
     const entry = await storage.get<StoredStream<R>>(key);
     return entry && entry.v === 1 && entry.result ? entry : null;
@@ -84,7 +80,7 @@ export async function readStoredStream<R>(key: string, storage: StreamStorage = 
 export async function writeStoredStream<R>(
   key: string,
   result: R,
-  storage: StreamStorage = kvStreamStorage,
+  storage: StreamStorage = defaultStreamStorage,
   now = Date.now(),
 ): Promise<void> {
   try {
@@ -94,7 +90,7 @@ export async function writeStoredStream<R>(
   }
 }
 
-export async function deleteStoredStreams(prefix: string, storage: StreamStorage = kvStreamStorage): Promise<void> {
+export async function deleteStoredStreams(prefix: string, storage: StreamStorage = defaultStreamStorage): Promise<void> {
   try {
     await storage.deletePrefix(prefix);
   } catch {
