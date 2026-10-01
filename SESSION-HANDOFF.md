@@ -87,7 +87,13 @@ see AGENTS.md) on **Cloudflare Workers free plan** via OpenNext 1.20.1.
    Not done: cron warm-up of availability (each refresh is a KV write; 1,000/day cap). Without the "Autoplay" checkbox a new episode still waits for Play (by design).
    Build note: the WSL copy never deletes removed files; delete them in `~/site` by hand (or fix the script). Use a script copy that forces the committed
    `next.config.ts` while the other session's edit is uncommitted.
-8. Smaller: Embed button in the SUB/DUB row, bottom sheets slide up, `crypto.randomUUID` fallback for plain-http LAN, YoruMi rename in Discord/fallback image.
+8. **Session 2, later (all deployed, verified live):** link store is found both ways (fresh open = "auto" key, list click = server key;
+   `streamStoreWriteKeys`, commit 7906884). Direct Upstash is active (`x-link-store: upstash` header on /api/resolve-source).
+   Server rows keep last layout per anime (localStorage `yorumi:server-layout:<id>`) while loading; Dub row/button per episode (`dubOffered`).
+   Autoplay default ON. Server lists stored in Redis 6 h (`stream-link:servers:v1:...`, empty lists 20 min). Solaris-first wait (6 s) is the
+   USER'S CHOICE: do not switch to a Waves/hard-sub race.
+   KV: ~700 keys only. Each deploy = new build id = whole page cache rewritten (KV writes); avoid many deploys a day.
+9. Smaller: Embed button in the SUB/DUB row, bottom sheets slide up, `crypto.randomUUID` fallback for plain-http LAN, YoruMi rename in Discord/fallback image.
 
 ## Findings worth knowing
 - Free plan: 10 ms CPU per request. A cold Worker start (whole Next server) costs 250–700 ms CPU and sometimes returns **Error 1102 / HTTP 503**.
