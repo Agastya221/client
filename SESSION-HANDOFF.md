@@ -93,7 +93,11 @@ see AGENTS.md) on **Cloudflare Workers free plan** via OpenNext 1.20.1.
    Autoplay default ON. Server lists stored in Redis 6 h (`stream-link:servers:v1:...`, empty lists 20 min). Solaris-first wait (6 s) is the
    USER'S CHOICE: do not switch to a Waves/hard-sub race.
    KV: ~700 keys only. Each deploy = new build id = whole page cache rewritten (KV writes); avoid many deploys a day.
-9. Smaller: Embed button in the SUB/DUB row, bottom sheets slide up, `crypto.randomUUID` fallback for plain-http LAN, YoruMi rename in Discord/fallback image.
+9. **Edge cache vs Error 1102 (commit 4627046, deployed, verified on yorumi.lol):** `lib/edge-page-cache.ts`, called from `worker.ts` before Next:
+   watch pages (`?ep=N[&dub=1]` only) 10 min, `GET /api/comments` 20 s (`&fresh=1` after a viewer's own post/delete bypasses it). Keyed by
+   `CF_VERSION_METADATA.id` (wrangler.jsonc `version_metadata`). Measured CPU: watch page 82-146 ms -> 0-1 ms on a hit; comments 123 ms miss / 0 hit.
+   Cache API works only on yorumi.lol (custom domain is LIVE now), not workers.dev. Remaining heavy: comment misses (Prisma), first render per colo.
+10. Smaller: Embed button in the SUB/DUB row, bottom sheets slide up, `crypto.randomUUID` fallback for plain-http LAN, YoruMi rename in Discord/fallback image.
 
 ## Findings worth knowing
 - Free plan: 10 ms CPU per request. A cold Worker start (whole Next server) costs 250–700 ms CPU and sometimes returns **Error 1102 / HTTP 503**.
