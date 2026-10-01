@@ -146,19 +146,51 @@ function getCachedPayload(key: string): ClientStreamPayload | null {
   return stored;
 }
 
-export function resolveClientStream(request: ClientStreamRequest): Promise<ClientStreamPayload> {
-  const key = clientStreamRequestKey(request);
-  const cached = getCachedPayload(key);
-  if (cached) return Promise.resolve(cached);
+/** Forget every client-side copy for one episode and language (all servers and providers). */
+function forgetEpisode(request: ClientStreamRequest): void {
+  const prefix = `${request.animeId}:ep${request.episodeNumber || 1}:${request.dubbed ? "dub" : "sub"}:`;
+  for (const key of [...resolvedStreams.keys()]) if (key.startsWith(prefix)) resolvedStreams.delete(key);
+  if (typeof window === "undefined") return;
+  try {
+    const storage = window.sessionStorage;
+    for (let i = storage.length - 1; i >= 0; i -= 1) {
+      const name = storage.key(i);
+      if (name && name.startsWith(`${STORAGE_PREFIX}${prefix}`)) storage.removeItem(name);
+    }
+  } catch {
+    // sessionStorage unavailable: the in-memory copies are already gone.
+  }
+}
 
-  const inFlight = inFlightStreams.get(key);
+/**
+ * Asks for a brand-new link for this episode, bypassing every cache (this browser's and the
+ * server's stored one), and remembers the result. Used when a stored link stopped working.
+ */
+export function refreshClientStream(request: ClientStreamRequest): Promise<ClientStreamPayload> {
+  forgetEpisode(request);
+  return resolveClientStream(request, { refresh: true });
+}
+
+export function resolveClientStream(
+  request: ClientStreamRequest,
+  options: { refresh?: boolean } = {},
+): Promise<ClientStreamPayload> {
+  const key = clientStreamRequestKey(request);
+  const refresh = options.refresh === true;
+  if (!refresh) {
+    const cached = getCachedPayload(key);
+    if (cached) return Promise.resolve(cached);
+  }
+
+  const flightKey = refresh ? `refresh:${key}` : key;
+  const inFlight = inFlightStreams.get(flightKey);
   if (inFlight) return inFlight;
 
   const promise = fetch("/api/resolve-source", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     cache: "no-store",
-    body: JSON.stringify(request),
+    body: JSON.stringify(refresh ? { ...request, refresh: true } : request),
   })
     .then(async (response) => {
       const payload = await response.json().catch(() => null) as ClientStreamPayload | { error?: string } | null;
@@ -177,10 +209,10 @@ export function resolveClientStream(request: ClientStreamRequest): Promise<Clien
       return payload;
     })
     .finally(() => {
-      inFlightStreams.delete(key);
+      inFlightStreams.delete(flightKey);
     });
 
-  inFlightStreams.set(key, promise);
+  inFlightStreams.set(flightKey, promise);
   return promise;
 }
 

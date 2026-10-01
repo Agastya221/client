@@ -16,7 +16,8 @@ import { measureAsync, recordLog } from "@/lib/observability";
  *   provider?: string,
  *   episodeId?: string,
  *   dubbed?: boolean,
- *   server?: string
+ *   server?: string,
+ *   refresh?: boolean   // discard the stored link for this episode and resolve a new one
  * }
  */
 export async function POST(request: NextRequest) {
@@ -29,6 +30,7 @@ export async function POST(request: NextRequest) {
       episodeId,
       dubbed,
       server,
+      refresh,
     } = body || {};
 
     if (!animeId || typeof animeId !== "string") {
@@ -57,6 +59,8 @@ export async function POST(request: NextRequest) {
           episodeId: episodeId || null,
           dubbed: Boolean(dubbed),
           server: server || null,
+          // The player hit an error or the viewer pressed "Refresh source": drop the stored link.
+          refresh: refresh === true,
         }),
     );
 

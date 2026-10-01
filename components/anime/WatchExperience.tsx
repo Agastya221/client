@@ -40,7 +40,7 @@ import {
   resolveNextAiringEpisode,
   type NextAiringEpisode,
 } from "@/lib/anime/airing";
-import { prefetchClientStream, resolveClientStream } from "@/lib/anime/client-stream-resolver";
+import { prefetchClientStream, refreshClientStream, resolveClientStream } from "@/lib/anime/client-stream-resolver";
 import type { AnilistMedia, AnilistSeasonEntry } from "@/lib/anilist/api";
 import * as playerPrefs from "@/lib/player/player-prefs";
 import {
@@ -1047,6 +1047,8 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
   } : null);
   const activeMetadataRequestKeyRef = useRef<string | null>(null);
   const failedServerIdsRef = useRef<Set<string>>(new Set());
+  // Servers whose stored link was already replaced once after a playback error.
+  const refreshedLinkKeysRef = useRef<Set<string>>(new Set());
   const [deferredRecommendations, setDeferredRecommendations] = useState<AnilistMedia[] | null>(initialRecommendations);
   const [deferredRelated, setDeferredRelated] = useState<RelatedAnimeEntry[] | null>(initialRelated);
   const [deferredDetail, setDeferredDetail] = useState<AnilistMedia | null>(null);
@@ -2159,6 +2161,36 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
     session.serverOptions, playerActivated, isSessionLoading, serverHealth.healthById, queueSession, serverPreference]);
 
   const handlePlaybackError = () => {
+    // Stream links are stored and reused (lib/stream-store.ts), so an error may just mean the
+    // stored link went stale. Fetch a fresh one for the same server and replay once, before
+    // blaming the server or switching away from it.
+    if (!isSessionLoading) {
+      const failingServerId = pendingSession?.activeServerId || session.activeServerId;
+      const refreshKey = `${session.anime.id}|${session.episode.number}|${session.dubbed ? "dub" : "sub"}|${failingServerId ?? "auto"}`;
+      if (!refreshedLinkKeysRef.current.has(refreshKey)) {
+        refreshedLinkKeysRef.current.add(refreshKey);
+        const request: SessionRequest = {
+          episodeNumber: session.episode.number,
+          provider: session.provider,
+          dubbed: session.dubbed,
+          server: failingServerId ?? null,
+        };
+        setPlaybackMessage("Refreshing the stream link…");
+        void refreshClientStream({ animeId: session.anime.id, ...request })
+          .then(() => resolveCurrentSource(request))
+          .then((fresh) => {
+            if (fresh.source) {
+              setPlaybackMessage(null);
+              commitSession(fresh);
+            } else {
+              refreshedLinkKeysRef.current.add(`${refreshKey}|gave-up`);
+              setPlaybackMessage("This link isn't working. Tap Change server to pick another one.");
+            }
+          })
+          .catch(() => setPlaybackMessage("Couldn't refresh the stream link. Tap Change server to pick another one."));
+        return;
+      }
+    }
     const rememberedChoice = preferredChoiceFor(session.dubbed);
     if (rememberedChoice) {
       setPlaybackMessage(
@@ -3166,7 +3198,16 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
                 ) : (
                   <button
                     type="button"
-                    onClick={() => queueSession({ episodeNumber: session.episode.number, provider: session.provider, dubbed: session.dubbed, server: null })}
+                    onClick={() => {
+                      // Drop the stored link first, or the "refresh" would just get it back.
+                      void refreshClientStream({
+                        animeId: session.anime.id,
+                        episodeNumber: session.episode.number,
+                        provider: session.provider,
+                        dubbed: session.dubbed,
+                        server: null,
+                      }).catch(() => undefined).finally(() => queueSession({ episodeNumber: session.episode.number, provider: session.provider, dubbed: session.dubbed, server: null }));
+                    }}
                     className="inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-bold text-white transition-colors hover:brightness-110"
                     style={{ backgroundColor: accentColor }}
                   >

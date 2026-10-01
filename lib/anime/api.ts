@@ -1,6 +1,14 @@
 import { cache } from "react";
 import { Prisma } from "@prisma/client";
 import { cacheFetch, cacheInvalidatePrefix, runAfterResponse } from "@/lib/cache";
+import { freshContext, isFreshRequest, withFreshParam } from "@/lib/anime/fresh-context";
+import {
+  deleteStoredStreams,
+  readStoredStream,
+  streamRefreshPrefixes,
+  streamStoreKey,
+  writeStoredStream,
+} from "@/lib/stream-store";
 import { measureAsync, recordCounter, recordLog } from "@/lib/observability";
 import { anilistTitle, getAnilistDetail, type AnilistMedia } from "@/lib/anilist/api";
 import { decryptEmbed } from "./reanime-decrypt";
@@ -1243,13 +1251,15 @@ function summarizeFailedResponseBody(body: string): string {
 }
 
 async function apiJson<T>(path: string, options?: { revalidate?: number; noStore?: boolean }): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  // During a stream refresh every Render call carries ?fresh=1 and skips every cache layer.
+  const fresh = isFreshRequest();
+  const response = await fetch(`${API_BASE_URL}${withFreshParam(path)}`, {
     headers: {
       Accept: "application/json, text/plain, */*",
       "User-Agent": "AnimeKAI-Frontend/1.0",
     },
-    cache: options?.noStore ? "no-store" : undefined,
-    next: options?.noStore ? undefined : { revalidate: options?.revalidate ?? DETAIL_REVALIDATE_SECONDS },
+    cache: options?.noStore || fresh ? "no-store" : undefined,
+    next: options?.noStore || fresh ? undefined : { revalidate: options?.revalidate ?? DETAIL_REVALIDATE_SECONDS },
   });
 
   if (!response.ok) {
@@ -4324,7 +4334,8 @@ async function fetchAnivexaProviderBucket(
 ): Promise<AnivexaAggregateBucket | null> {
   const audio = dubbed ? "dub" : "sub";
   const watchProvider = ANIVEXA_WORKER_WATCH_ALIAS[provider] || provider;
-  const url = `${base}/watch/${watchProvider}/${anilistId}/${audio}/${watchProvider}-${episodeNum}`;
+  // A stream refresh passes ?fresh=1 so Render skips its stored copy (see lib/anime/fresh-context.ts).
+  const url = withFreshParam(`${base}/watch/${watchProvider}/${anilistId}/${audio}/${watchProvider}-${episodeNum}`);
 
   try {
     const response = await fetch(url, {
@@ -6479,14 +6490,7 @@ export async function getQuickWatchSession(input: {
  * Called from the client via /api/resolve-source after the page renders.
  * Results are cached for 5 minutes.
  */
-export async function resolveStreamSource(input: {
-  animeId: string;
-  episodeNumber?: number;
-  provider?: ProviderId | null;
-  episodeId?: string | null;
-  dubbed?: boolean;
-  server?: string | null;
-}): Promise<{
+type ResolvedStream = {
   source: StreamSource | null;
   subtitles: SubtitleTrack[];
   serverOptions: ServerOption[];
@@ -6495,7 +6499,56 @@ export async function resolveStreamSource(input: {
   intro?: { start: number; end: number } | null;
   outro?: { start: number; end: number } | null;
   watchAttempts: WatchAttempt[];
-}> {
+};
+
+type ResolveStreamInput = {
+  animeId: string;
+  episodeNumber?: number;
+  provider?: ProviderId | null;
+  episodeId?: string | null;
+  dubbed?: boolean;
+  server?: string | null;
+  /** Throw away what is stored for this episode and resolve a new link (player error / Refresh source). */
+  refresh?: boolean;
+};
+
+/**
+ * Resolves an episode's stream, resolving each one only once: a playable result is stored
+ * (lib/stream-store.ts) and served from there until it is replaced. `refresh` replaces it
+ * (the player hit an error, or someone pressed "Refresh source").
+ */
+export async function resolveStreamSource(input: ResolveStreamInput): Promise<ResolvedStream> {
+  const storeRequest = {
+    animeId: input.animeId,
+    episodeNumber: input.episodeNumber,
+    dubbed: input.dubbed,
+    server: input.server,
+    provider: input.provider,
+  };
+  const storeKey = streamStoreKey(storeRequest);
+
+  if (input.refresh) {
+    // Only this server's links and the "auto" ones: other servers' links are still good.
+    await Promise.all(streamRefreshPrefixes(storeRequest).map((prefix) => deleteStoredStreams(prefix)));
+    cacheInvalidatePrefix(`stream:${input.animeId}:ep${input.episodeNumber || 1}:${input.dubbed ? "dub" : "sub"}:`, { persistent: false });
+    const anilistId = parseAnilistPassthroughId(input.animeId);
+    if (anilistId) cacheInvalidatePrefix(`anivexa-aggregate:${anilistId}:ep${input.episodeNumber || 1}:`, { persistent: false });
+  } else {
+    const stored = await readStoredStream<ResolvedStream>(storeKey);
+    if (stored && hasPlayableStreamSource(stored.result.source)) return stored.result;
+  }
+
+  // A refresh must reach past every cache, Render's included, or it would be handed the same link.
+  const result = input.refresh
+    ? await freshContext.run({ fresh: true }, () => resolveStreamSourceFresh(input))
+    : await resolveStreamSourceFresh(input);
+  if (hasPlayableStreamSource(result.source)) {
+    runAfterResponse(writeStoredStream(storeKey, result));
+  }
+  return result;
+}
+
+async function resolveStreamSourceFresh(input: ResolveStreamInput): Promise<ResolvedStream> {
   const isAnivexaSourceRequest = Boolean(
     input.server?.startsWith("anivexa2-") ||
     input.server?.startsWith("anivexa-") ||
