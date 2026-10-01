@@ -27,6 +27,9 @@ export async function GET(req: NextRequest) {
   const season = searchParams.get("season") || undefined;
   const seasonYear = Number(searchParams.get("year")) || undefined;
   const countryOfOrigin = searchParams.get("language") || undefined;
+  // The navbar's dropdown shows five results and never reads the availability hints, so it asks
+  // for a small page and skips the extra provider lookups (the slow part of a cold search).
+  const suggest = searchParams.get("suggest") === "1";
 
   const sort =
     sortParam === "trending" ? ["TRENDING_DESC"] :
@@ -43,7 +46,7 @@ export async function GET(req: NextRequest) {
       search,
       genre,
       page,
-      perPage: 24,
+      perPage: suggest ? 6 : 24,
       sort,
       status,
       format,
@@ -54,18 +57,23 @@ export async function GET(req: NextRequest) {
 
     let availabilityHints: Record<number, unknown> = {};
     try {
-      availabilityHints = result.media.length > 0
+      availabilityHints = !suggest && result.media.length > 0
         ? await getCatalogAvailabilityForMedia(result.media)
         : {};
     } catch {
       // Non-critical — proceed without hints
     }
 
-    return Response.json({
-      media: result.media,
-      pageInfo: result.pageInfo,
-      availabilityHints,
-    });
+    return Response.json(
+      {
+        media: result.media,
+        pageInfo: result.pageInfo,
+        availabilityHints,
+      },
+      // Catalogue data, the same for everyone: the browser may reuse it for a while, so typing
+      // the same thing again is instant, and show an older answer while fetching a fresh one.
+      { headers: { "Cache-Control": "public, max-age=600, stale-while-revalidate=86400" } },
+    );
   } catch (err) {
     return Response.json(
       { error: err instanceof Error ? err.message : "Search failed" },

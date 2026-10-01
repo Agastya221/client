@@ -244,10 +244,16 @@ export default function NavbarClient({ user }: NavbarClientProps) {
     setIsSearching(true);
     const delayDebounceFn = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/anilist-search?q=${encodeURIComponent(trimmed)}`);
+        // Never wait forever: after a quiet spell the first request can be slow, and a request
+        // that is cut off should end the spinner, not leave it going.
+        const res = await fetch(`/api/anilist-search?q=${encodeURIComponent(trimmed)}&suggest=1`, {
+          signal: typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(10_000) : undefined,
+        });
         if (res.ok) {
           const json = await res.json();
           setSuggestions(json.media?.slice(0, 5) || []);
+        } else {
+          setSuggestions([]);
         }
       } catch (err) {
         console.error("Suggestions fetch failed", err);

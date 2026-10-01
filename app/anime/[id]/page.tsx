@@ -29,7 +29,7 @@ import ThemeAccentSource from "@/components/ui/ThemeAccentSource";
 // so this adds at most ~4 KV writes a day per anime that is actually being viewed.
 // Note: non-AniList legacy routes (AnimeKaiDetailPage) now see empty search params.
 export const dynamic = "force-static";
-export const revalidate = 21600;
+export const revalidate = 86400;
 
 
 

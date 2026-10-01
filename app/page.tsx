@@ -30,7 +30,7 @@ import { CalendarDays, ChevronDown, ChevronRight, Flame, Megaphone, Radio, Star,
 // underneath keep the rebuild cheap. 30 minutes (not 5) keeps rebuilds to ~48 KV writes a
 // day against the free plan's 1,000.
 export const dynamic = "force-static";
-export const revalidate = 1800;
+export const revalidate = 10800;
 
 // How many hero slides get their logo/backdrop resolved on the server. The carousel
 // seeds from initialHeroAssets and fetches anything missing client-side, so this is a

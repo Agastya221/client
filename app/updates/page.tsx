@@ -7,7 +7,7 @@ import { getCatalogAvailabilityForMedia, getWatchHrefsFromAvailability } from "@
 // Served from a cached, pre-rendered copy, rebuilt in the background at most every 1 hour.
 // force-static is needed because the AniList fetches use cache: "no-store".
 export const dynamic = "force-static";
-export const revalidate = 3600;
+export const revalidate = 10800;
 
 export const metadata = {
   title: "Anime Schedule & Airing Updates | Yorumi",

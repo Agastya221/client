@@ -27,7 +27,12 @@
   // Non-secret. AniList blocks Cloudflare's egress IPs, so its GraphQL traffic is routed
   // through the Anivexa API on Render (lib/anilist/endpoint.ts). ANILIST_PROXY_KEY is the
   // matching shared secret and is set as a secret, never here.
-  "vars": { "ANILIST_PROXY_URL": "https://tatakai-anivexa-api.onrender.com/anilist" },
+  "vars": {
+    "ANILIST_PROXY_URL": "https://tatakai-anivexa-api.onrender.com/anilist",
+    // The address the cron's page pre-warmer fetches pages from (worker.ts). Change it to the
+    // custom domain once that is live.
+    "SITE_ORIGIN": "https://tatakai-anime-website.tatakai-anime.workers.dev"
+  },
 
   "compatibility_date": "2026-09-26",
 

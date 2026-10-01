@@ -10,6 +10,7 @@
  */
 import { ACCESS_COOKIE, getAccessConfig, readCookie, signedSessionMember, verifySession } from "./invite";
 import { safeNextPath } from "./next-path";
+import { verifyWarmToken, WARM_HEADER } from "../warm-pages";
 import { resolveAccessConfig } from "./settings";
 
 export const INVITE_PAGE = "/beta-access";
@@ -50,6 +51,13 @@ export async function applyAccessGate(request: Request, env?: Record<string, unk
   const url = new URL(request.url);
   const onInvitePage = url.pathname === INVITE_PAGE && wantsPage(request);
   if (request.method === "OPTIONS" || (isOpenPath(url.pathname) && !onInvitePage)) return null;
+
+  // The site's own page pre-warmer (cron) fetches pages from inside; it proves itself with a
+  // token derived from the site secret. Pages only: the warm token opens no API.
+  const warm = request.headers.get(WARM_HEADER);
+  if (warm && request.method === "GET" && wantsPage(request) && (await verifyWarmToken(getAccessConfig(env).secret, warm))) {
+    return null;
+  }
 
   const cookie = readCookie(request.headers.get("cookie"), ACCESS_COOKIE);
   let config = await resolveAccessConfig(env);

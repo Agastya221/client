@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined };
 
@@ -63,24 +64,53 @@ function createPrismaClient() {
 }
 
 /**
- * Lazy Prisma proxy — the actual client is only created the first time a
- * database operation is called, NOT at module-import time.
- *
- * This prevents the "DATABASE_URL is required" error that crashes Next.js
- * static page collection during `next build` when the env var hasn't been
- * injected yet (e.g. Vercel build phase before runtime env vars are applied).
- *
- * Pages that never touch the database (home, search, genres, watch…) import
- * things that ultimately import auth.ts → db.ts, but they never call any
- * Prisma method, so the lazy init never fires and the build succeeds.
+ * Returns the Workers ExecutionContext of the request being handled, or null outside
+ * Workers (next dev, tests, scripts). Read lazily: the adapter only sets it per request.
+ */
+function currentRequestContext(): object | null {
+  try {
+    const ctx = getCloudflareContext().ctx as unknown;
+    return ctx && typeof ctx === "object" ? ctx : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * One client per request on Workers. A Worker may not reuse a socket opened while
+ * handling a different request ("Cannot perform I/O on behalf of a different request"),
+ * so a single global client breaks the second request an isolate serves. Keyed by the
+ * request's ExecutionContext in a WeakMap, so it is dropped with the request.
+ * Outside Workers a single process-wide client is kept, as before.
+ */
+const clientsByRequest = new WeakMap<object, PrismaClient>();
+
+export function getPrisma(): PrismaClient {
+  const ctx = currentRequestContext();
+  if (ctx) {
+    let client = clientsByRequest.get(ctx);
+    if (!client) {
+      client = createPrismaClient();
+      clientsByRequest.set(ctx, client);
+    }
+    return client;
+  }
+  if (!globalForPrisma.prisma) {
+    globalForPrisma.prisma = createPrismaClient();
+  }
+  return globalForPrisma.prisma;
+}
+
+/**
+ * Lazy Prisma proxy: the real client is only created the first time a database
+ * operation is called, NOT at module-import time, so `next build` works without
+ * DATABASE_URL. Every property access resolves the client for the current request
+ * (see getPrisma), so existing `prisma.x.y()` call sites need no change.
  */
 export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
   get(_target, prop) {
-    // Initialise (and cache) the real client on first property access
-    if (!globalForPrisma.prisma) {
-      globalForPrisma.prisma = createPrismaClient();
-    }
-    const value = (globalForPrisma.prisma as unknown as Record<string | symbol, unknown>)[prop];
-    return typeof value === "function" ? value.bind(globalForPrisma.prisma) : value;
+    const client = getPrisma();
+    const value = (client as unknown as Record<string | symbol, unknown>)[prop];
+    return typeof value === "function" ? value.bind(client) : value;
   },
 });

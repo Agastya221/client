@@ -15,9 +15,13 @@ import openNext from "./.open-next/worker.js";
 export { DOQueueHandler, DOShardedTagCache, BucketCachePurge } from "./.open-next/worker.js";
 import { maybeHandleFastSegment } from "./lib/proxy/fast-segment";
 import { applyAccessGate } from "./lib/access/gate";
+import { getAccessConfig } from "./lib/access/invite";
+import { makeWarmToken, WARM_HEADER } from "./lib/warm-pages";
 
 interface ScheduledEnv {
   ANIVEXA_API_BASE_URL?: string;
+  SITE_ORIGIN?: string;
+  [key: string]: unknown;
 }
 
 interface ExecutionContextLike {
@@ -47,6 +51,7 @@ export default {
    * fits while it is the account's single free service.
    */
   async scheduled(_controller: unknown, env: ScheduledEnv, ctx: ExecutionContextLike): Promise<void> {
+    ctx.waitUntil(warmPages(env, ctx));
     const base = env.ANIVEXA_API_BASE_URL?.trim().replace(/\/+$/, "");
     if (!base) {
       console.warn("keep-warm skipped: ANIVEXA_API_BASE_URL is not set");
@@ -70,3 +75,27 @@ export default {
     );
   },
 };
+
+/**
+ * Pre-renders a rotating batch of popular anime pages (see app/api/cron/warm-pages/route.ts) so
+ * visitors find them cached. Runs inside the same Worker, so it also keeps this copy of the
+ * Next.js server warm. Never throws: a failed warm-up must not affect the keep-warm ping.
+ */
+async function warmPages(env: ScheduledEnv, ctx: ExecutionContextLike): Promise<void> {
+  const origin = env.SITE_ORIGIN?.trim().replace(/\/+$/, "");
+  const secret = getAccessConfig({ ...env, SITE_ACCESS: "on" }).secret;
+  if (!origin || !secret) {
+    console.warn("warm-pages skipped: SITE_ORIGIN or the site secret is not set");
+    return;
+  }
+  try {
+    const request = new Request(`${origin}/api/cron/warm-pages?n=4`, {
+      headers: { [WARM_HEADER]: await makeWarmToken(secret) },
+    });
+    const response = await (openNext.fetch as (request: Request, env: unknown, ctx: unknown) => Promise<Response>)(request, env, ctx);
+    const summary = (await response.text()).slice(0, 600);
+    console.log(`warm-pages ${response.status}: ${summary}`);
+  } catch (error) {
+    console.warn("warm-pages failed:", String(error));
+  }
+}
