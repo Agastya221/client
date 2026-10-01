@@ -140,6 +140,8 @@ export async function writeStoredStream<R>(
 
 /** How long an episode's server list is kept: lists change rarely, and a dead server is caught by the health checks. */
 export const SERVER_LIST_SECONDS = 6 * 60 * 60;
+/** An empty list ("this provider has no servers for the episode") is kept only this long. */
+export const EMPTY_SERVER_LIST_SECONDS = 20 * 60;
 
 /** One episode's servers for one provider and language. Outside the stream-link prefixes, so a link refresh leaves it alone. */
 export function serverListStoreKey(request: {
@@ -154,11 +156,12 @@ export function serverListStoreKey(request: {
 export async function writeStoredServerList<R>(
   key: string,
   options: R,
+  ttlSeconds = SERVER_LIST_SECONDS,
   storage: StreamStorage = defaultStreamStorage,
   now = Date.now(),
 ): Promise<void> {
   try {
-    await storage.set(key, { v: 1, result: options, storedAt: now } satisfies StoredStream<R>, SERVER_LIST_SECONDS);
+    await storage.set(key, { v: 1, result: options, storedAt: now } satisfies StoredStream<R>, ttlSeconds);
   } catch {
     // Best-effort: the list is just asked for again next time.
   }

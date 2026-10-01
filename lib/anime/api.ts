@@ -5,6 +5,7 @@ import { freshContext, isFreshRequest, withFreshParam } from "@/lib/anime/fresh-
 import {
   deleteStoredStreams,
   isExplicitServer,
+  EMPTY_SERVER_LIST_SECONDS,
   readStoredStream,
   serverListStoreKey,
   streamRefreshPrefixes,
@@ -4112,9 +4113,12 @@ export async function discoverAnivexaProviderServerOptions(input: {
     // the list at once instead of waiting for the provider lookup behind the stream (5-13 s).
     const storeKey = serverListStoreKey(input);
     const stored = await readStoredStream<ServerOption[]>(storeKey);
-    if (stored && stored.result.length > 0) return restamp(stored.result);
+    if (stored && Array.isArray(stored.result)) return restamp(stored.result);
     const remember = (options: ServerOption[]) => {
-      if (options.length > 0) runAfterResponse(writeStoredServerList(storeKey, options));
+      // "No servers" is kept too, briefly: a provider without this episode (often Waves dub)
+      // otherwise held the whole picker in "loading" for ~14 s on every visit. Short, so a
+      // provider that only failed for a moment is asked again soon.
+      runAfterResponse(writeStoredServerList(storeKey, options, options.length > 0 ? undefined : EMPTY_SERVER_LIST_SECONDS));
       return restamp(options);
     };
 
