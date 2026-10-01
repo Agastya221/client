@@ -1,6 +1,10 @@
 import { searchAnilist } from "@/lib/anilist/api";
 import { getCatalogAvailabilityForMedia } from "@/lib/anilist/availability";
 import { NextRequest } from "next/server";
+import { runAfterResponse } from "@/lib/cache";
+import { readStoredStream, SEARCH_RESULT_SECONDS, searchStoreKey, writeStoredValue } from "@/lib/stream-store";
+
+const RESPONSE_HEADERS = { "Cache-Control": "public, max-age=600, stale-while-revalidate=86400" };
 
 export const runtime = "nodejs";
 
@@ -41,6 +45,13 @@ export async function GET(req: NextRequest) {
 
   const current = sortParam === "season" && !season && !seasonYear ? getCurrentSeasonAndYear() : undefined;
 
+  // Shared answer from Redis first: a search someone already made never reaches AniList again.
+  const storeKey = searchStoreKey({ q: search, genre, page, sort: sortParam, format, status, season, year: seasonYear, language: countryOfOrigin, suggest });
+  const stored = await readStoredStream<{ media: unknown[] }>(storeKey);
+  if (stored && Array.isArray(stored.result.media) && stored.result.media.length > 0) {
+    return Response.json(stored.result, { headers: { ...RESPONSE_HEADERS, "x-search-cache": "HIT" } });
+  }
+
   try {
     const result = await searchAnilist({
       search,
@@ -64,16 +75,12 @@ export async function GET(req: NextRequest) {
       // Non-critical — proceed without hints
     }
 
-    return Response.json(
-      {
-        media: result.media,
-        pageInfo: result.pageInfo,
-        availabilityHints,
-      },
-      // Catalogue data, the same for everyone: the browser may reuse it for a while, so typing
-      // the same thing again is instant, and show an older answer while fetching a fresh one.
-      { headers: { "Cache-Control": "public, max-age=600, stale-while-revalidate=86400" } },
-    );
+    const body = { media: result.media, pageInfo: result.pageInfo, availabilityHints };
+    // Only real answers are shared; an empty one is usually a rate-limited or failed lookup.
+    if (result.media.length > 0) runAfterResponse(writeStoredValue(storeKey, body, SEARCH_RESULT_SECONDS));
+    // Catalogue data, the same for everyone: the browser may reuse it for a while, so typing
+    // the same thing again is instant, and show an older answer while fetching a fresh one.
+    return Response.json(body, { headers: RESPONSE_HEADERS });
   } catch (err) {
     return Response.json(
       { error: err instanceof Error ? err.message : "Search failed" },

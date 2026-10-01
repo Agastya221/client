@@ -167,6 +167,36 @@ export async function writeStoredServerList<R>(
   }
 }
 
+/** How long a search answer is shared: catalogue data, it changes slowly. */
+export const SEARCH_RESULT_SECONDS = 24 * 60 * 60;
+
+/**
+ * One search answer, shared by everyone, so a repeated search never reaches AniList (rate-limited
+ * for the whole site). The query is normalised so "Naruto" and "naruto " share an entry. Kept
+ * under the stream-link prefix only because both stores accept nothing else.
+ */
+export function searchStoreKey(params: Record<string, string | number | boolean | undefined>): string {
+  const parts = Object.entries(params)
+    .filter(([, value]) => value !== undefined && value !== "" && value !== false)
+    .map(([name, value]) => `${name}=${name === "q" ? String(value).toLowerCase().replace(/\s+/g, " ").trim() : value}`)
+    .sort();
+  return `stream-link:search:v1:${encodeURIComponent(parts.join("&"))}`.slice(0, 290);
+}
+
+export async function writeStoredValue<R>(
+  key: string,
+  value: R,
+  ttlSeconds: number,
+  storage: StreamStorage = defaultStreamStorage,
+  now = Date.now(),
+): Promise<void> {
+  try {
+    await storage.set(key, { v: 1, result: value, storedAt: now } satisfies StoredStream<R>, ttlSeconds);
+  } catch {
+    // Best-effort.
+  }
+}
+
 export async function deleteStoredStreams(prefix: string, storage: StreamStorage = defaultStreamStorage): Promise<void> {
   try {
     await storage.deletePrefix(prefix);

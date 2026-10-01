@@ -149,11 +149,14 @@ async function anilistQuery<T>(query: string, variables?: Record<string, unknown
       status_code: res.status,
       retryable: shouldRetry,
     }, responseBody || `AniList API error: ${res.status}`);
-    if (!shouldRetry || attempt === 2) {
+    const retryAfterSeconds = Number(res.headers.get("retry-after") || 0);
+    // A rate limit (429) asks us to wait, often up to a minute, and every AniList request of the
+    // whole site shares that limit (they all leave through Render). Waiting it out held searches
+    // for 20-40 s; give up at once instead, so callers fall back (search: the built-in list).
+    if (!shouldRetry || attempt === 2 || (res.status === 429 && retryAfterSeconds > 2)) {
       throw lastError;
     }
 
-    const retryAfterSeconds = Number(res.headers.get("retry-after") || 0);
     const waitMs = retryAfterSeconds > 0
       ? retryAfterSeconds * 1000
       : 500 * (attempt + 1);
@@ -1244,6 +1247,11 @@ export async function getAnilistPopular(perPage = 20): Promise<AnilistMedia[]> {
   );
 }
 
+function hasSearchResults(value: unknown, search?: string): boolean {
+  const media = value && typeof value === "object" ? (value as { media?: unknown[] }).media : undefined;
+  return Array.isArray(media) && (media.length > 0 || !search);
+}
+
 export async function searchAnilist(options: {
   search?: string;
   genre?: string;
@@ -1302,12 +1310,9 @@ export async function searchAnilist(options: {
         staleMs: SEARCH_STALE_MS,
         expireMs: SEARCH_EXPIRE_MS,
         persistent: false,
-        shouldCache: (value) =>
-          Boolean(
-            value &&
-            typeof value === "object" &&
-            Array.isArray((value as { media?: unknown[] }).media),
-          ),
+        // An empty answer is usually a failed or rate-limited lookup, not a real "no such anime";
+        // kept, it showed nothing for an exact title for hours.
+        shouldCache: (value) => hasSearchResults(value, options.search),
       },
     ),
     () => cacheFetch(
@@ -1318,12 +1323,9 @@ export async function searchAnilist(options: {
         staleMs: SEARCH_STALE_MS,
         expireMs: SEARCH_EXPIRE_MS,
         persistent: false,
-        shouldCache: (value) =>
-          Boolean(
-            value &&
-            typeof value === "object" &&
-            Array.isArray((value as { media?: unknown[] }).media),
-          ),
+        // An empty answer is usually a failed or rate-limited lookup, not a real "no such anime";
+        // kept, it showed nothing for an exact title for hours.
+        shouldCache: (value) => hasSearchResults(value, options.search),
       },
     ),
     () => cacheFetch(
@@ -1334,7 +1336,7 @@ export async function searchAnilist(options: {
         staleMs: SEARCH_STALE_MS,
         expireMs: SEARCH_EXPIRE_MS,
         persistent: false,
-        shouldCache: (value) => Boolean(value && Array.isArray((value as { media?: unknown[] }).media)),
+        shouldCache: (value) => hasSearchResults(value, options.search),
       },
     ),
   );

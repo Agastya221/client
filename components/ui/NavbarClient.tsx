@@ -8,6 +8,7 @@ import UserMenu from "@/components/ui/UserMenu";
 import SiteWatching from "@/components/ui/SiteWatching";
 import { HOME_VIEW_EVENT, type HomeViewMode } from "@/lib/home-view";
 import { type AnilistMedia, anilistTitle, anilistFormat, anilistYear, encodeAnilistRouteId } from "@/lib/anilist/api";
+import { loadSearchIndex, searchIndex } from "@/lib/search-index";
 import { useNavigationPending } from "@/components/ui/NavigationPendingController";
 import YorumiWordmark from "@/components/ui/YorumiWordmark";
 import { DEFAULT_THEME_ACCENT, dispatchThemeAccent } from "@/lib/theme-accent";
@@ -233,7 +234,14 @@ export default function NavbarClient({ user }: NavbarClientProps) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Debounced search suggestions
+  // Fetch the title list as soon as a search box opens, so the first letter typed already has it.
+  useEffect(() => {
+    if (isDesktopFocused || mobileSearchActive) void loadSearchIndex();
+  }, [isDesktopFocused, mobileSearchActive]);
+
+  // Search suggestions: the built-in title list answers at once (lib/search-index.ts), then
+  // AniList's answer is merged in when it arrives. AniList is rate-limited for the whole site,
+  // so it must never be the only thing between typing and seeing a result.
   useEffect(() => {
     const trimmed = searchValue.trim();
     if (!trimmed) {
@@ -242,28 +250,39 @@ export default function NavbarClient({ user }: NavbarClientProps) {
       return;
     }
 
-    setIsSearching(true);
+    let cancelled = false;
+    let local: AnilistMedia[] = [];
+    void searchIndex(trimmed, 5).then((matches) => {
+      if (cancelled) return;
+      local = matches;
+      setSuggestions(matches);
+      setIsSearching(matches.length === 0);
+    });
+
     const delayDebounceFn = setTimeout(async () => {
       try {
         // Never wait forever: after a quiet spell the first request can be slow, and a request
         // that is cut off should end the spinner, not leave it going.
         const res = await fetch(`/api/anilist-search?q=${encodeURIComponent(trimmed)}&suggest=1`, {
-          signal: typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(10_000) : undefined,
+          signal: typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(8_000) : undefined,
         });
-        if (res.ok) {
-          const json = await res.json();
-          setSuggestions(json.media?.slice(0, 5) || []);
-        } else {
-          setSuggestions([]);
-        }
+        if (!res.ok || cancelled) return;
+        const json = await res.json();
+        const remote: AnilistMedia[] = json.media || [];
+        const seen = new Set(local.map((media) => media.id));
+        // List matches first (they are ranked for this exact text), then anything new from AniList.
+        setSuggestions([...local, ...remote.filter((media) => !seen.has(media.id))].slice(0, 5));
       } catch (err) {
         console.error("Suggestions fetch failed", err);
       } finally {
-        setIsSearching(false);
+        if (!cancelled) setIsSearching(false);
       }
     }, 300);
 
-    return () => clearTimeout(delayDebounceFn);
+    return () => {
+      cancelled = true;
+      clearTimeout(delayDebounceFn);
+    };
   }, [searchValue]);
 
   function handleSearch(e: React.FormEvent) {

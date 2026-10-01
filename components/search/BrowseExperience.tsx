@@ -3,6 +3,7 @@
 import AnilistCard from "@/components/anilist/AnilistCard";
 import type { CatalogAvailabilityHint } from "@/lib/anime/api";
 import type { AnilistMedia, AnilistPageInfo } from "@/lib/anilist/api";
+import { loadSearchIndex, searchIndex } from "@/lib/search-index";
 import {
   Check,
   ChevronDown,
@@ -129,6 +130,27 @@ function buildQuery(filters: BrowseFilters): string {
   return params.toString();
 }
 
+function localPageInfo(count: number): AnilistPageInfo {
+  return { total: count, currentPage: 1, lastPage: 1, hasNextPage: false, perPage: 24 };
+}
+
+/**
+ * The list's matches (ranked for exactly this text) first, then AniList's that are not already
+ * there. An empty or failed AniList answer leaves the list's matches standing.
+ */
+function mergeWithLocal(local: AnilistMedia[], payload: BrowseData): BrowseData {
+  if (payload.media.length === 0) {
+    return { media: local, pageInfo: localPageInfo(local.length), availabilityHints: payload.availabilityHints ?? {} };
+  }
+  const byId = new Map(payload.media.map((media) => [media.id, media]));
+  const media = [
+    // Prefer AniList's full record for a title both have (description, airing info).
+    ...local.map((entry) => byId.get(entry.id) ?? entry),
+    ...payload.media.filter((entry) => !local.some((item) => item.id === entry.id)),
+  ].slice(0, 24);
+  return { ...payload, media };
+}
+
 function CardSkeleton() {
   return (
     <div className="animate-pulse">
@@ -217,23 +239,56 @@ export default function BrowseExperience({
     setLoading(true);
     setError(null);
 
+    // A plain title search is answered at once from the built-in title list (lib/search-index.ts);
+    // AniList's fuller answer replaces it when it arrives. AniList is rate-limited for the whole
+    // site, and when it is busy the search used to spin, or come back empty for an exact title.
+    const plainTextSearch = Boolean(filters.q.trim()) && filters.page === 1 &&
+      !filters.genre && !filters.format && !filters.status && !filters.season && !filters.year && !filters.language &&
+      (!filters.sort || filters.sort === "popular");
+    let local: AnilistMedia[] = [];
+    if (plainTextSearch) {
+      local = await searchIndex(filters.q, 24);
+      if (controller.signal.aborted) return;
+      if (local.length > 0) {
+        startTransition(() => {
+          setData({ media: local, pageInfo: localPageInfo(local.length), availabilityHints: {} });
+          setResultKey(query);
+        });
+      }
+    }
+
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 15_000);
     try {
       const response = await fetch(`/api/anilist-search?${query}`, { signal: controller.signal });
       if (!response.ok) throw new Error(`Browse request failed (${response.status})`);
       const payload = await response.json() as BrowseData;
-      resultCache.set(query, payload);
+      const merged = local.length > 0
+        ? mergeWithLocal(local, payload)
+        : payload;
+      if (payload.media.length > 0) resultCache.set(query, merged);
       startTransition(() => {
-        setData(payload);
+        setData(merged);
         setResultKey(query || "popular");
       });
     } catch (fetchError) {
-      if ((fetchError as Error).name !== "AbortError") {
-        setError(fetchError instanceof Error ? fetchError.message : "Unable to load anime");
+      if ((fetchError as Error).name !== "AbortError" || timedOut) {
+        // With list results on screen the viewer already has an answer; only say something
+        // went wrong when there is nothing to show.
+        if (local.length === 0) {
+          setError(timedOut ? "The search took too long. Try again." : fetchError instanceof Error ? fetchError.message : "Unable to load anime");
+        }
       }
     } finally {
-      if (!controller.signal.aborted) setLoading(false);
+      clearTimeout(timer);
+      if (!controller.signal.aborted || timedOut) setLoading(false);
     }
-  }, [query]);
+  }, [query, filters]);
+
+  // This page is for searching: have the title list ready before the first query.
+  useEffect(() => {
+    void loadSearchIndex();
+  }, []);
 
   useEffect(() => {
     void fetchResults();
