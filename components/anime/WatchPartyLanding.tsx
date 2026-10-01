@@ -194,7 +194,7 @@ export default function WatchPartyLanding({
                 <Users className="h-5 w-5" />
               </div>
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-white/35">Tatakai</p>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-white/35">YoruMi</p>
                 <p className="text-base font-black text-white">Watch Together</p>
               </div>
             </div>

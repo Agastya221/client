@@ -22,6 +22,7 @@ import AniListStatusModal from "@/components/anime/AniListStatusModal";
 import AiringAwareWatchLink from "@/components/anime/AiringAwareWatchLink";
 import ExpandableSynopsis from "@/components/anime/ExpandableSynopsis";
 import ThemeAccentSource from "@/components/ui/ThemeAccentSource";
+import WatchDataPrefetch from "@/components/anime/WatchDataPrefetch";
 
 // Served from a cached, pre-rendered copy per anime, rebuilt in the background at most
 // every 6 hours (an anime's details rarely change within a day). force-static is needed
@@ -123,6 +124,7 @@ async function AnilistDetailContent({ anilistId }: { anilistId: number }) {
   return (
     <>
       <ThemeAccentSource color={accentColor} />
+      <WatchDataPrefetch anilistId={anilistId} />
       {/* Hero Section */}
       <section className="relative overflow-hidden">
         {/* Banner bg */}

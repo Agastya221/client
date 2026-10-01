@@ -220,7 +220,8 @@ export function EpisodeNumberGrid({
   episodes: Pick<EpisodeModel, "number" | "title" | "isSubbed" | "isDubbed">[];
   activeNumber: number;
   onSelect: (num: number) => void;
-  onHover?: (num: number) => void;
+  /** `immediate` is true on a press (mouse or touch), false on hover or focus. */
+  onHover?: (num: number, immediate?: boolean) => void;
   watchedSet?: Set<number>;
   accentColor?: string;
   isHostLocked?: boolean;
@@ -291,6 +292,7 @@ export function EpisodeNumberGrid({
               onClick={() => onSelect(ep.number)}
               onMouseEnter={() => onHover?.(ep.number)}
               onFocus={() => onHover?.(ep.number)}
+              onPointerDown={() => onHover?.(ep.number, true)}
               aria-label={`${ep.title}${isWatched ? ", watched" : ""}`}
               data-active-episode={isActive ? "true" : undefined}
               className={`

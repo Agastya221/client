@@ -1501,7 +1501,10 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
   // Only show the feedback overlay while actively loading a new session (not during initial embed load)
   // This prevents the "OPENING PLAYER" overlay from blocking the iframe while it loads.
   // Also show while the new iframe hasn't called onReady yet, to hide the white flash.
-  const showPlayerFeedback = playerActivated && (isSessionLoading || (embedAvailable && !activeEmbedLoaded));
+  // From the click on another episode until its link arrives. The old episode's video must not
+  // stay mounted (or be mounted by pressing Play): the poster of the new one shows with a spinner.
+  const switchingEpisode = optimisticEpisodeNumber !== null && optimisticEpisodeNumber !== session.episode.number;
+  const showPlayerFeedback = playerActivated && !switchingEpisode && (isSessionLoading || (embedAvailable && !activeEmbedLoaded));
 
   useEffect(() => {
     return () => {
@@ -2271,7 +2274,8 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
     manualServerRef.current = null;
   }, [session.anime.id, session.episode.number, session.dubbed]);
 
-  const prefetchEpisode = (episodeNumber: number) => {
+  /** Hover waits a moment before fetching; a press (mouse or touch, phones have no hover) starts at once. */
+  const prefetchEpisode = (episodeNumber: number, immediate = false) => {
     if (episodeNumber === session.episode.number) return;
     const prefetchKey = [session.anime.id, session.provider, session.dubbed ? "dub" : "sub", episodeNumber].join("|");
     if (hoverPrefetchKeyRef.current === prefetchKey) return;
@@ -2288,9 +2292,10 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
         episodeNumber,
         provider: session.provider,
         dubbed: session.dubbed,
-        server: session.activeServerId,
+        // The same server goToEpisode will ask for, so the click finds this result.
+        server: effectiveActiveServerId || session.activeServerId,
       });
-    }, 220);
+    }, immediate ? 0 : 220);
   };
 
   /* ── Episode navigation ──────────────────────── */
@@ -2573,6 +2578,36 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
     });
   };
 
+  /** What the Dub button asks for (null when dub is already on or not offered). */
+  const dubSwitchRequest = (): SessionRequest | null => {
+    if (!((!effectiveDubbed || effectiveProvider === "desidub") && hasDub)) return null;
+    const dubChoice = preferredChoiceFor(true);
+    const verifiedDub = dubChoice ? null : bestVerifiedServer(focusedServers.dub, serverHealth.healthById);
+    return {
+      episodeNumber: getFallbackEpisodeForLanguage(true, session.episode.number),
+      provider: effectiveProvider === "desidub" ? mainFallback : effectiveProvider,
+      server: dubChoice ? serverIdForChoice(dubChoice) : verifiedDub?.id || focusedServers.dub[0]?.id || null,
+      dubbed: true,
+    };
+  };
+
+  // Once the sub version is playing, fetch the dub link in the background so the Dub button
+  // switches at once. Same request as the button, so the click finds this result.
+  const dubCandidate = activeEmbedLoaded && !isSessionLoading && !session.dubbed ? dubSwitchRequest() : null;
+  // The site's own embed servers switch locally with no request, so there is nothing to fetch.
+  const dubPrefetch = dubCandidate && !tryBuildLocalSession(session, dubCandidate) ? dubCandidate : null;
+  const dubPrefetchKey = dubPrefetch
+    ? [dubPrefetch.episodeNumber, dubPrefetch.provider, dubPrefetch.server].join("|")
+    : null;
+  const dubPrefetchRef = useRef<SessionRequest | null>(null);
+  dubPrefetchRef.current = dubPrefetch;
+  useEffect(() => {
+    const request = dubPrefetchRef.current;
+    if (!dubPrefetchKey || !request) return;
+    const timer = setTimeout(() => prefetchWatchSession(session.anime.id, request), 1500);
+    return () => clearTimeout(timer);
+  }, [dubPrefetchKey, session.anime.id]);
+
   const internalHardSubServers = focusedServers.hard;
   const internalSoftSubServers = focusedServers.soft;
   const internalDubServers = focusedServers.dub;
@@ -2781,6 +2816,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
             type="button"
             onClick={() => goToEpisode(nextEpisode.number)}
             onMouseEnter={() => prefetchEpisode(nextEpisode.number)}
+            onPointerDown={() => prefetchEpisode(nextEpisode.number, true)}
             onFocus={() => prefetchEpisode(nextEpisode.number)}
             className="hidden w-full rounded-xl border px-3 py-2.5 text-left transition-all hover:brightness-110 sm:block"
             style={{ background: accentStyle(0.1), borderColor: accentStyle(0.28) }}
@@ -2909,6 +2945,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
                   type="button"
                   onClick={() => goToEpisode(episode.number)}
                   onMouseEnter={() => prefetchEpisode(episode.number)}
+                  onPointerDown={() => prefetchEpisode(episode.number, true)}
                   onFocus={() => prefetchEpisode(episode.number)}
                   data-active-episode={active ? "true" : undefined}
                   className={`watch-episode-card group/episode relative flex w-full gap-0 overflow-hidden rounded-[11px] border text-left transition-[border-color,background-color,box-shadow,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.28)] active:brightness-110 ${episodeArtwork ? "h-[76px] sm:h-[100px]" : "h-[58px] sm:h-[68px]"} ${active ? "is-active" : ""}`}
@@ -2996,6 +3033,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
                   type="button"
                   onClick={() => goToEpisode(episode.number)}
                   onMouseEnter={() => prefetchEpisode(episode.number)}
+                  onPointerDown={() => prefetchEpisode(episode.number, true)}
                   onFocus={() => prefetchEpisode(episode.number)}
                   data-active-episode={active ? "true" : undefined}
                   className="watch-episode-row group/ep flex h-9 w-full items-center gap-2 rounded-lg border px-2.5 text-left transition-[background-color,border-color,color,box-shadow,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
@@ -3055,11 +3093,11 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
       {/* ── VIDEO PLAYER ────────────────────────── */}
       <div className="relative overflow-hidden rounded-xl border border-white/10 bg-black shadow-[0_12px_32px_rgba(0,0,0,0.24)] sm:rounded-2xl">
         <div className="relative aspect-video overflow-hidden bg-black">
-          {!playerActivated && (embedAvailable || session.stale) ? (
+          {switchingEpisode || (!playerActivated && (embedAvailable || session.stale)) ? (
             <button
               type="button"
               onClick={activatePlayer}
-              aria-label={`Play Episode ${session.episode.number}`}
+              aria-label={`Play Episode ${displayedEpisode.number}`}
               className="group absolute inset-0 z-10 overflow-hidden text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset"
               style={{ "--tw-ring-color": accentColor } as React.CSSProperties}
             >
@@ -3068,17 +3106,30 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
                 thumbnailArtwork={playerThumbnailImage}
                 episodeArtwork={playerPosterImage}
               />
-              <span className="absolute left-1/2 top-1/2 z-[3] inline-flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-black/10 bg-white/95 text-black shadow-[0_10px_30px_rgba(0,0,0,0.38)] transition-all duration-200 group-hover:scale-105 group-hover:bg-white group-focus-visible:scale-105 sm:h-14 sm:w-14">
-                <Play className="h-5 w-5 translate-x-px fill-current sm:h-6 sm:w-6" aria-hidden="true" />
-              </span>
-              <span className="absolute inset-x-4 bottom-4 z-[3] block truncate text-sm font-bold text-white drop-shadow-[0_2px_5px_rgba(0,0,0,0.95)] sm:inset-x-6 sm:bottom-6 sm:text-base">
-                Episode {displayedEpisode.number}{displayedEpisode.title !== `Episode ${displayedEpisode.number}` ? ` · ${displayedEpisode.title}` : ""}
+              {switchingEpisode ? (
+                <span className="absolute left-1/2 top-1/2 z-[3] inline-flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/55 backdrop-blur-sm sm:h-14 sm:w-14">
+                  <span className="h-6 w-6 animate-spin rounded-full border-2 border-white/20 sm:h-7 sm:w-7" style={{ borderTopColor: accentColor }} />
+                </span>
+              ) : (
+                <span className="absolute left-1/2 top-1/2 z-[3] inline-flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-black/10 bg-white/95 text-black shadow-[0_10px_30px_rgba(0,0,0,0.38)] transition-all duration-200 group-hover:scale-105 group-hover:bg-white group-focus-visible:scale-105 sm:h-14 sm:w-14">
+                  <Play className="h-5 w-5 translate-x-px fill-current sm:h-6 sm:w-6" aria-hidden="true" />
+                </span>
+              )}
+              <span className="absolute inset-x-4 bottom-4 z-[3] block text-sm font-bold text-white drop-shadow-[0_2px_5px_rgba(0,0,0,0.95)] sm:inset-x-6 sm:bottom-6 sm:text-base">
+                <span className="block truncate">
+                  Episode {displayedEpisode.number}{displayedEpisode.title !== `Episode ${displayedEpisode.number}` ? ` · ${displayedEpisode.title}` : ""}
+                </span>
+                {switchingEpisode ? (
+                  <span className="block text-xs font-semibold text-white/60">
+                    {playerActivated ? "Loading… it starts by itself when ready" : "Loading…"}
+                  </span>
+                ) : null}
               </span>
             </button>
           ) : null}
 
           {/* Custom AnimePlayer — handles both HLS and iframe modes */}
-          {playerActivated && session.source && (
+          {playerActivated && session.source && !switchingEpisode && (
             <div className="absolute inset-0 transition-opacity duration-300 opacity-100 bg-black">
               <VideoPlayer
                 key={activePlayerSurfaceKey}
@@ -3230,7 +3281,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
                   </div>
                   <div>
                     <p className="text-white text-sm md:text-base font-semibold">
-                      Episode {session.episode.number}: {session.episode.title}
+                      Episode {displayedEpisode.number}: {displayedEpisode.title}
                     </p>
                     <p className="text-white/55 text-xs md:text-sm">
                       {playerFeedbackHint}
@@ -3242,7 +3293,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
                     <div className="h-full w-full animate-[bufferBar_1.8s_ease-in-out_infinite]" style={{ background: `linear-gradient(to right, ${accentColor}, ${accentStyle(0.7)}, ${accentColor})` }} />
                   </div>
                   <span className="text-[10px] font-bold uppercase tracking-[0.24em] text-white/35">
-                    Tatakai
+                    YoruMi
                   </span>
                 </div>
               </div>
@@ -3441,28 +3492,13 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
               disabled={(effectiveDubbed && effectiveProvider !== "desidub") || !hasDub}
               aria-pressed={effectiveDubbed && effectiveProvider !== "desidub"}
               onClick={() => {
-                if ((!effectiveDubbed || effectiveProvider === "desidub") && hasDub) {
-                  const targetEpNum = getFallbackEpisodeForLanguage(true, session.episode.number);
-                  const dubChoice = preferredChoiceFor(true);
-                  rememberServerPreference({ sub: null, dub: null, ...serverPreference, dubbed: true });
-                  if (dubChoice) {
-                    queueSession({
-                      episodeNumber: targetEpNum,
-                      provider: effectiveProvider === "desidub" ? mainFallback : effectiveProvider,
-                      server: serverIdForChoice(dubChoice),
-                      dubbed: true,
-                    });
-                    return;
-                  }
-                  if (!effectiveDubbed && effectiveActiveServerId) {
-                    playerPrefs.setPreferredSubServer(session.anime.id, effectiveActiveServerId);
-                  }
-                  const verifiedDub = bestVerifiedServer(
-                    focusedServers.dub,
-                    serverHealth.healthById,
-                  );
-                  queueSession({ episodeNumber: targetEpNum, provider: effectiveProvider === "desidub" ? mainFallback : effectiveProvider, server: verifiedDub?.id || focusedServers.dub[0]?.id || null, dubbed: true });
+                const request = dubSwitchRequest();
+                if (!request) return;
+                rememberServerPreference({ sub: null, dub: null, ...serverPreference, dubbed: true });
+                if (!preferredChoiceFor(true) && !effectiveDubbed && effectiveActiveServerId) {
+                  playerPrefs.setPreferredSubServer(session.anime.id, effectiveActiveServerId);
                 }
+                queueSession(request);
               }}
               className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 transition-colors ${
                 effectiveDubbed && effectiveProvider !== "desidub"
