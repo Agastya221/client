@@ -53,6 +53,11 @@ export const defaultStreamStorage: StreamStorage = {
   deletePrefix: (prefix) => pick().deletePrefix(prefix),
 };
 
+/** Which store is in use right now: "upstash" (direct) or "render" (through the Render service). */
+export function activeStreamStorageName(): "upstash" | "render" {
+  return upstashConfig() ? "upstash" : "render";
+}
+
 function pick(): StreamStorage {
   return upstashConfig() ? upstashStreamStorage : remoteStreamStorage;
 }

@@ -1,3 +1,4 @@
+import { activeStreamStorageName } from "@/lib/stream-store";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveStreamSource } from "@/lib/anime/api";
 import { normalizeProviderParam } from "@/lib/anime/fallback";
@@ -78,7 +79,7 @@ export async function POST(request: NextRequest) {
       watchAttempts: result.watchAttempts.map((attempt) => `${attempt.provider}:${attempt.ok ? "ok" : "fail"}:${attempt.reason}`).join(" | ").slice(0, 180),
     });
 
-    return NextResponse.json(result);
+    return NextResponse.json(result, { headers: { "x-link-store": activeStreamStorageName() } });
   } catch (error) {
     recordLog(
       "error",
