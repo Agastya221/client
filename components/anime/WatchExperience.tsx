@@ -2404,7 +2404,14 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
             dubbed: session.dubbed,
             server: session.activeServerId,
           });
-          if (!cancelled && sessionRequestSeqRef.current === requestSeq) commitSession(nextSession);
+          if (cancelled || sessionRequestSeqRef.current !== requestSeq) return;
+          // Providers sometimes fail for a moment ("No playable source"). Ask the same server once
+          // more before showing the error; never a different one (the viewer chooses that).
+          if (!nextSession.source && attempts < 2) {
+            resolve();
+            return;
+          }
+          commitSession(nextSession);
         } catch (error) {
           if (cancelled || sessionRequestSeqRef.current !== requestSeq) return;
           setPlaybackMessage(error instanceof Error ? error.message : "Failed to poll watch session");

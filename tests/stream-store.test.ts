@@ -211,3 +211,29 @@ test("the direct Upstash store sends Redis commands with the token, only touches
   const off = createUpstashStreamStorage({ fetchImpl: (async () => { throw new Error("must not be called"); }) as typeof fetch, config: () => null });
   assert.equal(await off.get("stream-link:v1:a"), null, "no secrets: nothing is called");
 });
+
+test("a resolved link is stored under the request, its real server and 'auto', so both ways of opening an episode find it", async () => {
+  const { streamStoreKey, streamStoreWriteKeys, isExplicitServer } = await import("../lib/stream-store.ts");
+  const fresh = { animeId: "anilist~1", episodeNumber: 3, dubbed: false, server: null, provider: "anikoto" };
+  const keys = streamStoreWriteKeys(fresh, { activeServerId: "anivexa2-anikoto-hls-soft", provider: "anikoto" }, false);
+  assert.deepEqual(keys, [
+    "stream-link:v1:anilist~1:ep3:sub:auto:anikoto",
+    "stream-link:v1:anilist~1:ep3:sub:anivexa2-anikoto-hls-soft:anikoto",
+  ]);
+  // what clicking the episode in the list asks for later
+  assert.ok(keys.includes(streamStoreKey({ ...fresh, server: "anivexa2-anikoto-hls-soft" })));
+
+  // a server-specific request also fills "auto" when it is empty, but never overwrites it
+  const clicked = { ...fresh, server: "anivexa2-anikoto-hls-soft" };
+  assert.ok(streamStoreWriteKeys(clicked, { activeServerId: "anivexa2-anikoto-hls-soft", provider: "anikoto" }, false).includes(streamStoreKey(fresh)));
+  assert.ok(!streamStoreWriteKeys(clicked, { activeServerId: "anivexa2-anikoto-hls-soft", provider: "anikoto" }, true).includes(streamStoreKey(fresh)));
+
+  // the provider the page will use afterwards (from the result) is covered as well as the requested one
+  const otherProvider = streamStoreWriteKeys({ ...fresh, provider: null }, { activeServerId: "megaplay-sub", provider: "anikoto" }, true);
+  assert.ok(otherProvider.includes("stream-link:v1:anilist~1:ep3:sub:megaplay-sub:anikoto"));
+  assert.ok(otherProvider.includes("stream-link:v1:anilist~1:ep3:sub:megaplay-sub:auto"));
+
+  assert.equal(isExplicitServer("auto"), false);
+  assert.equal(isExplicitServer(null), false);
+  assert.equal(isExplicitServer("megaplay-sub"), true);
+});

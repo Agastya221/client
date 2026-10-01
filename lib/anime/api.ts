@@ -4,9 +4,11 @@ import { cacheFetch, cacheInvalidatePrefix, runAfterResponse } from "@/lib/cache
 import { freshContext, isFreshRequest, withFreshParam } from "@/lib/anime/fresh-context";
 import {
   deleteStoredStreams,
+  isExplicitServer,
   readStoredStream,
   streamRefreshPrefixes,
   streamStoreKey,
+  streamStoreWriteKeys,
   writeStoredStream,
 } from "@/lib/stream-store";
 import { measureAsync, recordCounter, recordLog } from "@/lib/observability";
@@ -6526,16 +6528,32 @@ export async function resolveStreamSource(input: ResolveStreamInput): Promise<Re
     provider: input.provider,
   };
   const storeKey = streamStoreKey(storeRequest);
+  const explicit = isExplicitServer(input.server);
+  const autoKey = streamStoreKey({ ...storeRequest, server: null });
+  let autoTaken = false;
 
   if (input.refresh) {
-    // Only this server's links and the "auto" ones: other servers' links are still good.
-    await Promise.all(streamRefreshPrefixes(storeRequest).map((prefix) => deleteStoredStreams(prefix)));
+    // Only this server's links and the "auto" ones: other servers' links are still good. The
+    // "auto" link is also stored under its own server, so that copy goes too.
+    const prefixes = new Set(streamRefreshPrefixes(storeRequest));
+    if (!explicit) {
+      const autoServer = (await readStoredStream<ResolvedStream>(autoKey))?.result.activeServerId;
+      if (autoServer) for (const prefix of streamRefreshPrefixes({ ...storeRequest, server: autoServer })) prefixes.add(prefix);
+    }
+    await Promise.all([...prefixes].map((prefix) => deleteStoredStreams(prefix)));
     cacheInvalidatePrefix(`stream:${input.animeId}:ep${input.episodeNumber || 1}:${input.dubbed ? "dub" : "sub"}:`, { persistent: false });
     const anilistId = parseAnilistPassthroughId(input.animeId);
     if (anilistId) cacheInvalidatePrefix(`anivexa-aggregate:${anilistId}:ep${input.episodeNumber || 1}:`, { persistent: false });
   } else {
-    const stored = await readStoredStream<ResolvedStream>(storeKey);
+    const [stored, autoStored] = await Promise.all([
+      readStoredStream<ResolvedStream>(storeKey),
+      explicit ? readStoredStream<ResolvedStream>(autoKey) : Promise.resolve(null),
+    ]);
     if (stored && hasPlayableStreamSource(stored.result.source)) return stored.result;
+    const autoPlayable = Boolean(autoStored && hasPlayableStreamSource(autoStored.result.source));
+    // Opened fresh earlier ("auto") and that link came from the very server asked for now.
+    if (autoPlayable && autoStored!.result.activeServerId === input.server) return autoStored!.result;
+    autoTaken = autoPlayable;
   }
 
   // A refresh must reach past every cache, Render's included, or it would be handed the same link.
@@ -6543,7 +6561,8 @@ export async function resolveStreamSource(input: ResolveStreamInput): Promise<Re
     ? await freshContext.run({ fresh: true }, () => resolveStreamSourceFresh(input))
     : await resolveStreamSourceFresh(input);
   if (hasPlayableStreamSource(result.source)) {
-    runAfterResponse(writeStoredStream(storeKey, result));
+    const keys = streamStoreWriteKeys(storeRequest, result, autoTaken);
+    runAfterResponse(Promise.all(keys.map((key) => writeStoredStream(key, result))));
   }
   return result;
 }

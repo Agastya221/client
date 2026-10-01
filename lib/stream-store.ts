@@ -87,6 +87,35 @@ export function streamStoreKey(request: StreamStoreRequest): string {
   return `${streamStorePrefix(request)}${request.server || "auto"}:${request.provider || "auto"}`;
 }
 
+/** True when the request names a server; "auto" and none mean "whatever works". */
+export function isExplicitServer(server?: string | null): server is string {
+  return Boolean(server && server !== "auto");
+}
+
+/**
+ * Every key a resolved link is stored under, so the next viewer finds it whichever way they ask:
+ *  - the request's own key;
+ *  - the key of the server the link actually came from (what clicking another episode or a
+ *    server button asks for, since the page then knows the server);
+ *  - "auto" (what opening the episode fresh asks for), unless "auto" already holds a link.
+ * Without the last two, a link stored by one path was a miss for the other, and every new
+ * browser session resolved the episode again.
+ */
+export function streamStoreWriteKeys(
+  request: StreamStoreRequest,
+  resolved: { activeServerId?: string | null; provider?: string | null },
+  autoTaken: boolean,
+): string[] {
+  const keys = [streamStoreKey(request)];
+  if (resolved.activeServerId) {
+    for (const provider of [resolved.provider, request.provider]) {
+      keys.push(streamStoreKey({ ...request, server: resolved.activeServerId, provider: provider || null }));
+    }
+  }
+  if (!autoTaken) keys.push(streamStoreKey({ ...request, server: null }));
+  return [...new Set(keys)];
+}
+
 export async function readStoredStream<R>(key: string, storage: StreamStorage = defaultStreamStorage): Promise<StoredStream<R> | null> {
   try {
     const entry = await storage.get<StoredStream<R>>(key);
