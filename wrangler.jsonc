@@ -32,7 +32,7 @@
     "ANILIST_PROXY_URL": "https://tatakai-anivexa-api.onrender.com/anilist",
     // The address the cron's page pre-warmer fetches pages from (worker.ts). Change it to the
     // custom domain once that is live.
-    "SITE_ORIGIN": "https://tatakai-anime-website.tatakai-anime.workers.dev"
+    "SITE_ORIGIN": "https://yorumi.lol"
   },
 
   "compatibility_date": "2026-09-26",

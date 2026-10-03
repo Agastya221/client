@@ -8,7 +8,7 @@ tar -C "$SRC" --exclude=./node_modules --exclude=./.next --exclude=./.open-next 
     --exclude=./dev.db --exclude=./artifacts --exclude='./scratch_*' -cf - . | tar -xf - -C "$HOME/site"
 cp "$SRC/.env" "$HOME/site/.env" 2>/dev/null || true
 cp "$SRC/.env.local" "$HOME/site/.env.local"
-SITE="https://tatakai-anime-website.tatakai-anime.workers.dev"
+SITE="https://yorumi.lol"
 cat > .env.production.local <<ENVEOF
 NEXT_PUBLIC_SITE_URL=$SITE
 NEXT_PUBLIC_ANIVEXA_WORKER_URL=https://tatakai-anivexa-api.onrender.com

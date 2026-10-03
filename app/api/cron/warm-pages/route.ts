@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { getAccessConfig } from "@/lib/access/invite";
 import { routeEnv } from "@/lib/access/route-env";
 import { getAnilistPopular, getAnilistSeasonal, getAnilistTrending } from "@/lib/anilist/api";
@@ -18,6 +19,22 @@ const PER_PAGE_TIMEOUT_MS = 20_000;
  * The batch rotates through trending, seasonal and popular titles by clock, so every title gets
  * its turn over a day. Pages already cached answer in a few milliseconds and cost no KV write.
  */
+/**
+ * Fetches one of this site's own pages. Through the worker's binding to itself when there is
+ * one: a plain fetch() of the site's own workers.dev address from inside the worker is refused
+ * by Cloudflare (403 in 1 ms, seen 2026-10-03), so every warm-up silently did nothing.
+ */
+function selfFetch(url: string, init: RequestInit): Promise<Response> {
+  try {
+    const self = (getCloudflareContext().env as unknown as { WORKER_SELF_REFERENCE?: { fetch(request: Request): Promise<Response> } })
+      .WORKER_SELF_REFERENCE;
+    if (self) return self.fetch(new Request(url, init));
+  } catch {
+    // not inside a Worker (local `next start`): plain fetch below
+  }
+  return fetch(url, init);
+}
+
 export async function GET(request: Request) {
   const env = routeEnv();
   const secret = getAccessConfig({ ...env, SITE_ACCESS: "on" }).secret;
@@ -41,7 +58,7 @@ export async function GET(request: Request) {
   for (const id of batch) {
     const started = Date.now();
     try {
-      const response = await fetch(`${url.origin}/anime/anilist~${id}`, {
+      const response = await selfFetch(`${url.origin}/anime/anilist~${id}`, {
         headers: { [WARM_HEADER]: token },
         redirect: "manual",
         signal: AbortSignal.timeout(PER_PAGE_TIMEOUT_MS),
