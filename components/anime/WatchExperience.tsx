@@ -34,7 +34,7 @@ import {
   type EpisodeDisplayMetadata,
 } from "@/lib/anime/episode-metadata";
 import {
-  formatAiringCountdown,
+  resolveAiringCardState,
   resolveNextAiringEpisode,
   type NextAiringEpisode,
 } from "@/lib/anime/airing";
@@ -328,9 +328,12 @@ function NextAiringCard({
   }, []);
 
   const airDate = new Date(nextAiringEpisode.airingAt * 1000);
-  const countdown = nowMs > 0
-    ? formatAiringCountdown(nextAiringEpisode.airingAt, nowMs)
-    : null;
+  // Time-dependent text (badge + local date/time) is only rendered after
+  // hydration (nowMs > 0) so the server's time zone never leaks into the UI.
+  const cardState = resolveAiringCardState(nextAiringEpisode.airingAt, nowMs);
+  if (cardState.kind === "hidden") return null;
+  const countdown = cardState.kind === "pending" ? null : cardState.badge;
+  const hasAired = cardState.kind === "aired";
 
   return (
     <div
@@ -356,7 +359,7 @@ function NextAiringCard({
           }}
           aria-live="polite"
         >
-          {countdown ? `${countdown} left` : "0d 0h left"}
+          {countdown ?? "0d 0h left"}
         </span>
       </div>
       <div className="mt-1.5 flex items-end justify-between gap-3">
@@ -369,9 +372,16 @@ function NextAiringCard({
           suppressHydrationWarning
         >
           <CalendarDays className="h-3 w-3 text-white/30" aria-hidden="true" />
-          <span>{AIRING_DAY_FORMATTER.format(airDate)}</span>
-          <span className="text-white/20">·</span>
-          <span>{AIRING_TIME_FORMATTER.format(airDate)}</span>
+          {nowMs > 0 ? (
+            <>
+              {hasAired ? <span>Aired</span> : null}
+              <span>{AIRING_DAY_FORMATTER.format(airDate)}</span>
+              <span className="text-white/20">·</span>
+              <span>{AIRING_TIME_FORMATTER.format(airDate)}</span>
+            </>
+          ) : (
+            <span className="opacity-0">Thu, Jan 1 · 12:00 AM</span>
+          )}
         </time>
       </div>
     </div>
@@ -996,6 +1006,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
   const [, setWatchHistoryVersion] = useState(0);
   const [episodeView, setEpisodeView] = useState<"grid" | "list" | "cards">("cards");
   const [focusMode, setFocusMode] = useState(false);
+  const playerBoxRef = useRef<HTMLDivElement | null>(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
   // Keep the server render and the first client render identical. Persisted
   // browser preferences are restored immediately after hydration.
@@ -1796,6 +1807,13 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
   /* ── Focus mode ────────────────────────────── */
   useEffect(() => {
     if (focusMode) {
+      // Centre the player before locking scroll so it can't be stuck half off-screen.
+      const box = playerBoxRef.current;
+      if (box) {
+        const rect = box.getBoundingClientRect();
+        const target = window.scrollY + rect.top - Math.max(0, (window.innerHeight - rect.height) / 2);
+        window.scrollTo({ top: Math.max(0, target) });
+      }
       document.body.style.overflow = "hidden";
       const handleEsc = (e: KeyboardEvent) => {
         if (e.key === "Escape") setFocusMode(false);
@@ -2636,6 +2654,32 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
     });
   };
 
+  /* Keep the active episode centred inside each visible episode scroller.
+     Adjusts scroller.scrollTop only (scrollIntoView would also move the page). */
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      document.querySelectorAll<HTMLElement>(".watch-episode-scroll").forEach((scroller) => {
+        if (scroller.clientHeight === 0 || scroller.scrollHeight <= scroller.clientHeight) return;
+        const active = scroller.querySelector<HTMLElement>("[data-active-episode]");
+        if (!active) return;
+        const offset = active.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+        scroller.scrollTop = Math.max(0, offset - (scroller.clientHeight - active.offsetHeight) / 2);
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [displayedEpisodeNumber, episodeView, episodeRangeStart]);
+
+  /** Episode picked from the list: on phones/tablets bring the player into view. */
+  const selectEpisodeFromList = (num: number) => {
+    goToEpisode(num);
+    if (isPartyHostLocked || window.innerWidth >= 1280) return;
+    const box = playerBoxRef.current;
+    if (!box) return;
+    const HEADER_OFFSET = 64 + 8;
+    const top = window.scrollY + box.getBoundingClientRect().top - HEADER_OFFSET;
+    if (Math.abs(top - window.scrollY) > 4) window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+  };
+
   /** What the Dub button asks for (null when dub is already on or not offered). */
   const dubSwitchRequest = (): SessionRequest | null => {
     if (!((!effectiveDubbed || effectiveProvider === "desidub") && dubOffered)) return null;
@@ -3045,7 +3089,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
                 <button
                   key={episode.number}
                   type="button"
-                  onClick={() => goToEpisode(episode.number)}
+                  onClick={() => selectEpisodeFromList(episode.number)}
                   onMouseEnter={() => prefetchEpisode(episode.number)}
                   onPointerDown={() => prefetchEpisode(episode.number, true)}
                   onFocus={() => prefetchEpisode(episode.number)}
@@ -3133,7 +3177,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
                 <button
                   key={episode.number}
                   type="button"
-                  onClick={() => goToEpisode(episode.number)}
+                  onClick={() => selectEpisodeFromList(episode.number)}
                   onMouseEnter={() => prefetchEpisode(episode.number)}
                   onPointerDown={() => prefetchEpisode(episode.number, true)}
                   onFocus={() => prefetchEpisode(episode.number)}
@@ -3164,7 +3208,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
             <EpisodeNumberGrid
               episodes={visibleEpisodes}
               activeNumber={displayedEpisodeNumber}
-              onSelect={goToEpisode}
+              onSelect={selectEpisodeFromList}
               onHover={prefetchEpisode}
               watchedSet={watchedEpisodes}
               accentColor={accentColor}
@@ -3185,15 +3229,16 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
       {/* Focus mode backdrop */}
       {focusMode && (
         <div
-          className="fixed inset-0 bg-black/90 z-40 cursor-pointer animate-in fade-in duration-300"
+          // Above the fixed navbar (z-50); only the player + its controls row sit higher (z-[56]).
+          className="fixed inset-0 bg-black/90 z-[55] cursor-pointer animate-in fade-in duration-300"
           onClick={() => setFocusMode(false)}
         />
       )}
-    <div className={`space-y-0 ${focusMode ? "relative z-50" : ""}`}>
+    <div className="space-y-0">
       <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_380px] xl:items-start xl:gap-4 2xl:grid-cols-[minmax(0,1fr)_400px]">
         <div className="min-w-0">
       {/* ── VIDEO PLAYER ────────────────────────── */}
-      <div className="relative overflow-hidden rounded-xl border border-white/10 bg-black shadow-[0_12px_32px_rgba(0,0,0,0.24)] sm:rounded-2xl">
+      <div ref={playerBoxRef} className={`relative overflow-hidden rounded-xl border border-white/10 bg-black shadow-[0_12px_32px_rgba(0,0,0,0.24)] sm:rounded-2xl ${focusMode ? "z-[56]" : ""}`}>
         <div className="relative aspect-video overflow-hidden bg-black">
           {switchingEpisode || (!playerActivated && (embedAvailable || session.stale)) ? (
             <button
@@ -3306,16 +3351,13 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
 
 
           {!embedAvailable && session.stale && (
-            <div className="absolute inset-0 flex items-end bg-gradient-to-t from-black/90 via-black/20 to-black/30 p-4 md:p-6">
-              <div className="flex items-center gap-3 rounded-lg border border-white/10 bg-black/55 px-3 py-2.5 backdrop-blur-sm">
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20" style={{ borderTopColor: accentColor }} />
-                <div>
-                  <p className="text-sm font-semibold text-white">
-                    Episode {session.episode.number}: {session.episode.title}
-                  </p>
-                  <p className="text-xs text-white/50">Loading player</p>
-                </div>
-              </div>
+            // Small status chip only: the poster above already shows the episode title.
+            <div
+              className="pointer-events-none absolute right-3 top-3 z-[4] flex items-center gap-2 rounded-full border border-white/10 bg-black/60 px-2.5 py-1.5 backdrop-blur-sm sm:right-4 sm:top-4"
+              role="status"
+            >
+              <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/20" style={{ borderTopColor: accentColor }} />
+              <p className="text-[11px] font-semibold text-white/75">Loading player</p>
             </div>
           )}
 
@@ -3422,7 +3464,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
       </div>
 
       {/* ── WATCH CONTROLS ───────────────────────── */}
-      <div className="relative mt-1.5 rounded-lg border border-white/10 bg-[#0d0e10] px-1.5 py-0.5 shadow-[0_8px_24px_rgba(0,0,0,0.16)] sm:px-2 sm:py-1 md:px-3">
+      <div className={`relative mt-1.5 rounded-lg border border-white/10 bg-[#0d0e10] px-1.5 py-0.5 shadow-[0_8px_24px_rgba(0,0,0,0.16)] sm:px-2 sm:py-1 md:px-3 ${focusMode ? "z-[56]" : ""}`}>
         <div className="flex min-h-8 items-center gap-1 overflow-hidden sm:justify-between sm:overflow-visible">
           <div className="flex shrink-0 flex-nowrap items-center gap-2 sm:gap-1.5">
             <WatchPreferenceToggle
