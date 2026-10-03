@@ -12,16 +12,19 @@ import {
   prefetchMissKey,
   type AiringTitle,
 } from "@/lib/episode-prefetch";
-import { readStoredStream, streamStoreKey, writeStoredValue } from "@/lib/stream-store";
+import { readStoredStream, streamStoreKey, writeStoredStream, writeStoredValue } from "@/lib/stream-store";
 import { verifyWarmToken, WARM_HEADER } from "@/lib/warm-pages";
 
 export const dynamic = "force-dynamic";
 
-/** Titles checked per run; whole list (~50) covered every ~5 runs (50 minutes). */
-const CHECK_PER_RUN = 10;
-/** New lookups per run: each keeps the free Render server busy 3-6 s, so only a few. */
-const RESOLVE_PER_RUN = 3;
+/** Titles checked per run (3 storage reads each); the ~50 airing titles are covered every ~90 minutes. */
+const CHECK_PER_RUN = 6;
+/** Lookups per run (Solaris, then Waves if needed): keeps the run under the free plan's ~50 outside requests and Render unhurried. */
+const RESOLVE_PER_RUN = 2;
 const PROVIDER = "anikoto";
+/** Solaris soft subs, whichever variant is fastest (resolved server-side). */
+const SOLARIS_SOFT = "anivexa-anikoto-ssub";
+const isSolaris = (serverId: string) => serverId.startsWith("anivexa2-anikoto-");
 
 /**
  * GET /api/cron/prefetch-episodes — looks up the latest episode of popular airing shows before
@@ -57,22 +60,37 @@ export async function GET(request: Request) {
   const report: { animeId: string; episode: number; result: string; ms?: number }[] = [];
   let resolved = 0;
   for (const { animeId, episode } of window) {
-    const key = streamStoreKey({ animeId, episodeNumber: episode, dubbed: false, server: null, provider: PROVIDER });
-    const [stored, missed] = await Promise.all([
-      readStoredStream(key),
+    const autoKey = streamStoreKey({ animeId, episodeNumber: episode, dubbed: false, server: null, provider: PROVIDER });
+    const [stored, missed, solarisMissed] = await Promise.all([
+      readStoredStream<{ activeServerId?: string | null }>(autoKey),
       readStoredStream(prefetchMissKey(animeId, episode)),
+      readStoredStream(prefetchMissKey(animeId, episode, "solaris")),
     ]);
-    if (stored) { report.push({ animeId, episode, result: "already stored" }); continue; }
-    if (missed) { report.push({ animeId, episode, result: "no stream earlier, waiting" }); continue; }
+    const storedServer = stored?.result.activeServerId ?? "";
+    if (stored && isSolaris(storedServer)) { report.push({ animeId, episode, result: "already stored (Solaris)" }); continue; }
+    if (stored && solarisMissed) { report.push({ animeId, episode, result: "stored (Waves; Solaris had none)" }); continue; }
+    if (!stored && missed) { report.push({ animeId, episode, result: "no stream earlier, waiting" }); continue; }
     if (resolved >= RESOLVE_PER_RUN) { report.push({ animeId, episode, result: "next run" }); continue; }
 
     resolved += 1;
     const started = Date.now();
     try {
-      // Stores the link itself (auto key and the server's own key; see resolveStreamSource).
+      // Solaris soft subs first, asked for directly: a viewer's first lookup gives Solaris only
+      // ~6 s before taking Waves (hard subs), and Solaris's first answer often takes longer. No one
+      // is waiting here, so ask Solaris with its full time and make it the episode's default link.
+      const solaris = await resolveStreamSource({ animeId, episodeNumber: episode, provider: PROVIDER, dubbed: false, server: SOLARIS_SOFT });
+      if (hasPlayableStreamSource(solaris.source) && isSolaris(solaris.activeServerId ?? "")) {
+        await writeStoredStream(autoKey, solaris);
+        report.push({ animeId, episode, result: `stored Solaris ${solaris.activeServerId}${stored ? " (replaced Waves)" : ""}`, ms: Date.now() - started });
+        continue;
+      }
+      await writeStoredValue(prefetchMissKey(animeId, episode, "solaris"), true, PREFETCH_MISS_SECONDS);
+      if (stored) { report.push({ animeId, episode, result: "Solaris has none; Waves kept", ms: Date.now() - started }); continue; }
+
+      // No Solaris: the normal lookup (Waves), stored by resolveStreamSource itself.
       const result = await resolveStreamSource({ animeId, episodeNumber: episode, provider: PROVIDER, dubbed: false, server: null });
       if (hasPlayableStreamSource(result.source)) {
-        report.push({ animeId, episode, result: `stored ${result.activeServerId ?? ""}`, ms: Date.now() - started });
+        report.push({ animeId, episode, result: `stored ${result.activeServerId ?? ""} (no Solaris)`, ms: Date.now() - started });
       } else {
         await writeStoredValue(prefetchMissKey(animeId, episode), true, PREFETCH_MISS_SECONDS);
         report.push({ animeId, episode, result: "no stream yet", ms: Date.now() - started });

@@ -35,8 +35,8 @@ export function pickPrefetchWindow<T>(items: readonly T[], nowMs: number, size: 
 }
 
 /** Marks an episode that had no stream, so it is not asked for again on every run. */
-export function prefetchMissKey(animeId: string, episode: number): string {
-  return `stream-link:prefetch-miss:v1:${animeId}:ep${episode}`;
+export function prefetchMissKey(animeId: string, episode: number, kind: "any" | "solaris" = "any"): string {
+  return `stream-link:prefetch-miss:v1:${animeId}:ep${episode}${kind === "solaris" ? ":solaris" : ""}`;
 }
 
 export const PREFETCH_LIST_KEY = "stream-link:prefetch:airing:v1";
