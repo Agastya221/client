@@ -262,12 +262,6 @@ export default async function Home() {
   // `?view=browse` is applied in the browser by HomeBrowseShell (the page is cached).
   const initialMode: HomeViewMode = "home";
 
-  // 1. Pure Coming Soon media
-  const upcomingRaw = upcomingResult.media || [];
-  const comingSoonFromOther = [...trendingRaw, ...seasonalRaw].filter(isUnreleased);
-  const comingSoonMedia = [
-    ...new Map([...upcomingRaw, ...comingSoonFromOther].map((m) => [m.id, m])).values(),
-  ].slice(0, 10);
 
   // 2. Filter out unreleased anime from other rails
   const trending = trendingRaw.filter((m) => !isUnreleased(m));
@@ -282,7 +276,22 @@ export default async function Home() {
     ).values(),
   ].slice(0, 10);
   const newAiringIds = new Set(newAiring.map((media) => media.id));
-  const seasonHighlights = seasonalClean.filter((media) => !newAiringIds.has(media.id)).slice(0, 10);
+  // The season's shows that are not already under New Airing, including the ones that have not
+  // started yet (the cards mark them). Early in a season nearly every show is either airing (so in
+  // New Airing) or not started, and excluding the latter left this rail empty, e.g. on 3 Oct 2026:
+  // 9 airing + 21 upcoming of the top 30. Popular airing shows fill it if the season list failed.
+  const seasonHighlights = [
+    ...seasonalRaw.filter((media) => !newAiringIds.has(media.id)),
+    ...airingMedia.filter((media) => !newAiringIds.has(media.id)),
+  ].filter((media, index, list) => list.findIndex((other) => other.id === media.id) === index).slice(0, 10);
+  const seasonHighlightIds = new Set(seasonHighlights.map((media) => media.id));
+
+  // Coming Soon: unreleased shows not already in This Season (later seasons, mostly).
+  const upcomingRaw = upcomingResult.media || [];
+  const comingSoonFromOther = [...trendingRaw, ...seasonalRaw].filter(isUnreleased);
+  const comingSoonMedia = [
+    ...new Map([...upcomingRaw, ...comingSoonFromOther].map((m) => [m.id, m])).values(),
+  ].filter((media) => !seasonHighlightIds.has(media.id)).slice(0, 10);
 
   // Hero: top trending with banner images first
   const heroSlides = [...trending]
