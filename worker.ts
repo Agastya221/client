@@ -106,8 +106,16 @@ async function prefetchEpisodes(env: ScheduledEnv, ctx: ExecutionContextLike): P
     const request = new Request(`${origin}/api/cron/prefetch-episodes`, {
       headers: { [WARM_HEADER]: await makeWarmToken(secret) },
     });
-    const response = await (openNext.fetch as (request: Request, env: unknown, ctx: unknown) => Promise<Response>)(request, env, ctx);
-    console.log(`prefetch-episodes ${response.status}: ${(await response.text()).slice(0, 900)}`);
+    // Never let a stuck run sit until Cloudflare's 15-minute cap: give up after 3 minutes.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const outcome = await Promise.race([
+      (async () => {
+        const response = await (openNext.fetch as (request: Request, env: unknown, ctx: unknown) => Promise<Response>)(request, env, ctx);
+        return `prefetch-episodes ${response.status}: ${(await response.text()).slice(0, 900)}`;
+      })(),
+      new Promise<string>((resolve) => { timer = setTimeout(() => resolve("prefetch-episodes gave up after 180s"), 180_000); }),
+    ]).finally(() => clearTimeout(timer));
+    console.log(outcome);
   } catch (error) {
     console.warn("prefetch-episodes failed:", String(error));
   }
