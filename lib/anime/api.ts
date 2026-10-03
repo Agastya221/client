@@ -19,6 +19,7 @@ import { anilistTitle, getAnilistDetail, type AnilistMedia } from "@/lib/anilist
 import { decryptEmbed } from "./reanime-decrypt";
 import { buildDashProxyUrl, createDashProxyToken } from "./dash-proxy";
 import { probeStreamHealth } from "./stream-health";
+import { variantSpeedRank } from "./server-selection";
 import { normalizeEpisodeDescription, type EpisodeDisplayMetadata } from "./episode-metadata";
 import {
   ANIVEXA_DISCOVERY_PROVIDERS,
@@ -4677,12 +4678,7 @@ function buildAnivexaServerEntries(
  * on every title, HD-2 as fast but only on some. A server the viewer chooses is always used as is.
  */
 export function anivexaVariantSpeedRank(variant: string): number {
-  const name = variant.toLowerCase().replace(/[^a-z0-9]+/g, "");
-  if (name.includes("vidstream1")) return 0;
-  if (name.includes("hd2")) return 1;
-  if (name.includes("vidstream2")) return 2;
-  if (name.includes("hd1")) return 4;
-  return 3;
+  return variantSpeedRank(variant);
 }
 
 /** Stable: entries of other providers and equal ranks keep their order. Server ids are unchanged. */

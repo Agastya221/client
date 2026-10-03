@@ -25,9 +25,10 @@ test("a manually selected server survives a failed probe so it can still be test
     "anivexa2-anikoto-hls-soft": { status: "failed", reason: "Media segment returned 404", checkedAt: 1 },
   };
   const kept = selectFocusedServers(PICKER_OPTIONS, health, { keepId: "anivexa2-anikoto-hls-soft" });
+  // Speed order (Vidstream-1 before Vidstream-2); the failed one is still there.
   assert.deepEqual(kept.soft.map((option) => option.id), [
-    "anivexa2-anikoto-hls-soft",
     "anivexa2-anikoto-hls-s1-soft",
+    "anivexa2-anikoto-hls-soft",
   ]);
 
   // The same failed server must never be offered as an automatic replacement:

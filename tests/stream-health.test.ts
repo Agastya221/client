@@ -93,3 +93,19 @@ test("focused choices keep Waves and Solaris variants and exclude Nexus", () => 
   // Solaris is the default dub provider, so it leads the dub row; Waves follows.
   assert.deepEqual(focused.dub.map((option) => option.label), ["Solaris Vidstream-2", "Waves Vidplay"]);
 });
+
+test("Solaris buttons are numbered by speed, and only the fastest gets the Fast tag", async () => {
+  const { focusedServerCandidates, displayServerLabel, isFastestServer } = await import("../lib/anime/server-selection");
+  const solaris = (id: string, variant: string) => ({ id, label: `Solaris ${variant}`, provider: "anikoto" as const, category: "sub", subType: "soft" as const, transport: "hls" as const });
+  const options = [
+    solaris("anivexa2-anikoto-hls-soft", "HD-1"),
+    solaris("anivexa2-anikoto-hls-s1-soft", "Vidstream-2"),
+    solaris("anivexa2-anikoto-hls-s2-soft", "Vidstream-1"),
+    solaris("anivexa2-anikoto-hls-s3-soft", "HD-2"),
+  ];
+  const row = focusedServerCandidates(options);
+  assert.deepEqual(row.map((option) => displayServerLabel(option, row) + " = " + option.label.split(" ")[1]),
+    ["Solaris 1 = Vidstream-1", "Solaris 2 = HD-2", "Solaris 3 = Vidstream-2", "Solaris 4 = HD-1"]);
+  assert.deepEqual(row.map((option) => isFastestServer(option, row)), [true, false, false, false]);
+  assert.equal(isFastestServer(row[0], [row[0]]), false, "no tag when there is no choice");
+});

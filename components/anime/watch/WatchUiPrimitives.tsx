@@ -48,6 +48,7 @@ export function ServerButton({
   onClick,
   subType,
   tag,
+  fast = false,
   accentColor = "#8b5cf6",
   disabled = false,
   isHostLocked = false,
@@ -58,6 +59,8 @@ export function ServerButton({
   /** If set, shows the subtitle mode badge on the button. */
   subType?: "soft" | "hard" | "unknown";
   tag?: string;
+  /** The fastest server of its row (the one that plays by default): a small green "FAST" tag. */
+  fast?: boolean;
   accentColor?: string;
   disabled?: boolean;
   isHostLocked?: boolean;
@@ -82,6 +85,14 @@ export function ServerButton({
       } : { "--tw-ring-color": `${accentColor}88` } as React.CSSProperties}
     >
       <span className="truncate">{label}</span>
+      {fast && (
+        <span
+          className="shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-black tracking-widest sm:text-[9px]"
+          style={{ background: "rgba(74,222,128,0.14)", color: "rgba(74,222,128,0.95)", border: "1px solid rgba(74,222,128,0.3)" }}
+        >
+          FAST
+        </span>
+      )}
       {tag && (
         <span
           className="shrink-0 rounded-full border px-1.5 py-0.5 text-[8px] font-black tracking-widest sm:text-[9px]"

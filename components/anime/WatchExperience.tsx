@@ -15,7 +15,7 @@ import {
   summarizeServerGroups,
 } from "@/components/anime/watch/WatchUiPrimitives";
 import { useServerHealth } from "@/components/anime/watch/useServerHealth";
-import { bestVerifiedServer, choiceFromServer, choiceMatchesServer, describeChoice, displayServerLabel, focusedServerCandidates, GATEWAY_SERVERS, gatewayMatchesServer, rankServerOptions, selectFocusedServers, serverIdForChoice, type ServerPreference } from "@/lib/anime/server-selection";
+import { bestVerifiedServer, choiceFromServer, isFastestServer, choiceMatchesServer, describeChoice, displayServerLabel, focusedServerCandidates, GATEWAY_SERVERS, gatewayMatchesServer, rankServerOptions, selectFocusedServers, serverIdForChoice, type ServerPreference } from "@/lib/anime/server-selection";
 import {
   ANIVEXA_DISCOVERY_PROVIDERS,
   type AnimeSeasonEntry,
@@ -2867,6 +2867,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
                 accentColor={options.accent || accentColor}
                 isHostLocked={isPartyHostLocked}
                 active={isServerActive(entry, options, showGateways)}
+                fast={!showGateways && isFastestServer(entry, entries)}
                 onClick={() => chooseServer(entry, options)}
               />
             );

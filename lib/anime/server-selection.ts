@@ -63,11 +63,30 @@ export function displayServerLabel(entry: ServerOption, siblings: ServerOption[]
   return `${match.brand} ${(position === -1 ? sameBrand.length : position) + 1}`;
 }
 
-function solarisVariantRank(option: ServerOption): number {
-  if (/vidstream-2/i.test(option.label)) return 0;
-  if (/vidstream-1/i.test(option.label)) return 1;
-  if (/hd-1/i.test(option.label)) return 2;
+/**
+ * Speed order of a provider's variants, fastest first. Measured 2026-10-03 on five titles:
+ * Solaris HD-1 (listed first by the provider) delivered segments in ~550 ms against ~250-300 ms
+ * for the others; Vidstream-1 was fastest and on every title, HD-2 as fast but only on some.
+ * Used both to pick what plays when the viewer has not chosen and to order (and so number) the
+ * buttons, so "Solaris 1" is always the fastest and the one that starts by default.
+ */
+export function variantSpeedRank(name: string): number {
+  const compact = name.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (compact.includes("vidstream1")) return 0;
+  if (compact.includes("hd2")) return 1;
+  if (compact.includes("vidstream2")) return 2;
+  if (compact.includes("hd1")) return 4;
   return 3;
+}
+
+function solarisVariantRank(option: ServerOption): number {
+  return variantSpeedRank(option.label);
+}
+
+/** The fastest Solaris server of a row (its first, rows being in speed order), when there is a choice. */
+export function isFastestServer(entry: ServerOption, row: ServerOption[]): boolean {
+  const solaris = row.filter((candidate) => candidate.id.startsWith("anivexa2-anikoto-") && !isEmbedServerId(candidate.id));
+  return solaris.length > 1 && solaris[0].id === entry.id;
 }
 
 export function focusedServerCandidates(options: ServerOption[]): ServerOption[] {

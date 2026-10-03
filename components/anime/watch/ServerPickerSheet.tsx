@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Check, Server } from "lucide-react";
 import { useExitTransition } from "@/components/ui/useExitTransition";
-import { displayServerLabel } from "@/lib/anime/server-selection";
+import { displayServerLabel, isFastestServer } from "@/lib/anime/server-selection";
 import { SERVER_MODE_BADGES } from "@/components/anime/watch/WatchUiPrimitives";
 import type { ServerOption } from "@/lib/anime/types";
 
@@ -157,7 +157,8 @@ export default function ServerPickerSheet({
                           // Cards with a tag are too narrow for "Active" as well; the check mark and
                           // highlighted border already say which one is playing.
                           const activeLabel = active && !modeBadge;
-                          if (!modeBadge && !activeLabel) return null;
+                          const fast = isFastestServer(entry, group.entries);
+                          if (!modeBadge && !activeLabel && !fast) return null;
                           return (
                             <span className="mt-0.5 flex items-center gap-1.5">
                               {modeBadge ? (
@@ -166,6 +167,14 @@ export default function ServerPickerSheet({
                                   style={modeBadge.style}
                                 >
                                   {modeBadge.badge}
+                                </span>
+                              ) : null}
+                              {fast ? (
+                                <span
+                                  className="shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-black tracking-widest"
+                                  style={{ background: "rgba(74,222,128,0.14)", color: "rgba(74,222,128,0.95)", border: "1px solid rgba(74,222,128,0.3)" }}
+                                >
+                                  FAST
                                 </span>
                               ) : null}
                               {activeLabel ? (
