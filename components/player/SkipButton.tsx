@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import type { SkipTimes } from "@/lib/player/aniskip";
 import { getActiveSkipZone } from "@/lib/player/aniskip";
+import { useThemeAccent } from "@/lib/theme-accent";
 
 interface SkipButtonProps {
   currentTime: number;
@@ -21,6 +22,8 @@ const AUTO_SKIP_DELAY = 3000;
 
 export default function SkipButton({ currentTime, skipTimes, autoSkip, onSkip }: SkipButtonProps) {
   const autoSkipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The anime's own colour, like the rest of the site (border, glow and the countdown fill).
+  const accent = useThemeAccent();
   const activeZone = useMemo(
     () => skipTimes ? getActiveSkipZone(currentTime, skipTimes) : null,
     [currentTime, skipTimes],
@@ -64,13 +67,21 @@ export default function SkipButton({ currentTime, skipTimes, autoSkip, onSkip }:
     <button
       type="button"
       className="skip-button"
+      style={{ "--skip-accent": accent } as React.CSSProperties}
       onPointerDown={(event) => event.stopPropagation()}
       onClick={handleClick}
     >
-      {LABELS[activeZone.type] || "Skip"}
       {autoSkip ? (
-        <span className="skip-countdown" aria-label="Auto-skipping..." />
+        // Fills left to right over the auto-skip delay, like the site's loading bar. Keyed by the
+        // zone so a new intro/outro starts it from empty.
+        <span
+          key={zoneKey}
+          className="skip-progress"
+          style={{ animationDuration: `${AUTO_SKIP_DELAY}ms` }}
+          aria-label="Auto-skipping"
+        />
       ) : null}
+      {LABELS[activeZone.type] || "Skip"}
       <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
         <path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z" />
       </svg>

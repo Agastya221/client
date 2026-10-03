@@ -409,19 +409,29 @@
   to { opacity: 1; transform: translateX(0); }
 }
 
-.skip-button .skip-countdown {
-  display: inline-block;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.4);
-  border-top-color: #e040fb;
-  animation: skipSpin 3s linear;
+/* Auto-skip countdown: the anime's colour fills the button from left to right. */
+.skip-button {
+  overflow: hidden;
+  isolation: isolate;
 }
 
-@keyframes skipSpin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+.skip-button .skip-progress {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--skip-accent, #52ff7f) 20%, transparent),
+    color-mix(in srgb, var(--skip-accent, #52ff7f) 42%, transparent));
+  transform: scaleX(0);
+  transform-origin: left center;
+  animation-name: skipFill;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+@keyframes skipFill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
 }
 
 /* ── Subtitle overlay ─────────────────────────────────────────── */
@@ -876,17 +886,17 @@
   }
 }
 
-/* ── Styled Skip Button ────────────────────────────────────────── */
+/* ── Styled Skip Button: border and glow in the anime's colour (--skip-accent, SkipButton.tsx) ── */
 .skip-button {
-  border: 1px solid rgba(224, 64, 251, 0.35) !important;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5), 0 0 12px rgba(224, 64, 251, 0.15) !important;
+  border: 1px solid color-mix(in srgb, var(--skip-accent, #52ff7f) 45%, transparent) !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5), 0 0 14px color-mix(in srgb, var(--skip-accent, #52ff7f) 22%, transparent) !important;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
 .skip-button:hover {
-  background: rgba(224, 64, 251, 0.15) !important;
-  border-color: rgba(224, 64, 251, 0.65) !important;
-  box-shadow: 0 4px 25px rgba(0, 0, 0, 0.6), 0 0 20px rgba(224, 64, 251, 0.4) !important;
+  background: color-mix(in srgb, var(--skip-accent, #52ff7f) 16%, rgba(255, 255, 255, 0.08)) !important;
+  border-color: color-mix(in srgb, var(--skip-accent, #52ff7f) 75%, transparent) !important;
+  box-shadow: 0 4px 25px rgba(0, 0, 0, 0.6), 0 0 22px color-mix(in srgb, var(--skip-accent, #52ff7f) 45%, transparent) !important;
   transform: translateY(-2px);
 }
 
