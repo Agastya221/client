@@ -22,7 +22,8 @@
   // Pinned to the workerd build shipped with the installed wrangler
   // (1.20260926.1). Do not set a date newer than your wrangler's workerd.
   // Runs the `scheduled` handler in worker.ts: pings the Render API so it never sleeps.
-  "triggers": { "crons": ["*/10 * * * *"] },
+  // Every 10 min: keep Render awake + warm pages. 5 past: pre-fetch new episodes (worker.ts).
+  "triggers": { "crons": ["*/10 * * * *", "5-59/10 * * * *"] },
 
   // Non-secret. AniList blocks Cloudflare's egress IPs, so its GraphQL traffic is routed
   // through the Anivexa API on Render (lib/anilist/endpoint.ts). ANILIST_PROXY_KEY is the

@@ -1314,7 +1314,7 @@ const WATCH_SESSION_FRESH_MS = 5 * 60 * 1000;
 const WATCH_SESSION_STALE_MS = 20 * 60 * 1000;
 const WATCH_SESSION_EXPIRE_MS = 30 * 60 * 1000;
 
-function hasPlayableStreamSource(source: StreamSource | null | undefined): boolean {
+export function hasPlayableStreamSource(source: StreamSource | null | undefined): boolean {
   return Boolean(source?.url || source?.iframeUrl || source?.proxiedUrl);
 }
 

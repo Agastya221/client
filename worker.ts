@@ -60,7 +60,13 @@ export default {
    * keeps the instance awake: ~720 of Render's 750 free hours per month, which only
    * fits while it is the account's single free service.
    */
-  async scheduled(_controller: unknown, env: ScheduledEnv, ctx: ExecutionContextLike): Promise<void> {
+  async scheduled(controller: { cron?: string } | undefined, env: ScheduledEnv, ctx: ExecutionContextLike): Promise<void> {
+    // The 5-past schedule (wrangler.jsonc) only pre-fetches episodes: a run of its own, so its
+    // outside requests do not share the free plan's ~50-per-run budget with the page warm-up.
+    if (controller?.cron === PREFETCH_CRON) {
+      ctx.waitUntil(prefetchEpisodes(env, ctx));
+      return;
+    }
     ctx.waitUntil(warmPages(env, ctx));
     const base = env.ANIVEXA_API_BASE_URL?.trim().replace(/\/+$/, "");
     if (!base) {
@@ -85,6 +91,27 @@ export default {
     );
   },
 };
+
+const PREFETCH_CRON = "5-59/10 * * * *";
+
+/** Looks up the latest episode of airing shows ahead of viewers (app/api/cron/prefetch-episodes). */
+async function prefetchEpisodes(env: ScheduledEnv, ctx: ExecutionContextLike): Promise<void> {
+  const origin = env.SITE_ORIGIN?.trim().replace(/\/+$/, "");
+  const secret = getAccessConfig({ ...env, SITE_ACCESS: "on" }).secret;
+  if (!origin || !secret) {
+    console.warn("prefetch-episodes skipped: SITE_ORIGIN or the site secret is not set");
+    return;
+  }
+  try {
+    const request = new Request(`${origin}/api/cron/prefetch-episodes`, {
+      headers: { [WARM_HEADER]: await makeWarmToken(secret) },
+    });
+    const response = await (openNext.fetch as (request: Request, env: unknown, ctx: unknown) => Promise<Response>)(request, env, ctx);
+    console.log(`prefetch-episodes ${response.status}: ${(await response.text()).slice(0, 900)}`);
+  } catch (error) {
+    console.warn("prefetch-episodes failed:", String(error));
+  }
+}
 
 /**
  * Pre-renders a rotating batch of popular anime pages (see app/api/cron/warm-pages/route.ts) so
