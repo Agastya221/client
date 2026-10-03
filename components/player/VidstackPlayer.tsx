@@ -321,6 +321,10 @@ export default function VidstackPlayer({
 
       <MediaPlayer
         ref={playerRef}
+        // Load as soon as the source is set. Vidstack's default ("visible") waited until the player
+        // was on screen, so picking an episode further down the list on a phone did nothing until
+        // the viewer scrolled back up (seen on a real phone, 2026-10-03).
+        load="eager"
         className={`h-full w-full aspect-video overflow-hidden rounded-lg border border-white/10 bg-black shadow-[0_0_30px_rgba(0,0,0,0.8)] ${
           subtitlePresentation === "hard" ? "vds-hard-sub-look" : "vds-classic-sub-look"
         }`}
