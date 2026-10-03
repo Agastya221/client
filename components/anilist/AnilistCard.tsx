@@ -109,8 +109,8 @@ export default function AnilistCard({
         {/* Episodes count bottom right */}
         {media.episodes && (
           <div className="ap-glass-pill absolute bottom-2 right-2 px-2 py-1 text-[9px] font-bold text-white/80">
-            {media.nextAiringEpisode
-              ? `EP ${media.nextAiringEpisode.episode - 1}/${media.episodes}`
+            {media.nextAiringEpisode && media.nextAiringEpisode.episode > 1
+              ?`EP ${media.nextAiringEpisode.episode - 1}/${media.episodes}`
               : `${media.episodes} EPS`}
           </div>
         )}

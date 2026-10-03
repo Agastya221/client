@@ -15,6 +15,8 @@ import {
   summarizeServerGroups,
 } from "@/components/anime/watch/WatchUiPrimitives";
 import { useServerHealth } from "@/components/anime/watch/useServerHealth";
+import NotAiredPanel from "@/components/anime/watch/NotAiredPanel";
+import { resolveNotAiredEpisode } from "@/lib/anime/release-schedule";
 import { bestVerifiedServer, choiceFromServer, isFastestServer, choiceMatchesServer, describeChoice, displayServerLabel, focusedServerCandidates, GATEWAY_SERVERS, gatewayMatchesServer, rankServerOptions, selectFocusedServers, serverIdForChoice, type ServerPreference } from "@/lib/anime/server-selection";
 import {
   ANIVEXA_DISCOVERY_PROVIDERS,
@@ -2362,6 +2364,17 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
     session.anime.nextAiringEpisode,
     deferredDetail?.nextAiringEpisode,
   );
+  // An episode that has not aired gets its own screen instead of "No stream available".
+  const notAired = resolveNotAiredEpisode({
+    episodeNumber: session.episode.number,
+    hasSource: embedAvailable,
+    status: deferredDetail?.status || session.anime.status,
+    message: session.message,
+    nextAiringEpisode: session.anime.nextAiringEpisode ?? deferredDetail?.nextAiringEpisode,
+    subCount: session.anime.subCount,
+    startDate: deferredDetail?.startDate,
+    airDate: session.episode.airDate,
+  });
 
   /* ── Intent-based next-episode prefetch ────────────
      Fires once the current embed has loaded (user is watching).
@@ -3019,7 +3032,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
       <div className="watch-episode-panel-body p-2 sm:px-3 sm:py-3">
         {filteredEpisodes.length === 0 ? (
           <p className="text-white/40 text-sm text-center py-4">
-            {`No episodes match "${episodeQuery}"`}
+            {episodeQuery.trim() ? `No episodes match "${episodeQuery}"` : notAired ? "No episodes have aired yet." : "No episodes available yet."}
           </p>
         ) : episodeView === "cards" ? (
           <div key={`cards-${episodeRangeStart}`} className="watch-episode-range watch-episode-scroll max-h-[340px] sm:max-h-[420px] xl:max-h-none space-y-1.5 overflow-y-auto pr-1 hide-scrollbar sm:h-full sm:space-y-2">
@@ -3319,7 +3332,18 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
             </div>
           )}
 
-          {!embedAvailable && !session.stale && (
+          {notAired && !session.stale && (
+            <NotAiredPanel
+              state={notAired}
+              title={session.anime.title}
+              image={session.anime.banner || session.anime.poster || null}
+              animeHref={session.anime.href}
+              accentColor={accentColor}
+              onWatchLatest={goToEpisode}
+            />
+          )}
+
+          {!embedAvailable && !session.stale && !notAired && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-[#0a0a0c]/95 px-8 text-center">
               <div className="rounded-full border border-white/10 bg-white/6 p-4" style={{ color: accentColor }}>
                 <Tv2 className="h-8 w-8" aria-hidden="true" />
@@ -3422,6 +3446,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
       </div>
 
       {/* ── WATCH CONTROLS ───────────────────────── */}
+      {!notAired && (
       <div className="relative mt-1.5 rounded-lg border border-white/10 bg-[#0d0e10] px-1.5 py-0.5 shadow-[0_8px_24px_rgba(0,0,0,0.16)] sm:px-2 sm:py-1 md:px-3">
         <div className="flex min-h-8 items-center gap-1 overflow-hidden sm:justify-between sm:overflow-visible">
           <div className="flex shrink-0 flex-nowrap items-center gap-2 sm:gap-1.5">
@@ -3535,8 +3560,10 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
           </div>
         ) : null}
       </div>
+      )}
 
       {/* ── EPISODE INFO + SERVER STRIP ─────────── */}
+      {!notAired && (
       <div className="relative mt-3 space-y-2.5 rounded-2xl border border-white/10 bg-[#111214] px-3 py-3 sm:space-y-3 sm:bg-[#131315] sm:px-4 md:px-5">
         {/* Top row: Language toggles on the left, Watch Together on the right */}
         <div className="flex flex-wrap items-center justify-between gap-3 sm:flex-nowrap">
@@ -3820,6 +3847,7 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
           </div>
         </div>
       </div>
+      )}
 
       <div className="mt-5 space-y-5">
         <div className="hidden xl:block space-y-5">

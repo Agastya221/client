@@ -20,6 +20,8 @@ import type { Metadata } from "next";
 import AddToListButton from "@/components/anime/AddToListButton";
 import AniListStatusModal from "@/components/anime/AniListStatusModal";
 import AiringAwareWatchLink from "@/components/anime/AiringAwareWatchLink";
+import { UpcomingReleaseCta } from "@/components/anime/ReleaseCountdown";
+import { isUnreleasedStatus, resolveReleaseSchedule } from "@/lib/anime/release-schedule";
 import ExpandableSynopsis from "@/components/anime/ExpandableSynopsis";
 import ThemeAccentSource from "@/components/ui/ThemeAccentSource";
 import WatchDataPrefetch from "@/components/anime/WatchDataPrefetch";
@@ -103,6 +105,32 @@ async function AnilistDetailContent({ anilistId }: { anilistId: number }) {
   const latestEpisode = media.status === "RELEASING" && media.nextAiringEpisode
     ? Math.max(1, media.nextAiringEpisode.episode - 1)
     : 1;
+  // Nothing has aired yet: show when it airs instead of a Watch button that leads nowhere.
+  const notYetAired =
+    isUnreleasedStatus(media.status) ||
+    (media.status === "RELEASING" && media.nextAiringEpisode?.episode === 1);
+  const releaseSchedule = notYetAired
+    ? resolveReleaseSchedule({ nextAiringEpisode: media.nextAiringEpisode, startDate: media.startDate })
+    : null;
+  const ctaClassName = "flex h-12 items-center justify-center gap-2 rounded-full border px-3 sm:px-6 text-xs sm:text-sm font-black shadow-lg backdrop-blur-md transition-all duration-200 w-full sm:w-auto text-center whitespace-nowrap";
+  const ctaStyle = {
+    backgroundColor: `${accentColor}22`,
+    borderColor: `${accentColor}80`,
+    color: `color-mix(in srgb, ${accentColor} 68%, white)`,
+    boxShadow: `inset 0 1px 0 rgba(255,255,255,0.12), 0 10px 30px ${accentColor}24`,
+  };
+  const watchCta = (
+    <AiringAwareWatchLink
+      routeId={routeId}
+      latestEpisode={latestEpisode}
+      animeId={routeId}
+      className={`${ctaClassName} hover:-translate-y-0.5 hover:brightness-125`}
+      style={ctaStyle}
+    >
+      <Play className="w-4 h-4 fill-current shrink-0" />
+      <span>WATCH NOW</span>
+    </AiringAwareWatchLink>
+  );
 
 
   const relations = media.relations.edges.filter(
@@ -238,21 +266,16 @@ async function AnilistDetailContent({ anilistId }: { anilistId: number }) {
 
               {/* CTAs */}
               <div className="order-3 mb-5 grid w-full grid-cols-2 gap-3 sm:flex sm:w-auto lg:order-5 lg:mb-0 lg:pt-2">
-                <AiringAwareWatchLink
-                  routeId={routeId}
-                  latestEpisode={latestEpisode}
-                  animeId={routeId}
-                  className="flex h-12 items-center justify-center gap-2 rounded-full border px-3 sm:px-6 text-xs sm:text-sm font-black shadow-lg backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 hover:brightness-125 w-full sm:w-auto text-center whitespace-nowrap"
-                  style={{
-                    backgroundColor: `${accentColor}22`,
-                    borderColor: `${accentColor}80`,
-                    color: `color-mix(in srgb, ${accentColor} 68%, white)`,
-                    boxShadow: `inset 0 1px 0 rgba(255,255,255,0.12), 0 10px 30px ${accentColor}24`,
-                  }}
-                >
-                  <Play className="w-4 h-4 fill-current shrink-0" />
-                  <span>WATCH NOW</span>
-                </AiringAwareWatchLink>
+                {releaseSchedule ? (
+                  <UpcomingReleaseCta
+                    schedule={releaseSchedule}
+                    className={`${ctaClassName} min-w-0 cursor-default`}
+                    style={ctaStyle}
+                    airedFallback={watchCta}
+                  />
+                ) : (
+                  watchCta
+                )}
                 <div className="w-full sm:w-auto min-w-0">
                   <AddToListButton
                     animeId={`anilist~${anilistId}`}
