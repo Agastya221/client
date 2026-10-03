@@ -210,6 +210,35 @@ export default function NavbarClient({ user }: NavbarClientProps) {
     return () => window.clearTimeout(timer);
   }, [pathname, router]);
 
+  // The header is see-through at the very top (so hero art shows behind it), but page content
+  // scrolls underneath it, so once the page moves it gets a solid, blurred backing. On the watch
+  // page on phones it also slides away while scrolling down and returns on scroll up.
+  const [isScrolled, setIsScrolled] = useState(false);
+  const [isHiddenOnScroll, setHiddenOnScroll] = useState(false);
+  useEffect(() => {
+    let frame = 0;
+    let lastY = window.scrollY;
+    const update = () => {
+      frame = 0;
+      const y = Math.max(0, window.scrollY);
+      setIsScrolled(y > 10);
+      const delta = y - lastY;
+      if (y < 64) setHiddenOnScroll(false);
+      else if (delta > 6) setHiddenOnScroll(true);
+      else if (delta < -6) setHiddenOnScroll(false);
+      if (Math.abs(delta) > 6 || y < 64) lastY = y;
+    };
+    const onScroll = () => {
+      if (!frame) frame = window.requestAnimationFrame(update);
+    };
+    update();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [pathname]);
+
   // Prevent body scroll when menu is open
   useEffect(() => {
     if (mobileMenuOpen) {
@@ -309,6 +338,8 @@ export default function NavbarClient({ user }: NavbarClientProps) {
   }
 
   const isWatchPage = pathname.includes("/watch");
+  const isMenuOpen = mobileMenuOpen || mobileSearchActive || isDesktopFocused || isMobileFocused;
+  const hideOnPhone = isWatchPage && isHiddenOnScroll && !isMenuOpen;
 
   // The invite and welcome pages have their own header; the site's links would only lead a
   // visitor without an invite back to the invite page.
@@ -344,9 +375,10 @@ export default function NavbarClient({ user }: NavbarClientProps) {
         }
       `}</style>
       <nav
-        className="fixed top-0 z-50 w-full"
+        className={`fixed top-0 z-50 w-full transition-transform duration-300 ease-out ${hideOnPhone ? "max-lg:-translate-y-full" : ""}`}
         style={{ viewTransitionName: "persistent-nav" }}
-        data-menu-open={mobileMenuOpen || mobileSearchActive || isDesktopFocused || isMobileFocused ? "true" : "false"}
+        data-menu-open={isMenuOpen ? "true" : "false"}
+        data-scrolled={isScrolled ? "true" : "false"}
       >
         {/* Mobile Search Active Panel */}
         {mobileSearchActive && (
@@ -453,7 +485,13 @@ export default function NavbarClient({ user }: NavbarClientProps) {
           </div>
         )}
 
-        <div className={`h-16 w-full items-center justify-between gap-3 bg-gradient-to-b from-[#080809]/85 via-[#080809]/45 to-transparent px-4 lg:gap-6 lg:bg-transparent lg:px-12 lg:backdrop-blur-none xl:px-16 ${mobileSearchActive ? "hidden lg:flex" : "flex"}`}>
+        <div className="relative">
+        {/* Solid backing that fades in once the page is scrolled; an overlay so the bar never shifts. */}
+        <div
+          aria-hidden="true"
+          className={`pointer-events-none absolute inset-0 border-b bg-[#0a0b0c]/90 backdrop-blur-md transition-[opacity,border-color] duration-200 ${isScrolled ? "border-white/[0.06] opacity-100" : "border-transparent opacity-0"}`}
+        />
+        <div className={`relative h-16 w-full items-center justify-between gap-3 bg-gradient-to-b from-[#080809]/85 via-[#080809]/45 to-transparent px-4 lg:gap-6 lg:bg-transparent lg:px-12 lg:backdrop-blur-none xl:px-16 ${mobileSearchActive ? "hidden lg:flex" : "flex"}`}>
           {/* Logo */}
           <div className="flex shrink-0 items-center gap-3">
             <button
@@ -631,6 +669,7 @@ export default function NavbarClient({ user }: NavbarClientProps) {
             </Link>
             <UserMenu user={resolvedUser} />
           </div>
+        </div>
         </div>
       </nav>
 
