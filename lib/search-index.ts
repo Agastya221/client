@@ -20,6 +20,8 @@ interface Entry {
   media: AnilistMedia;
   /** Normalised titles: romaji, English, synonyms. */
   names: string[];
+  /** How many of `names` are real titles (the rest are synonyms, which count for less). */
+  titleCount: number;
   /** Every word of every title, for word-start matches. */
   words: string[];
   rank: number;
@@ -69,8 +71,9 @@ function toMedia(row: Row, coverPrefix: string): AnilistMedia {
 export function indexEntries(file: IndexFile): Entry[] {
   return file.rows.map((row, rank) => {
     const media = toMedia(row, file.coverPrefix);
-    const names = [row[1], row[2] || "", ...row[3]].map(normalizeSearchText).filter(Boolean);
-    return { media, names, words: names.flatMap((name) => name.split(" ")), rank };
+    const titles = [row[1], row[2] || ""].map(normalizeSearchText).filter(Boolean);
+    const names = [...titles, ...row[3].map(normalizeSearchText).filter(Boolean)];
+    return { media, names, titleCount: titles.length, words: names.flatMap((name) => name.split(" ")), rank };
   });
 }
 
@@ -98,12 +101,17 @@ export function matchSearchIndex(index: Entry[], query: string, limit = 6): Anil
   const scored: { entry: Entry; score: number }[] = [];
   for (const entry of index) {
     let score = 0;
-    for (const name of entry.names) {
-      if (name === q) score = Math.max(score, 1000);
-      else if (name.startsWith(q)) score = Math.max(score, 800 - Math.min(200, name.length - q.length));
-      else if (qWords.every((w) => entry.words.some((word) => word.startsWith(w)))) score = Math.max(score, 500);
-      else if (q.length >= 3 && name.includes(q)) score = Math.max(score, 300);
-    }
+    entry.names.forEach((name, position) => {
+      // A synonym is worth less than a real title: "Onigiri" lists "Demon Slayer" as a synonym,
+      // and must not beat "Demon Slayer: Kimetsu no Yaiba" for that query.
+      const weight = position < entry.titleCount ? 1 : 0.6;
+      let value = 0;
+      if (name === q) value = 1000;
+      else if (name.startsWith(q)) value = 800 - Math.min(200, name.length - q.length);
+      else if (qWords.every((w) => entry.words.some((word) => word.startsWith(w)))) value = 500;
+      else if (q.length >= 3 && name.includes(q)) value = 300;
+      score = Math.max(score, value * weight);
+    });
     if (score > 0) scored.push({ entry, score: score - entry.rank / 100 });
   }
   scored.sort((a, b) => b.score - a.score);

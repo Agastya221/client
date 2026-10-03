@@ -14,7 +14,7 @@ const index = indexEntries({ v: 1, coverPrefix: "https://cdn/cover/", rows: [
   row(1535, "DEATH NOTE", "Death Note"),
   row(97986, "Boruto: Naruto Next Generations", "Boruto"),
   row(154587, "Sousou no Frieren", "Frieren: Beyond Journey’s End"),
-  row(5, "Onigiri"),
+  row(5, "Onigiri", 0, ["Demon Slayer"]),
 ]});
 const ids = (q: string) => matchSearchIndex(index, q).map((media) => media.id);
 
@@ -30,7 +30,7 @@ test("English, Japanese and short names all find the title", () => {
   assert.equal(ids("kimetsu")[0], 101922);
   assert.equal(ids("aot")[0], 16498);
   assert.equal(ids("frieren")[0], 154587);
-  assert.ok(!ids("demon slayer").includes(5), "no unrelated title");
+  assert.equal(ids("demon slayer")[0], 101922, "a real title beats a lesser show's synonym");
 });
 
 test("partial typing and related titles", () => {
@@ -56,4 +56,11 @@ test("search cache keys ignore casing and spacing and are valid store keys", () 
   assert.notEqual(a, searchStoreKey({ q: "naruto", page: 1, suggest: false }));
   assert.ok(a.startsWith("stream-link:search:v1:"));
   assert.ok(!/[\s*?[\]\\]/.test(a) && a.length <= 300);
+});
+
+test("when no server is chosen, the fastest Solaris variant plays first and HD-1 last", async () => {
+  const { anivexaVariantSpeedRank } = await import("../lib/anime/api.ts");
+  const order = ["HD-1", "Vidstream-2", "Vidstream-1", "HD-2"].sort((a, b) => anivexaVariantSpeedRank(a) - anivexaVariantSpeedRank(b));
+  assert.deepEqual(order, ["Vidstream-1", "HD-2", "Vidstream-2", "HD-1"]);
+  assert.ok(anivexaVariantSpeedRank("") < anivexaVariantSpeedRank("HD-1"), "an unknown name is not pushed behind HD-1");
 });

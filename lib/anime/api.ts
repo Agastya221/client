@@ -4670,6 +4670,30 @@ function buildAnivexaServerEntries(
   });
 }
 
+/**
+ * Which variant of a provider plays when the viewer has not picked one. Measured 2026-10-03 on
+ * five titles: Solaris HD-1 (listed first by the provider) delivered video at about half the
+ * speed of the others (segments ~550 ms vs ~250-300 ms); Vidstream-1 was the fastest and present
+ * on every title, HD-2 as fast but only on some. A server the viewer chooses is always used as is.
+ */
+export function anivexaVariantSpeedRank(variant: string): number {
+  const name = variant.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (name.includes("vidstream1")) return 0;
+  if (name.includes("hd2")) return 1;
+  if (name.includes("vidstream2")) return 2;
+  if (name.includes("hd1")) return 4;
+  return 3;
+}
+
+/** Stable: entries of other providers and equal ranks keep their order. Server ids are unchanged. */
+function fastestVariantFirst(entries: AnivexaServerEntry[]): AnivexaServerEntry[] {
+  return entries
+    .map((entry, index) => ({ entry, index, rank: anivexaVariantSpeedRank(String(entry.stream?.quality || entry.stream?.server || "")) }))
+    .sort((left, right) =>
+      left.entry.bucket.provider === right.entry.bucket.provider ? left.rank - right.rank || left.index - right.index : left.index - right.index)
+    .map(({ entry }) => entry);
+}
+
 function createAnivexaAggregateData(
   buckets: AnivexaAggregateBucket[],
   uiProvider: ProviderId,
@@ -4737,10 +4761,10 @@ async function fetchAnivexaAggregateWatchSession(
     ? entries.find((entry) => entry.option.id === requestedServer)
     : null;
   const legacyEntry = requestedServer?.startsWith("anivexa-") && requestedWorkerProvider
-    ? entries.find((entry) =>
+    ? fastestVariantFirst(entries.filter((entry) =>
         entry.bucket.provider === requestedWorkerProvider &&
         (!requestedTransport || entry.option.transport === requestedTransport) &&
-        (dubbed || !requestedMode || entry.option.subType === requestedMode))
+        (dubbed || !requestedMode || entry.option.subType === requestedMode)))[0]
     : null;
 
   if (explicitAggregateServer && requestedWorkerProvider && !exactEntry && !legacyEntry) {
@@ -4772,7 +4796,7 @@ async function fetchAnivexaAggregateWatchSession(
     dashProxyAvailable || entry.option.transport !== "dash";
 
   const selectedEntry = exactEntry || legacyEntry ||
-    entries.find((entry) =>
+    fastestVariantFirst(entries).find((entry) =>
       entry.option.transport !== "embed" &&
       transportUsable(entry) &&
       (!requestedTransport || entry.option.transport === requestedTransport) &&
