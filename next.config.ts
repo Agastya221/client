@@ -71,6 +71,15 @@ const nextConfig: NextConfig = {
   // like bis_skin_checked="1" (Honey, CouponFollow, etc.) into the DOM.
   reactStrictMode: true,
   /**
+   * Keep Prisma out of the Next.js server bundle so OpenNext bundles it itself for the
+   * Worker, resolving the `workerd` export condition. That loads the query compiler from
+   * a real .wasm module. Without this, Next resolves the Node build, which compiles the
+   * wasm from a base64 string at runtime: Workers forbid that ("Wasm code generation
+   * disallowed by embedder"), so every Prisma query failed on the live site.
+   * https://opennext.js.org/cloudflare/howtos/db
+   */
+  serverExternalPackages: ["@prisma/client", ".prisma/client"],
+  /**
    * `pg` (used by @prisma/adapter-pg) does `require("pg-cloudflare")` to reach
    * Cloudflare's socket API. That package's exports map serves a real
    * implementation only under the `workerd` condition and an empty stub under
