@@ -44,13 +44,37 @@ function wantsPage(request: Request): boolean {
   return !pathname.startsWith("/api/");
 }
 
-export async function applyAccessGate(request: Request, env?: Record<string, unknown>): Promise<Response | null> {
+function sameString(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/**
+ * Next's own page refresh (ISR revalidation): when a cached page is stale, OpenNext asks the site
+ * for a fresh copy with `x-prerender-revalidate: <this build's preview ID>` and no cookie. The gate
+ * used to redirect that to the invite page, so pages were never refreshed and every attempt
+ * rendered the invite page instead. Only the exact build ID passes, so the header cannot be
+ * guessed into a way past the gate.
+ */
+export function isPageRevalidation(request: Request, revalidateId: string | null | undefined): boolean {
+  const sent = request.headers.get("x-prerender-revalidate");
+  return Boolean(revalidateId && sent && wantsPage(request) && sameString(sent, revalidateId));
+}
+
+export async function applyAccessGate(
+  request: Request,
+  env?: Record<string, unknown>,
+  options: { revalidateId?: string | null } = {},
+): Promise<Response | null> {
   // Cheap checks first: with the gate off, or for static files, nothing else (not even a
   // settings read) happens.
   if (!getAccessConfig(env).enabled) return null;
   const url = new URL(request.url);
   const onInvitePage = url.pathname === INVITE_PAGE && wantsPage(request);
   if (request.method === "OPTIONS" || (isOpenPath(url.pathname) && !onInvitePage)) return null;
+  if (isPageRevalidation(request, options.revalidateId)) return null;
 
   // The site's own page pre-warmer (cron) fetches pages from inside; it proves itself with a
   // token derived from the site secret. Pages only: the warm token opens no API.

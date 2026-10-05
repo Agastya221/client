@@ -25,6 +25,12 @@ const PER_PAGE_TIMEOUT_MS = 20_000;
  * by Cloudflare (403 in 1 ms, seen 2026-10-03), so every warm-up silently did nothing.
  */
 function selfFetch(url: string, init: RequestInit): Promise<Response> {
+  // A Request built in code has no Host header, unlike one from a browser. OpenNext reads Host
+  // when it refreshes a stale page (`host.includes(...)`), so without it every warm-up of a stale
+  // page crashed with a 500 (seen 2026-10-05).
+  const headers = new Headers(init.headers);
+  if (!headers.has("host")) headers.set("host", new URL(url).host);
+  init = { ...init, headers };
   try {
     const self = (getCloudflareContext().env as unknown as { WORKER_SELF_REFERENCE?: { fetch(request: Request): Promise<Response> } })
       .WORKER_SELF_REFERENCE;

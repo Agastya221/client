@@ -15,6 +15,11 @@ import openNext from "./.open-next/worker.js";
 export { DOQueueHandler, DOShardedTagCache, BucketCachePurge } from "./.open-next/worker.js";
 import { maybeHandleFastSegment } from "./lib/proxy/fast-segment";
 import { applyAccessGate } from "./lib/access/gate";
+// This build's ISR revalidation ID; the gate lets Next's own page refreshes through with it.
+import prerenderManifest from "./.open-next/server-functions/default/.next/prerender-manifest.json";
+
+const REVALIDATE_ID: string | null =
+  (prerenderManifest as { preview?: { previewModeId?: string } }).preview?.previewModeId ?? null;
 import { getAccessConfig } from "./lib/access/invite";
 import { makeWarmToken, WARM_HEADER } from "./lib/warm-pages";
 import { withEdgeCache } from "./lib/edge-page-cache";
@@ -38,7 +43,7 @@ export default {
     const fastSegment = maybeHandleFastSegment(request, env as Record<string, unknown>);
     if (fastSegment) return fastSegment;
     // Invite-only gate. A no-op unless SITE_ACCESS is set (see lib/access/gate.ts).
-    const blocked = await applyAccessGate(request, env as Record<string, unknown>);
+    const blocked = await applyAccessGate(request, env as Record<string, unknown>, { revalidateId: REVALIDATE_ID });
     if (blocked) return blocked;
     // Watch pages and comment lists are shared from Cloudflare's edge cache (lib/edge-page-cache.ts):
     // rendering them cost 80-160 ms of CPU each, the cause of Error 1102 while switching episodes.

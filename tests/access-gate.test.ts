@@ -262,3 +262,20 @@ test("gate: a freshly admitted friend is not bounced by cached settings; junk co
   assert.equal(junk?.status, 302);
   assert.equal(reads, before, "a forged cookie does not trigger a fresh settings read");
 });
+
+test("Next's own page refresh passes the gate only with this build's exact revalidation ID", async () => {
+  const { isPageRevalidation } = await import("../lib/access/gate.ts");
+  const ID = "0123456789abcdef0123456789abcdef";
+  const head = (path: string, value?: string, method = "HEAD") =>
+    new Request(`https://site.test${path}`, { method, headers: value ? { "x-prerender-revalidate": value } : {} });
+
+  assert.equal(await applyAccessGate(head("/anime/anilist~21", ID), ON, { revalidateId: ID }), null, "refresh HEAD gets through");
+  assert.equal(await applyAccessGate(head("/anime/anilist~21", ID, "GET"), ON, { revalidateId: ID }), null, "GET too");
+  assert.equal((await applyAccessGate(head("/anime/anilist~21", "wrong-id-wrong-id-wrong-id-xx00"), ON, { revalidateId: ID }))?.status, 302, "a guessed value is still gated");
+  assert.equal((await applyAccessGate(head("/anime/anilist~21", ID), ON, {}))?.status, 302, "no build ID known: nothing is let through");
+  assert.equal((await applyAccessGate(head("/anime/anilist~21"), ON, { revalidateId: ID }))?.status, 302, "no header: gated as before");
+  assert.equal((await applyAccessGate(head("/api/resolve-source", ID, "POST"), ON, { revalidateId: ID }))?.status, 401, "never opens APIs");
+  assert.equal((await applyAccessGate(head("/api/watch-history", ID, "GET"), ON, { revalidateId: ID }))?.status, 401, "not even a GET to an API");
+  assert.equal(isPageRevalidation(head("/anime/x", ID.slice(0, -1)), ID), false, "length mismatch");
+  assert.equal(isPageRevalidation(head("/anime/x", ID), ""), false);
+});
