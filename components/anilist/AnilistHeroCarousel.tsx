@@ -8,6 +8,7 @@ import WatchIntentLink from "@/components/anime/WatchIntentLink";
 import { Play, Bookmark, BookmarkCheck, ChevronLeft, ChevronRight, Star, Calendar, Tv, Info, Clock, Layers3 } from "lucide-react";
 import Link from "next/link";
 import { getImageProps } from "next/image";
+import { heroImageSrc } from "@/lib/proxy/image-proxy";
 import { preload } from "react-dom";
 import {
   ViewTransition,
@@ -408,7 +409,7 @@ export default function AnilistHeroCarousel({
       // callback fires, not when the effect is set up.
       const nextAssets = resolvedHeroAssets(heroAssetsRef.current[nextSlide.id]);
       const desktop = getImageProps({
-        src: nextAssets?.backdrop || nextSlide.bannerImage || nextSlide.coverImage.extraLarge,
+        src: heroImageSrc(nextAssets?.backdrop) || nextSlide.bannerImage || nextSlide.coverImage.extraLarge,
         alt: "",
         fill: true,
         quality: 90,
@@ -436,6 +437,8 @@ export default function AnilistHeroCarousel({
         imageSizes: mobile.sizes,
         media: "(max-width: 767px)",
       });
+      // The next slide's title logo too, so it is ready the moment the slide turns.
+      if (nextAssets?.logo) preload(heroImageSrc(nextAssets.logo), { as: "image", fetchPriority: "low" });
     };
 
     const idleApi = window as unknown as {
@@ -522,7 +525,7 @@ export default function AnilistHeroCarousel({
       ? "text-2xl"
       : "text-3xl";
   const desktopBackdrop = getImageProps({
-    src: activeHeroAssets?.backdrop || slide.bannerImage || slide.coverImage.extraLarge,
+    src: heroImageSrc(activeHeroAssets?.backdrop) || slide.bannerImage || slide.coverImage.extraLarge,
     alt: title,
     fill: true,
     quality: 90,
@@ -651,7 +654,7 @@ export default function AnilistHeroCarousel({
             <div className="mb-4 flex h-[116px] max-w-[380px] items-start justify-start">
               {titleLogoState ? (
                 <img
-                  src={titleLogoState}
+                  src={heroImageSrc(titleLogoState)}
                   alt={title}
                   className="max-h-[112px] max-w-[340px] object-contain object-left-top drop-shadow-[0_8px_30px_rgba(0,0,0,0.95)]"
                   decoding="async"
@@ -837,7 +840,7 @@ export default function AnilistHeroCarousel({
           <div className="mb-3 flex h-20 max-w-full items-end justify-start">
             {titleLogoState ? (
               <img
-                src={titleLogoState}
+                src={heroImageSrc(titleLogoState)}
                 alt={title}
                 className="max-h-20 max-w-[62vw] object-contain object-left-bottom drop-shadow-[0_7px_22px_rgba(0,0,0,0.98)]"
                 decoding="async"

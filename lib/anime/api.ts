@@ -4883,10 +4883,17 @@ async function fetchAnivexaAggregateWatchSession(
   }
 
   const selectedPayload = selectedBucket?.payload || {};
-  const introStart = selectedPayload.intro_start ?? selectedPayload.intro?.start ?? null;
-  const introEnd = selectedPayload.intro_end ?? selectedPayload.intro?.end ?? null;
-  const outroStart = selectedPayload.outro_start ?? selectedPayload.outro?.start ?? null;
-  const outroEnd = selectedPayload.outro_end ?? selectedPayload.outro?.end ?? null;
+  // Skip times live on each stream for some providers (anikoto/Solaris: `streams[i].intro =
+  // {start, end}`) and at the top level for others. Reading only the top level dropped them, so
+  // Skip Intro/Outro never appeared on Solaris.
+  const skip = (field: "intro" | "outro") => {
+    const own = selectedStream?.[field];
+    const start = own?.start ?? selectedStream?.[`${field}_start`] ?? selectedPayload[`${field}_start`] ?? selectedPayload[field]?.start ?? null;
+    const end = own?.end ?? selectedStream?.[`${field}_end`] ?? selectedPayload[`${field}_end`] ?? selectedPayload[field]?.end ?? null;
+    return { start, end };
+  };
+  const { start: introStart, end: introEnd } = skip("intro");
+  const { start: outroStart, end: outroEnd } = skip("outro");
 
   recordLog("info", "anime.anivexa.aggregate.selected", {
     anilistId,

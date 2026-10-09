@@ -14,6 +14,7 @@
 import openNext from "./.open-next/worker.js";
 export { DOQueueHandler, DOShardedTagCache, BucketCachePurge } from "./.open-next/worker.js";
 import { maybeHandleFastSegment } from "./lib/proxy/fast-segment";
+import { maybeHandleImageProxy } from "./lib/proxy/image-proxy";
 import { applyAccessGate } from "./lib/access/gate";
 // This build's ISR revalidation ID; the gate lets Next's own page refreshes through with it.
 import prerenderManifest from "./.open-next/server-functions/default/.next/prerender-manifest.json";
@@ -42,6 +43,10 @@ export default {
   async fetch(request: Request, env: unknown, ctx: unknown): Promise<Response> {
     const fastSegment = maybeHandleFastSegment(request, env as Record<string, unknown>);
     if (fastSegment) return fastSegment;
+    // Hero logos/backdrops from fanart.tv and TheTVDB, cached at the edge and in the browser
+    // (lib/proxy/image-proxy.ts). Before the gate: images carry no secrets and load anywhere.
+    const image = maybeHandleImageProxy(request, ctx as ExecutionContextLike);
+    if (image) return image;
     // Invite-only gate. A no-op unless SITE_ACCESS is set (see lib/access/gate.ts).
     const blocked = await applyAccessGate(request, env as Record<string, unknown>, { revalidateId: REVALIDATE_ID });
     if (blocked) return blocked;

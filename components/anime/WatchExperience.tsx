@@ -17,7 +17,7 @@ import {
 import { useServerHealth } from "@/components/anime/watch/useServerHealth";
 import NotAiredPanel from "@/components/anime/watch/NotAiredPanel";
 import { resolveNotAiredEpisode } from "@/lib/anime/release-schedule";
-import { bestVerifiedServer, choiceFromServer, isFastestServer, choiceMatchesServer, describeChoice, displayServerLabel, focusedServerCandidates, GATEWAY_SERVERS, gatewayMatchesServer, rankServerOptions, selectFocusedServers, serverIdForChoice, type ServerPreference } from "@/lib/anime/server-selection";
+import { bestVerifiedServer, choiceFromServer, isFastestServer, choiceMatchesServer, describeChoice, displayServerLabel, focusedServerCandidates, GATEWAY_SERVERS, gatewayMatchesServer, nextServerAfterFailure, rankServerOptions, selectFocusedServers, serverIdForChoice, type ServerPreference } from "@/lib/anime/server-selection";
 import {
   ANIVEXA_DISCOVERY_PROVIDERS,
   type AnimeSeasonEntry,
@@ -2232,110 +2232,88 @@ export default function WatchExperience({ initialSession, initialServerDiscovery
   }, [session.anime.id, session.episode.number, session.activeServerId, session.dubbed,
     session.serverOptions, playerActivated, isSessionLoading, serverHealth.healthById, queueSession, serverPreference]);
 
-  const handlePlaybackError = () => {
-    // Stream links are stored and reused (lib/stream-store.ts), so an error may just mean the
-    // stored link went stale. Fetch a fresh one for the same server and replay once, before
-    // blaming the server or switching away from it.
-    if (!isSessionLoading) {
-      const failingServerId = pendingSession?.activeServerId || session.activeServerId;
-      const refreshKey = `${session.anime.id}|${session.episode.number}|${session.dubbed ? "dub" : "sub"}|${failingServerId ?? "auto"}`;
-      if (!refreshedLinkKeysRef.current.has(refreshKey)) {
-        refreshedLinkKeysRef.current.add(refreshKey);
-        const request: SessionRequest = {
-          episodeNumber: session.episode.number,
-          provider: session.provider,
-          dubbed: session.dubbed,
-          server: failingServerId ?? null,
-        };
-        setPlaybackMessage("Refreshing the stream link…");
-        void refreshClientStream({ animeId: session.anime.id, ...request })
-          .then(() => resolveCurrentSource(request))
-          .then((fresh) => {
-            if (fresh.source) {
-              setPlaybackMessage(null);
-              commitSession(fresh);
-            } else {
-              refreshedLinkKeysRef.current.add(`${refreshKey}|gave-up`);
-              setPlaybackMessage("This link isn't working. Tap Change server to pick another one.");
-            }
-          })
-          .catch(() => setPlaybackMessage("Couldn't refresh the stream link. Tap Change server to pick another one."));
-        return;
-      }
-    }
-    const rememberedChoice = preferredChoiceFor(session.dubbed);
-    if (rememberedChoice) {
-      setPlaybackMessage(
-        `${describeChoice(rememberedChoice)} isn't working for this episode. Tap Change server to pick another one.`,
-      );
-      return;
-    }
-    if (isSessionLoading) return;
-
-    const activeServerId = pendingSession?.activeServerId || session.activeServerId;
+  /**
+   * A server failed and a fresh link did not help. Dub: switch to the next working dub server by
+   * itself (all dub servers play the same audio), and say so. Sub: never switch automatically,
+   * because soft and hard subs differ; tell the viewer to pick a server instead.
+   */
+  const giveUpOnServer = (failingServerId: string | null) => {
     const language = session.dubbed ? "dub" : "sub";
-    const activeServer = session.serverOptions.find((entry) => entry.id === activeServerId);
-    const failedKey = activeServerId
-      ? `${session.anime.id}|${session.episode.number}|${language}|${activeServerId}`
-      : null;
-    if (failedKey && failedServerIdsRef.current.has(failedKey)) return;
-    if (failedKey) {
-      failedServerIdsRef.current.add(failedKey);
-      serverHealth.markFailed(activeServerId!);
+    const failingServer = failingServerId ? session.serverOptions.find((entry) => entry.id === failingServerId) : undefined;
+    const name = failingServer ? displayServerLabel(failingServer, session.serverOptions) : "This server";
+    if (failingServerId) {
+      failedServerIdsRef.current.add(`${session.anime.id}|${session.episode.number}|${language}|${failingServerId}`);
+      serverHealth.markFailed(failingServerId);
     }
-
-    const failedHealth = activeServerId ? {
-      ...serverHealth.healthById,
-      [activeServerId]: { status: "failed" as const, reason: "Playback failed", checkedAt: Date.now() },
-    } : serverHealth.healthById;
-    const focused = selectFocusedServers(session.serverOptions, failedHealth);
-    const preferredCandidates = session.dubbed ? focused.dub : [...focused.hard, ...focused.soft];
-    const embedFallbacks = session.serverOptions.filter((entry) => isCustomEmbedServer(entry.id));
-    const playableCandidates = [...preferredCandidates, ...embedFallbacks].filter((entry) => {
-      const sameLanguage = language === "dub"
-        ? entry.category === "dub"
-        : entry.category === "sub" || !entry.category;
-      const failedCandidateKey = `${session.anime.id}|${session.episode.number}|${language}|${entry.id}`;
-      return sameLanguage &&
-        entry.id !== activeServerId &&
-        failedHealth[entry.id]?.status !== "failed" &&
-        !failedServerIdsRef.current.has(failedCandidateKey);
+    const tried = [...failedServerIdsRef.current]
+      .filter((key) => key.startsWith(`${session.anime.id}|${session.episode.number}|${language}|`))
+      .map((key) => key.split("|").slice(3).join("|"));
+    const next = nextServerAfterFailure({
+      dubbed: session.dubbed,
+      failedId: failingServerId,
+      options: session.serverOptions,
+      healthById: failingServerId
+        ? { ...serverHealth.healthById, [failingServerId]: { status: "failed" as const, reason: "Playback failed", checkedAt: Date.now() } }
+        : serverHealth.healthById,
+      excludeIds: tried,
     });
-    const rankedCandidates = rankServerOptions(playableCandidates, failedHealth);
 
-    const next = rankedCandidates[0];
-
-    if (!next) {
-      watchDebug("playback_error.no_candidate", {
-        provider: session.provider,
-        activeServerId,
-        language,
-        subType: activeServer?.subType || "any",
-      });
-      setPlaybackMessage(
-        activeServer?.subType === "hard"
-          ? "No working hard-sub or embedded server was found for this episode."
-          : "No working server was found for this episode or audio mode.",
-      );
+    if (!session.dubbed) {
+      watchDebug("playback_error.sub_no_auto_switch", { activeServerId: failingServerId, subType: failingServer?.subType || "any" });
+      setPlaybackMessage(`${name} isn't working for this episode. Tap Change server to pick another one.`);
       return;
     }
-
-    watchDebug("playback_error.try_next_server", {
-      failedProvider: session.provider,
-      failedServer: activeServerId,
-      nextProvider: next.provider,
-      nextServer: next.id,
-      nextLabel: next.label,
-      nextTransport: next.transport || "unknown",
-    });
-
-    setPlaybackMessage(`${activeServer?.subType === "hard" ? "Hard-sub" : "Stream"} failed. Trying ${next.label}...`);
+    if (!next) {
+      watchDebug("playback_error.no_dub_candidate", { activeServerId: failingServerId });
+      setPlaybackMessage("No working dub server was found for this episode. Try sub, or check back later.");
+      return;
+    }
+    const nextName = displayServerLabel(next, session.serverOptions);
+    watchDebug("playback_error.dub_switch", { failedServer: failingServerId, nextServer: next.id });
+    setPlaybackMessage(`${name} dub isn't working for this episode. Switched to ${nextName} dub.`);
     queueSession({
       episodeNumber: session.episode.number,
       provider: next.provider,
       server: next.id,
-      dubbed: session.dubbed,
+      dubbed: true,
     });
+  };
+
+  const handlePlaybackError = () => {
+    if (isSessionLoading) return;
+    const failingServerId = pendingSession?.activeServerId || session.activeServerId;
+    const language = session.dubbed ? "dub" : "sub";
+    if (failingServerId && failedServerIdsRef.current.has(`${session.anime.id}|${session.episode.number}|${language}|${failingServerId}`)) return;
+
+    // Stream links are stored and reused (lib/stream-store.ts), so an error may just mean the
+    // stored link went stale. Fetch a fresh one for the same server and replay once, before
+    // giving up on the server.
+    const refreshKey = `${session.anime.id}|${session.episode.number}|${language}|${failingServerId ?? "auto"}`;
+    if (!refreshedLinkKeysRef.current.has(refreshKey)) {
+      refreshedLinkKeysRef.current.add(refreshKey);
+      const request: SessionRequest = {
+        episodeNumber: session.episode.number,
+        provider: session.provider,
+        dubbed: session.dubbed,
+        server: failingServerId ?? null,
+      };
+      setPlaybackMessage("Refreshing the stream link…");
+      void refreshClientStream({ animeId: session.anime.id, ...request })
+        .then(() => resolveCurrentSource(request))
+        .then((fresh) => {
+          if (fresh.source) {
+            setPlaybackMessage(null);
+            commitSession(fresh);
+          } else {
+            giveUpOnServer(failingServerId);
+          }
+        })
+        .catch(() => giveUpOnServer(failingServerId));
+      return;
+    }
+
+    // The fresh link failed too.
+    giveUpOnServer(failingServerId);
   };
 
   useEffect(() => {

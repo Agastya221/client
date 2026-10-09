@@ -35,9 +35,10 @@ export const revalidate = 10800;
 // How many hero slides get their logo/backdrop resolved on the server. The carousel
 // seeds from initialHeroAssets and fetches anything missing client-side, so this is a
 // pure latency trade: every extra slide is another parallel lookup that can widen the
-// cold-cache tail of the homepage render. Four covers the opening slide plus the next
-// few a viewer can reach before a client fetch would have landed.
-const HERO_ASSET_SEED_COUNT = 4;
+// cold-cache tail of the homepage render. All ten: the lookups are KV-cached for 7 days and
+// the page itself is cached for hours, while a client-side lookup per slide took 0.2-2.2 s
+// before its logo could even start loading.
+const HERO_ASSET_SEED_COUNT = 10;
 
 
 // Section header component

@@ -215,3 +215,28 @@ export function describeChoice(choice: ServerChoice): string {
   const mode = choice.mode === "soft" ? "Soft subs" : choice.mode === "hard" ? "Hard subs" : "Dub";
   return `${name} · ${mode}`;
 }
+
+/**
+ * Which server to switch to by itself after one has failed (and a fresh link did not help).
+ *
+ * Dub only: every dub server plays the same dubbed audio, so moving from a broken Solaris dub
+ * to Waves dub is what the viewer wants. Subs never switch automatically, because soft and hard
+ * subs are different things; the viewer is told to pick another server instead.
+ * Order follows rankServerOptions: working servers first, Solaris then Waves, embeds last.
+ */
+export function nextServerAfterFailure(input: {
+  dubbed: boolean;
+  failedId: string | null;
+  options: ServerOption[];
+  healthById: Record<string, ServerHealthResult>;
+  excludeIds?: Iterable<string>;
+}): ServerOption | null {
+  if (!input.dubbed) return null;
+  const exclude = new Set(input.excludeIds ?? []);
+  if (input.failedId) exclude.add(input.failedId);
+  const candidates = input.options.filter((option) =>
+    option.category === "dub" &&
+    !exclude.has(option.id) &&
+    input.healthById[option.id]?.status !== "failed");
+  return rankServerOptions(candidates, input.healthById)[0] ?? null;
+}

@@ -73,8 +73,10 @@ export interface StreamStoreRequest {
 const lang = (dubbed?: boolean) => (dubbed ? "dub" : "sub");
 
 /** Everything stored for one episode and language, whichever server or provider asked. */
+// v2: links stored before 2026-10-09 lack skip times (intro/outro were dropped); a new key
+// version makes every one of them resolve again once, with the times.
 export function streamStorePrefix(request: Pick<StreamStoreRequest, "animeId" | "episodeNumber" | "dubbed">): string {
-  return `stream-link:v1:${request.animeId}:ep${request.episodeNumber || 1}:${lang(request.dubbed)}:`;
+  return `stream-link:v2:${request.animeId}:ep${request.episodeNumber || 1}:${lang(request.dubbed)}:`;
 }
 
 /** What a refresh for this server discards: its own links and the "auto" ones, nothing else. */

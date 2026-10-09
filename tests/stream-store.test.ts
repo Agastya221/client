@@ -26,8 +26,8 @@ function memoryStorage() {
 const req = { animeId: "anilist~21", episodeNumber: 5, dubbed: false, server: "anivexa2-anikoto-hls-soft", provider: "anikoto" };
 
 test("keys separate episode, language, server and provider; prefixes group them", () => {
-  assert.equal(streamStoreKey(req), "stream-link:v1:anilist~21:ep5:sub:anivexa2-anikoto-hls-soft:anikoto");
-  assert.equal(streamStoreKey({ animeId: "anilist~21" }), "stream-link:v1:anilist~21:ep1:sub:auto:auto", "defaults");
+  assert.equal(streamStoreKey(req), "stream-link:v2:anilist~21:ep5:sub:anivexa2-anikoto-hls-soft:anikoto");
+  assert.equal(streamStoreKey({ animeId: "anilist~21" }), "stream-link:v2:anilist~21:ep1:sub:auto:auto", "defaults");
   assert.notEqual(streamStoreKey({ ...req, dubbed: true }), streamStoreKey(req), "dub is its own entry");
   assert.notEqual(streamStoreKey({ ...req, episodeNumber: 6 }), streamStoreKey(req));
   assert.ok(streamStoreKey(req).startsWith(streamStorePrefix(req)));
@@ -77,7 +77,7 @@ test("a refresh discards the failing server's links and the auto links, and noth
   const prefixes = streamRefreshPrefixes({ animeId: "anilist~21", episodeNumber: 5, dubbed: false, server: "anivexa2-anikoto-hls-soft" });
   for (const prefix of prefixes) await deleteStoredStreams(prefix, storage);
 
-  const left = [...data.keys()].map((k) => k.replace("stream-link:v1:anilist~21:", "")).sort();
+  const left = [...data.keys()].map((k) => k.replace("stream-link:v2:anilist~21:", "")).sort();
   assert.deepEqual(left, [
     "ep5:dub:anivexa2-anikoto-hls-soft:anikoto",
     "ep5:sub:anivexa2-aniwaves-hls-hard:aniwaves",
@@ -87,7 +87,7 @@ test("a refresh discards the failing server's links and the auto links, and noth
 });
 
 test("refreshing 'auto' only discards the auto links", () => {
-  assert.deepEqual(streamRefreshPrefixes({ animeId: "x", episodeNumber: 2, dubbed: true }), ["stream-link:v1:x:ep2:dub:auto:"]);
+  assert.deepEqual(streamRefreshPrefixes({ animeId: "x", episodeNumber: 2, dubbed: true }), ["stream-link:v2:x:ep2:dub:auto:"]);
 });
 
 test("a refresh marks every Render call fresh; ordinary calls are untouched", async () => {
@@ -129,30 +129,30 @@ test("the link store talks to Render's /linkstore with the proxy key, and failur
     }),
   });
 
-  await storage.set("stream-link:v1:a", { n: 1 }, 99);
-  assert.deepEqual(await storage.get("stream-link:v1:a"), { n: 1 }, "round trip");
-  assert.equal(await storage.get("stream-link:v1:missing"), null);
-  await storage.delete("stream-link:v1:a");
-  await storage.deletePrefix("stream-link:v1:a:ep5:sub:auto:");
+  await storage.set("stream-link:v2:a", { n: 1 }, 99);
+  assert.deepEqual(await storage.get("stream-link:v2:a"), { n: 1 }, "round trip");
+  assert.equal(await storage.get("stream-link:v2:missing"), null);
+  await storage.delete("stream-link:v2:a");
+  await storage.deletePrefix("stream-link:v2:a:ep5:sub:auto:");
   assert.deepEqual(calls.map((c) => c.body.op), ["set", "get", "get", "del", "delprefix"]);
   assert.ok(calls.every((c) => c.url === "https://render.example/linkstore" && c.headers["x-proxy-key"] === "k123"));
   assert.equal(calls[0].body.ttlSeconds, 99);
   assert.equal(calls[0].body.value, JSON.stringify({ n: 1 }));
 
   const broken = createRemoteStreamStorage({ url: () => "https://x/linkstore", fetchImpl: (async () => { throw new Error("Render down"); }) as typeof fetch });
-  assert.equal(await broken.get("stream-link:v1:a"), null);
-  await broken.set("stream-link:v1:a", {}, 60);
-  await broken.delete("stream-link:v1:a");
-  await broken.deletePrefix("stream-link:v1:");
+  assert.equal(await broken.get("stream-link:v2:a"), null);
+  await broken.set("stream-link:v2:a", {}, 60);
+  await broken.delete("stream-link:v2:a");
+  await broken.deletePrefix("stream-link:v2:");
 
   const refused = createRemoteStreamStorage({ url: () => "https://x/linkstore", fetchImpl: (async () => new Response("{}", { status: 503 })) as typeof fetch });
-  assert.equal(await refused.get("stream-link:v1:a"), null, "Redis not configured on Render");
+  assert.equal(await refused.get("stream-link:v2:a"), null, "Redis not configured on Render");
   const garbage = createRemoteStreamStorage({ url: () => "https://x/linkstore", fetchImpl: (async () => Response.json({ value: "{not json" })) as typeof fetch });
-  assert.equal(await garbage.get("stream-link:v1:a"), null, "unreadable value");
+  assert.equal(await garbage.get("stream-link:v2:a"), null, "unreadable value");
 
   const off = createRemoteStreamStorage({ url: () => null, fetchImpl: (async () => { throw new Error("must not be called"); }) as typeof fetch });
-  assert.equal(await off.get("stream-link:v1:a"), null, "no proxy configured (local dev): nothing is stored, nothing is called");
-  await off.set("stream-link:v1:a", {}, 60);
+  assert.equal(await off.get("stream-link:v2:a"), null, "no proxy configured (local dev): nothing is stored, nothing is called");
+  await off.set("stream-link:v2:a", {}, 60);
 });
 
 test("the direct Upstash store sends Redis commands with the token, only touches stream-link keys, and failures mean 'not stored'", async () => {
@@ -179,17 +179,17 @@ test("the direct Upstash store sends Redis commands with the token, only touches
   }) as typeof fetch;
   const storage = createUpstashStreamStorage({ fetchImpl, config: () => ({ url: "https://u.example", token: "tok" }) });
 
-  await storage.set("stream-link:v1:a:ep1:sub:s1:p", { n: 1 }, 99);
-  await storage.set("stream-link:v1:a:ep1:sub:auto:p", { n: 2 }, 99);
-  await storage.set("stream-link:v1:a:ep2:sub:s1:p", { n: 3 }, 99);
-  assert.deepEqual(await storage.get("stream-link:v1:a:ep1:sub:s1:p"), { n: 1 }, "round trip");
-  assert.equal(await storage.get("stream-link:v1:missing"), null);
-  assert.deepEqual(calls[0].command, ["SET", "stream-link:v1:a:ep1:sub:s1:p", JSON.stringify({ n: 1 }), "EX", 99]);
+  await storage.set("stream-link:v2:a:ep1:sub:s1:p", { n: 1 }, 99);
+  await storage.set("stream-link:v2:a:ep1:sub:auto:p", { n: 2 }, 99);
+  await storage.set("stream-link:v2:a:ep2:sub:s1:p", { n: 3 }, 99);
+  assert.deepEqual(await storage.get("stream-link:v2:a:ep1:sub:s1:p"), { n: 1 }, "round trip");
+  assert.equal(await storage.get("stream-link:v2:missing"), null);
+  assert.deepEqual(calls[0].command, ["SET", "stream-link:v2:a:ep1:sub:s1:p", JSON.stringify({ n: 1 }), "EX", 99]);
   assert.ok(calls.every((c) => c.url === "https://u.example" && c.auth === "Bearer tok"));
 
-  await storage.deletePrefix("stream-link:v1:a:ep1:sub:");
-  assert.deepEqual([...data.keys()], ["stream-link:v1:a:ep2:sub:s1:p"], "only that episode's links go");
-  await storage.delete("stream-link:v1:a:ep2:sub:s1:p");
+  await storage.deletePrefix("stream-link:v2:a:ep1:sub:");
+  assert.deepEqual([...data.keys()], ["stream-link:v2:a:ep2:sub:s1:p"], "only that episode's links go");
+  await storage.delete("stream-link:v2:a:ep2:sub:s1:p");
   assert.equal(data.size, 0);
 
   const before = calls.length;
@@ -201,15 +201,15 @@ test("the direct Upstash store sends Redis commands with the token, only touches
   assert.equal(calls.length, before, "keys outside stream-link: are never sent to Redis");
 
   const broken = createUpstashStreamStorage({ fetchImpl: (async () => { throw new Error("down"); }) as typeof fetch, config: () => ({ url: "https://u", token: "t" }) });
-  assert.equal(await broken.get("stream-link:v1:a"), null);
-  await broken.set("stream-link:v1:a", {}, 60);
-  await broken.deletePrefix("stream-link:v1:");
+  assert.equal(await broken.get("stream-link:v2:a"), null);
+  await broken.set("stream-link:v2:a", {}, 60);
+  await broken.deletePrefix("stream-link:v2:");
   const refused = createUpstashStreamStorage({ fetchImpl: (async () => new Response("{}", { status: 401 })) as typeof fetch, config: () => ({ url: "https://u", token: "t" }) });
-  assert.equal(await refused.get("stream-link:v1:a"), null, "bad token");
+  assert.equal(await refused.get("stream-link:v2:a"), null, "bad token");
   const garbage = createUpstashStreamStorage({ fetchImpl: (async () => Response.json({ result: "{not json" })) as typeof fetch, config: () => ({ url: "https://u", token: "t" }) });
-  assert.equal(await garbage.get("stream-link:v1:a"), null);
+  assert.equal(await garbage.get("stream-link:v2:a"), null);
   const off = createUpstashStreamStorage({ fetchImpl: (async () => { throw new Error("must not be called"); }) as typeof fetch, config: () => null });
-  assert.equal(await off.get("stream-link:v1:a"), null, "no secrets: nothing is called");
+  assert.equal(await off.get("stream-link:v2:a"), null, "no secrets: nothing is called");
 });
 
 test("a resolved link is stored under the request, its real server and 'auto', so both ways of opening an episode find it", async () => {
@@ -217,8 +217,8 @@ test("a resolved link is stored under the request, its real server and 'auto', s
   const fresh = { animeId: "anilist~1", episodeNumber: 3, dubbed: false, server: null, provider: "anikoto" };
   const keys = streamStoreWriteKeys(fresh, { activeServerId: "anivexa2-anikoto-hls-soft", provider: "anikoto" }, false);
   assert.deepEqual(keys, [
-    "stream-link:v1:anilist~1:ep3:sub:auto:anikoto",
-    "stream-link:v1:anilist~1:ep3:sub:anivexa2-anikoto-hls-soft:anikoto",
+    "stream-link:v2:anilist~1:ep3:sub:auto:anikoto",
+    "stream-link:v2:anilist~1:ep3:sub:anivexa2-anikoto-hls-soft:anikoto",
   ]);
   // what clicking the episode in the list asks for later
   assert.ok(keys.includes(streamStoreKey({ ...fresh, server: "anivexa2-anikoto-hls-soft" })));
@@ -230,8 +230,8 @@ test("a resolved link is stored under the request, its real server and 'auto', s
 
   // the provider the page will use afterwards (from the result) is covered as well as the requested one
   const otherProvider = streamStoreWriteKeys({ ...fresh, provider: null }, { activeServerId: "megaplay-sub", provider: "anikoto" }, true);
-  assert.ok(otherProvider.includes("stream-link:v1:anilist~1:ep3:sub:megaplay-sub:anikoto"));
-  assert.ok(otherProvider.includes("stream-link:v1:anilist~1:ep3:sub:megaplay-sub:auto"));
+  assert.ok(otherProvider.includes("stream-link:v2:anilist~1:ep3:sub:megaplay-sub:anikoto"));
+  assert.ok(otherProvider.includes("stream-link:v2:anilist~1:ep3:sub:megaplay-sub:auto"));
 
   assert.equal(isExplicitServer("auto"), false);
   assert.equal(isExplicitServer(null), false);
@@ -245,4 +245,8 @@ test("server lists have their own key, outside what a link refresh deletes", asy
   for (const prefix of streamRefreshPrefixes({ animeId: "anilist~21", episodeNumber: 5, dubbed: true, server: "x" })) {
     assert.ok(!key.startsWith(prefix), prefix);
   }
+});
+
+test("stored links use the v2 key, so entries saved without skip times are not served again", () => {
+  assert.ok(streamStoreKey({ animeId: "anilist~21", episodeNumber: 5 }).startsWith("stream-link:v2:"));
 });
